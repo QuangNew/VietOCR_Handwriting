@@ -1,0 +1,5 @@
+vietocr>=0.3.12
+opencv-python
+Pillow>=10.0.0
+numpy
+gdown>=5.0.0
