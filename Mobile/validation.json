@@ -1,0 +1,19 @@
+{
+  "platform": "Android",
+  "min_sdk": 26,
+  "abis": [
+    "arm64-v8a"
+  ],
+  "build": "release, debug certificate for sideload testing",
+  "apk": "dist/VietOCR-arm64.apk",
+  "apk_bytes": 191124940,
+  "apk_sha256": "c24185e81713dec4fea1bb3a086c1b39aa172069bac424fd2f31533ef4f9121b",
+  "analyzer": "No issues found",
+  "unit_widget_tests_passed": 21,
+  "internet_permission": false,
+  "apk_signature_v2_verified": true,
+  "packaged_model_sha256_verified": true,
+  "onnx_conversion": "passed numerical and text parity against PyTorch; see assets/models/verification.json",
+  "dart_preprocessing": "passed model parity on both bundled images in both modes; see assets/models/mobile_preprocessing_verification.json",
+  "native_device_test": "not completed: emulator ADB getprop hung; physical camera, BLE and OCR still need device verification"
+}

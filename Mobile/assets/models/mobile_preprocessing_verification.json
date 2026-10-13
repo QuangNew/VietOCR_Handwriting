@@ -1,0 +1,38 @@
+[
+  {
+    "sample": "test.jpg",
+    "split": false,
+    "same_text": true,
+    "lines": 1,
+    "characters": [
+      30
+    ]
+  },
+  {
+    "sample": "test.jpg",
+    "split": true,
+    "same_text": true,
+    "lines": 1,
+    "characters": [
+      30
+    ]
+  },
+  {
+    "sample": "test2.jpg",
+    "split": false,
+    "same_text": true,
+    "lines": 1,
+    "characters": [
+      77
+    ]
+  },
+  {
+    "sample": "test2.jpg",
+    "split": true,
+    "same_text": true,
+    "lines": 1,
+    "characters": [
+      77
+    ]
+  }
+]

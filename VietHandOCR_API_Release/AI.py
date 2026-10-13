@@ -1,11 +1,10 @@
 import os
+from copy import deepcopy
 import cv2
 import numpy as np
 from PIL import Image
 from vietocr.tool.predictor import Predictor
 import warnings
-import torchvision.models as models
-import torch.nn as nn
 
 # =========================================================================
 # FIX WARNINGS (Monkeypatch)
@@ -13,24 +12,7 @@ import torch.nn as nn
 # mà không cần phải can thiệp sửa mã nguồn của package pip.
 # =========================================================================
 
-# 1. Fix warning "pretrained is deprecated" của torchvision VGG19
-original_vgg19_bn = models.vgg19_bn
-def vgg19_bn_fixed(*args, **kwargs):
-    if 'pretrained' in kwargs:
-        pretrained = kwargs.pop('pretrained')
-        kwargs['weights'] = 'DEFAULT' if pretrained else None
-    return original_vgg19_bn(*args, **kwargs)
-models.vgg19_bn = vgg19_bn_fixed
-models.vgg19_bn.__name__ = "vgg19_bn"
-
-# 2. Fix warning "enable_nested_tensor" của PyTorch Transformer
-original_transformer_init = nn.TransformerEncoder.__init__
-def transformer_encoder_init_fixed(self, encoder_layer, num_layers, norm=None, enable_nested_tensor=True, mask_check=True):
-    # Ép enable_nested_tensor=False để không bị chửi khi batch_first=False
-    original_transformer_init(self, encoder_layer, num_layers, norm=norm, enable_nested_tensor=False, mask_check=mask_check)
-nn.TransformerEncoder.__init__ = transformer_encoder_init_fixed
-
-# 3. Monkeypatch cho PIL >= 10.0 (VietOCR vẫn xài Image.ANTIALIAS cũ)
+# Chỉ giữ tương thích Pillow cho VietOCR cũ; tránh sửa hàm toàn cục của PyTorch.
 if not hasattr(Image, 'ANTIALIAS'):
     Image.ANTIALIAS = getattr(Image.Resampling, 'LANCZOS', getattr(Image, 'LANCZOS', 1))
 
@@ -177,7 +159,8 @@ class VietHandOCR:
         :param weight_path: Đường dẫn tuyệt đối hoặc tương đối tới file model (.pth)
         :param device: 'cpu' hoặc 'cuda:0' (nếu có GPU)
         """
-        self.config = MODEL_CONFIG.copy()
+        self.config = deepcopy(MODEL_CONFIG)
+        self.load_error = None
         
         # Ghi đè các thông số quan trọng
         self.config['device'] = device
@@ -188,6 +171,7 @@ class VietHandOCR:
         try:
             self.predictor = Predictor(self.config)
         except Exception as e:
+            self.load_error = e
             warnings.warn(f"VietHandOCR: Không thể khởi tạo mô hình Predictor. Chi tiết lỗi: {str(e)}")
             self.predictor = None
             
