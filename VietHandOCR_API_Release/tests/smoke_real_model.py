@@ -6,6 +6,7 @@ From VietHandOCR_API_Release:
 
 import sys
 import time
+import tempfile
 import tkinter as tk
 from pathlib import Path
 
@@ -16,10 +17,11 @@ sys.path.insert(0, str(BASE))
 
 from desktop.application import Application
 from desktop.domain import load_image
+from app import default_weights
 
 
 def main() -> int:
-    weights = BASE / "vgg_transformer_final.pth"
+    weights = default_weights(BASE)
     if not weights.is_file():
         print(f"Missing model weights: {weights}", file=sys.stderr)
         return 1
@@ -30,7 +32,8 @@ def main() -> int:
     samples = [path for path in samples if path.is_file()]
     root = tk.Tk()
     root.withdraw()
-    app = Application(root, str(weights))
+    preferences = tempfile.TemporaryDirectory(prefix="vietocr_smoke_")
+    app = Application(root, str(weights), preferences_path=Path(preferences.name) / "preferences.json")
     for path in samples:
         app.batch.add(load_image(path), path.name, str(path))
     first, second = load_image(samples[0]), load_image(samples[1])
@@ -57,6 +60,7 @@ def main() -> int:
     print("PASS" if passed else "FAIL", flush=True)
     app.close()
     root.mainloop()
+    preferences.cleanup()
     return 0 if passed else 1
 
 

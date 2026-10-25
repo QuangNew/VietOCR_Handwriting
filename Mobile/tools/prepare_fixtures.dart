@@ -12,22 +12,32 @@ void main(List<String> args) {
   final rows = <Map<String, Object>>[];
   for (var index = 0; index < paths.length; index++) {
     final path = paths[index];
-    for (final split in [false, true]) {
-      final lines = prepareLines((File(path).readAsBytesSync(), split, 0));
-      final tensors = <Map<String, Object>>[];
-      for (var line = 0; line < lines.length; line++) {
-        final tensor = makeTensor(lines[line]);
-        final name = '$index-${split ? 'lines' : 'whole'}-$line.f32';
-        final bytes = ByteData(tensor.values.length * 4);
-        for (var i = 0; i < tensor.values.length; i++) {
-          bytes.setFloat32(i * 4, tensor.values[i], Endian.little);
+    for (final imported in [false, true]) {
+      final original = File(path).readAsBytesSync();
+      final photo = imported ? normalizePhoto(original) : original;
+      for (final split in [false, true]) {
+        final lines = prepareLines((photo, split, 0));
+        final tensors = <Map<String, Object>>[];
+        for (var line = 0; line < lines.length; line++) {
+          final tensor = makeTensor(lines[line]);
+          final name =
+              '$index-${imported ? 'import' : 'raw'}-${split ? 'lines' : 'whole'}-$line.f32';
+          final bytes = ByteData(tensor.values.length * 4);
+          for (var i = 0; i < tensor.values.length; i++) {
+            bytes.setFloat32(i * 4, tensor.values[i], Endian.little);
+          }
+          File(
+            '${output.path}/$name',
+          ).writeAsBytesSync(bytes.buffer.asUint8List());
+          tensors.add({'file': name, 'width': tensor.width});
         }
-        File(
-          '${output.path}/$name',
-        ).writeAsBytesSync(bytes.buffer.asUint8List());
-        tensors.add({'file': name, 'width': tensor.width});
+        rows.add({
+          'source': path,
+          'imported': imported,
+          'split': split,
+          'tensors': tensors,
+        });
       }
-      rows.add({'source': path, 'split': split, 'tensors': tensors});
     }
   }
   File('${output.path}/fixtures.json').writeAsStringSync(jsonEncode(rows));

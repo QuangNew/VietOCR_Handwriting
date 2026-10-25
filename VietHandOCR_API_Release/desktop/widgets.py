@@ -9,22 +9,29 @@ from .theme import COLORS
 
 
 def configure_styles(root: tk.Tk) -> None:
-    root.option_add("*Font", ("Segoe UI", 10))
     style = ttk.Style(root)
-    style.theme_use("clam")
-    style.configure("TButton", font=("Segoe UI", 10), padding=(13, 9),
+    if style.theme_use() != "clam":
+        style.theme_use("clam")
+    if not getattr(root, "_vietocr_styles_initialized", False):
+        root.option_add("*Font", ("Segoe UI", 10))
+        style.configure("TButton", font=("Segoe UI", 10), padding=(13, 9))
+        style.configure("Primary.TButton", font=("Segoe UI", 10, "bold"))
+        style.configure("Small.TButton", padding=(8, 5), font=("Segoe UI", 9))
+        style.configure("TCombobox", padding=6)
+        style.configure("Green.Horizontal.TProgressbar", borderwidth=0, thickness=5)
+        style.configure("Vertical.TScrollbar", borderwidth=0, arrowsize=10)
+        root._vietocr_styles_initialized = True
+    style.configure("TButton",
                     background=COLORS["white"], foreground=COLORS["ink"],
                     bordercolor=COLORS["border"], lightcolor=COLORS["white"],
                     darkcolor=COLORS["white"], focuscolor=COLORS["pale"])
     style.map("TButton", background=[("disabled", COLORS["disabled_bg"]), ("active", COLORS["pale"])],
               foreground=[("disabled", COLORS["disabled_fg"])])
     style.configure("Primary.TButton", background=COLORS["green"], foreground=COLORS["on_accent"],
-                    bordercolor=COLORS["green"], lightcolor=COLORS["green"], darkcolor=COLORS["green"],
-                    font=("Segoe UI", 10, "bold"))
+                    bordercolor=COLORS["green"], lightcolor=COLORS["green"], darkcolor=COLORS["green"])
     style.map("Primary.TButton", background=[("disabled", COLORS["primary_disabled_bg"]), ("active", COLORS["green_dark"])],
               foreground=[("disabled", COLORS["primary_disabled_fg"])])
-    style.configure("Small.TButton", padding=(8, 5), font=("Segoe UI", 9))
-    style.configure("TCombobox", padding=6, foreground=COLORS["ink"],
+    style.configure("TCombobox", foreground=COLORS["ink"],
                     fieldbackground=COLORS["white"], background=COLORS["white"], bordercolor=COLORS["border"],
                     arrowcolor=COLORS["muted"], lightcolor=COLORS["white"], darkcolor=COLORS["white"],
                     selectbackground=COLORS["selection"], selectforeground=COLORS["ink"])
@@ -44,10 +51,10 @@ def configure_styles(root: tk.Tk) -> None:
     root.option_add("*TCombobox*Listbox.selectBackground", COLORS["selection"])
     root.option_add("*TCombobox*Listbox.selectForeground", COLORS["ink"])
     style.configure("Green.Horizontal.TProgressbar", troughcolor=COLORS["pale"],
-                    background=COLORS["green"], borderwidth=0, thickness=5)
+                    background=COLORS["green"])
     style.configure("Vertical.TScrollbar", background=COLORS["scroll"], troughcolor=COLORS["white"],
                     bordercolor=COLORS["white"], lightcolor=COLORS["scroll"], darkcolor=COLORS["scroll"],
-                    arrowcolor=COLORS["ink"], borderwidth=0, arrowsize=10)
+                    arrowcolor=COLORS["ink"])
     style.map("Vertical.TScrollbar", background=[("active", COLORS["green"])])
 
 

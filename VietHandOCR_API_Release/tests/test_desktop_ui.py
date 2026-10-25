@@ -43,6 +43,94 @@ def descendants(widget):
 
 
 class DesktopWorkflowTests(unittest.TestCase):
+    def test_repeated_connect_keeps_same_attempt_and_opening_dialog_does_not_scan(self):
+        with FakeBLE(find_delay=0.3) as radio:
+            self.app.connect_robot(radio.address)
+            first = self.app.robot_link
+            for _ in range(5): self.app.connect_robot(radio.address)
+            self.assertIs(self.app.robot_link, first)
+            with patch("desktop.application._scan_robot_devices") as scan:
+                self.app.open_robot_settings()
+                scan.assert_not_called()
+                self.assertTrue(self.app._robot_dialog["connect_button"].instate(["disabled"]))
+                self.pump_until(first.connected.is_set)
+                self.assertEqual(radio.sessions, 1)
+                self.assertIs(self.app.robot_link, first)
+
+    def test_manual_scan_stops_connection_and_waits_for_native_cleanup(self):
+        with FakeBLE(disconnect_delay=0.35) as radio:
+            self.app.connect_robot(radio.address)
+            self.pump_until(self.app.robot_link.connected.is_set)
+            self.app.open_robot_settings()
+            original = radio.scanner.discover
+            async def checked(**kwargs):
+                self.assertFalse(radio.clients[0].is_connected, "Scan overlapped native GATT cleanup")
+                return await original(**kwargs)
+            with patch.object(radio.scanner, "discover", side_effect=checked):
+                self.app._robot_dialog["scan"]()
+                self.pump_until(lambda: self.app._robot_dialog["token"] is None)
+                self.assertIsNone(self.app.robot_link)
+                self.assertTrue(self.app._robot_dialog["devices"])
+
+    def test_visible_theme_keeps_photo_canvas_geometry_and_hidden_controls(self):
+        self.app.select_item(self.app.batch.add(self.image, "sample.png").id)
+        self.root.geometry("1000x700+3000+0")
+        self.root.deiconify()
+        self.root.update()
+        self.app._draw_preview()
+        photo = self.app._preview_photo
+        items = self.app.preview.find_all()
+        geometry = self.app.preview.winfo_geometry()
+        hidden = tk.Label(self.root, text="hidden")
+        for _ in range(4):
+            self.app.toggle_theme()
+            self.root.update()
+            self.assertIs(self.app._preview_photo, photo)
+            self.assertEqual(self.app.preview.find_all(), items)
+            self.assertEqual(self.app.preview.winfo_geometry(), geometry)
+            self.assertTrue(self.root.winfo_ismapped())
+            self.assertFalse(hidden.winfo_ismapped())
+        self.root.withdraw()
+
+    def test_theme_redraw_is_restored_even_if_update_fails(self):
+        from desktop.theme import atomic_repaint
+        with patch("desktop.theme._pause_windows_redraw") as pause:
+            with self.assertRaises(RuntimeError), atomic_repaint(self.root):
+                raise RuntimeError("test failure")
+            pause.return_value.assert_called_once()
+
+    def test_first_isolated_scan_crash_keeps_dialog_alive_and_can_reopen(self):
+        from desktop.bluetooth_process import _Session
+        from test_bluetooth_process import crash_worker
+        self.app.isolate_bluetooth = True
+        with patch("desktop.bluetooth_process._Session", side_effect=lambda: _Session(target=crash_worker)):
+            self.app.open_robot_settings()
+            self.pump_until(lambda: "tiến trình Bluetooth" in self.app._robot_dialog["scan_status"].get())
+            self.assertTrue(self.root.winfo_exists())
+            self.assertTrue(self.app._robot_dialog["window"].winfo_exists())
+            next(child for child in descendants(self.app._robot_dialog["window"])
+                 if isinstance(child, ttk.Button) and child.cget("text") == "Đóng").invoke()
+        self.app.isolate_bluetooth = False
+        with FakeBLE():
+            self.app.open_robot_settings()
+            self.pump_until(lambda: self.app._robot_dialog["devices"])
+            self.assertTrue(self.root.winfo_exists())
+
+    def test_theme_preserves_queue_editor_and_button_geometry(self):
+        item = self.app.batch.add(self.image, "mẫu.png")
+        item.status = "done"
+        item.text = "Giữ nguyên dấu và vị trí con trỏ"
+        self.app.select_item(item.id)
+        rows = tuple(self.app.queue_list.inner.winfo_children())
+        self.app.result_text.mark_set("insert", "1.5")
+        self.root.update_idletasks()
+        width = self.app.theme_button.winfo_reqwidth()
+        with patch.object(self.app, "_draw_preview"):
+            self.app.toggle_theme()
+        self.root.update_idletasks()
+        self.assertEqual(tuple(self.app.queue_list.inner.winfo_children()), rows)
+        self.assertEqual(self.app.result_text.index("insert"), "1.5")
+        self.assertEqual(self.app.theme_button.winfo_reqwidth(), width)
     def setUp(self):
         try:
             self.root = tk.Tk()
@@ -50,7 +138,8 @@ class DesktopWorkflowTests(unittest.TestCase):
             self.skipTest(f"Desktop session required: {exc}")
         self.root.withdraw()
         self.preferences = tempfile.TemporaryDirectory()
-        self.app = Application(self.root, "unused.pth", preferences_path=Path(self.preferences.name) / "preferences.json")
+        self.app = Application(self.root, "unused.pth", preferences_path=Path(self.preferences.name) / "preferences.json",
+                               isolate_bluetooth=False)
         self.app.service = StubService()
         self.image = Image.new("RGB", (120, 90), "white")
         self.root.update()

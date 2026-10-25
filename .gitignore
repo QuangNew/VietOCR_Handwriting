@@ -2,6 +2,7 @@
 *.pth
 .python/
 .venv/
+.venv-cpu/
 __pycache__/
 /VietHandOCR_API_Release/.desktop-preferences.json
 /VietHandOCR_API_Release/.logs/

@@ -6,9 +6,13 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../domain/document.dart';
 import 'ble_protocol.dart';
+import 'app_log.dart';
 
 class BleAssistant extends ChangeNotifier {
-  final _ble = FlutterReactiveBle();
+  BleAssistant({FlutterReactiveBle? radioClient, this.permissionCheck})
+    : _ble = radioClient ?? FlutterReactiveBle();
+  final FlutterReactiveBle _ble;
+  final Future<bool> Function(bool request)? permissionCheck;
   static final service = Uuid.parse('6e400001-b5a3-f393-e0a9-e50e24dcca9e');
   static final rx = Uuid.parse('6e400002-b5a3-f393-e0a9-e50e24dcca9e');
   static final tx = Uuid.parse('6e400003-b5a3-f393-e0a9-e50e24dcca9e');
@@ -23,6 +27,8 @@ class BleAssistant extends ChangeNotifier {
   int _epoch = 0;
   int _connectAttempt = 0;
   bool _disposed = false, _foreground = true, _syncing = false;
+  bool _themeSupported = true;
+  String _lastLogMessage = '';
   bool scanning = false, connecting = false, connected = false;
   String message = 'Chưa kết nối trợ lý', selectedId = '', selectedName = '';
   BleStatus radio = BleStatus.unknown;
@@ -30,6 +36,10 @@ class BleAssistant extends ChangeNotifier {
   AssistantSnapshot? _sent;
 
   void _notify() {
+    if (_lastLogMessage != message) {
+      _lastLogMessage = message;
+      AppLog.instance.add('BLE', message);
+    }
     if (!_disposed) notifyListeners();
   }
 
@@ -41,7 +51,8 @@ class BleAssistant extends ChangeNotifier {
     _status = _ble.statusStream.listen(
       (value) {
         radio = value;
-        if (value != BleStatus.ready && (connected || connecting)) {
+        if ((value == BleStatus.poweredOff || value == BleStatus.unsupported) &&
+            (connected || connecting)) {
           unawaited(disconnect());
         }
         _notify();
@@ -59,6 +70,7 @@ class BleAssistant extends ChangeNotifier {
   }
 
   Future<bool> _permissions({bool request = true}) async {
+    if (permissionCheck != null) return permissionCheck!(request);
     final sdk = await _device.invokeMethod<int>('androidSdk') ?? 31;
     final permissions = sdk >= 31
         ? [Permission.bluetoothScan, Permission.bluetoothConnect]
@@ -78,6 +90,23 @@ class BleAssistant extends ChangeNotifier {
     return true;
   }
 
+  Future<bool> _ready() async {
+    var value = _ble.status;
+    if (value == BleStatus.unknown) {
+      value = await _ble.statusStream
+          .firstWhere((status) => status != BleStatus.unknown)
+          .timeout(const Duration(seconds: 6));
+    }
+    if (value == BleStatus.ready) return true;
+    message = value == BleStatus.poweredOff
+        ? 'Bật Bluetooth trước khi tìm trợ lý.'
+        : value == BleStatus.locationServicesDisabled
+        ? 'Bật dịch vụ vị trí để quét Bluetooth trên Android này.'
+        : 'Bluetooth chưa sẵn sàng. Kiểm tra quyền Thiết bị ở gần.';
+    _notify();
+    return false;
+  }
+
   Future<void> enableBluetooth() async {
     try {
       if (!await _permissions()) return;
@@ -94,8 +123,8 @@ class BleAssistant extends ChangeNotifier {
 
   Future<void> scan() async {
     try {
-      if (connecting || connected || !_foreground) return;
-      if (!await _permissions()) return;
+      if (scanning || connecting || connected || !_foreground) return;
+      if (!await _permissions() || !await _ready()) return;
       await stopScan();
       devices.clear();
       scanning = true;
@@ -144,7 +173,7 @@ class BleAssistant extends ChangeNotifier {
     connecting = true;
     _notify();
     try {
-      if (!await _permissions()) {
+      if (!await _permissions() || !await _ready()) {
         if (attempt == _connectAttempt) connecting = false;
         _notify();
         return;
@@ -161,8 +190,10 @@ class BleAssistant extends ChangeNotifier {
       _notify();
       final epoch = ++_epoch;
       _connection = _ble
-          .connectToDevice(
+          .connectToAdvertisingDevice(
             id: id,
+            withServices: [service],
+            prescanDuration: const Duration(seconds: 2),
             servicesWithCharacteristicsToDiscover: {
               service: [rx, tx],
             },
@@ -190,24 +221,30 @@ class BleAssistant extends ChangeNotifier {
 
   Future<void> _setup(int epoch) async {
     try {
+      final deviceId = selectedId;
       final framer = LineFramer();
-      final queue = CommandQueue(
-        (bytes) => _ble.writeCharacteristicWithResponse(
+      final queue = CommandQueue((bytes) {
+        AppLog.instance.add(
+          'BLE TX',
+          String.fromCharCodes(bytes).trim(),
+          level: 'DEBUG',
+        );
+        return _ble.writeCharacteristicWithResponse(
           QualifiedCharacteristic(
             characteristicId: rx,
             serviceId: service,
-            deviceId: selectedId,
+            deviceId: deviceId,
           ),
           value: bytes,
-        ),
-      );
+        );
+      });
       _commands = queue;
       _notifications = _ble
           .subscribeToCharacteristic(
             QualifiedCharacteristic(
               characteristicId: tx,
               serviceId: service,
-              deviceId: selectedId,
+              deviceId: deviceId,
             ),
           )
           .listen(
@@ -215,6 +252,7 @@ class BleAssistant extends ChangeNotifier {
               if (epoch != _epoch) return;
               try {
                 for (final line in framer.add(bytes)) {
+                  AppLog.instance.add('BLE RX', line, level: 'DEBUG');
                   queue.receive(line);
                 }
               } catch (error) {
@@ -233,6 +271,7 @@ class BleAssistant extends ChangeNotifier {
       if (epoch != _epoch) return;
       connecting = false;
       connected = true;
+      _themeSupported = true;
       _sent = const AssistantSnapshot(AssistantState.awake);
       message = 'Đã kết nối $selectedName';
       _notify();
@@ -251,6 +290,7 @@ class BleAssistant extends ChangeNotifier {
 
   void _lost(int epoch, String reason) {
     if (epoch != _epoch || _disposed) return;
+    AppLog.instance.add('BLE', reason, level: 'ERROR');
     unawaited(
       disconnect().then((_) {
         if (_disposed) return;
@@ -276,8 +316,15 @@ class BleAssistant extends ChangeNotifier {
     }
   }
 
-  void update(AssistantState state, int count, int progress) {
-    _desired = AssistantSnapshot(state, count: count, progress: progress);
+  void update(AssistantState state, int count, int? progress, {bool? dark}) {
+    final snapshot = AssistantSnapshot(
+      state,
+      count: count,
+      progress: progress,
+      dark: dark,
+    );
+    if (_desired == snapshot) return;
+    _desired = snapshot;
     unawaited(_sync());
   }
 
@@ -289,17 +336,29 @@ class BleAssistant extends ChangeNotifier {
       while (connected && epoch == _epoch) {
         final target = _desired;
         for (final value in transitionCommands(_sent, target)) {
-          await _commands!.send(value);
+          if (!connected || epoch != _epoch) return;
+          if (value.startsWith('THEME ') && !_themeSupported) continue;
+          try {
+            await _commands!.send(value);
+          } on CommandRejected catch (error) {
+            if (!value.startsWith('THEME ') ||
+                error.code != 'INVALID_COMMAND') {
+              rethrow;
+            }
+            _themeSupported = false;
+            message = 'Đã kết nối. Nạp firmware mới để đồng bộ giao diện.';
+            _notify();
+          }
         }
         if (epoch != _epoch) break;
         _sent = target;
-        if (identical(target, _desired)) break;
+        if (target == _desired) break;
       }
     } catch (error) {
       _lost(epoch, 'Đồng bộ trợ lý thất bại: $error');
     } finally {
       _syncing = false;
-      if (connected && !identical(_sent, _desired)) unawaited(_sync());
+      if (connected && _sent != _desired) unawaited(_sync());
     }
   }
 
@@ -310,7 +369,9 @@ class BleAssistant extends ChangeNotifier {
     if (cancelAttempt) ++_connectAttempt;
     _retry?.cancel();
     _heartbeat?.cancel();
-    if (sleep && connected) {
+    final wasConnected = connected;
+    connected = connecting = false;
+    if (sleep && wasConnected) {
       try {
         await _commands?.send('SLEEP');
       } catch (_) {}

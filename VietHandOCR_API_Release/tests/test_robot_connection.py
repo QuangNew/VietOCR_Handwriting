@@ -20,14 +20,17 @@ from desktop.theme import load_theme, save_theme
 class FakeBLE:
     address = "AA:BB:CC:DD:EE:01"
 
-    def __init__(self, *, drop_on=None, wrong_first=False, no_reply=(), find_delay=0, scan_delay=0):
+    def __init__(self, *, drop_on=None, wrong_first=False, no_reply=(), find_delay=0, scan_delay=0, legacy_theme=False, disconnect_delay=0):
         self.condition = threading.Condition()
         self.commands, self.clients, self.sessions = [], [], 0
         self.drop_on, self.dropped, self.wrong_first = drop_on, False, wrong_first
         self.no_reply, self.find_delay, self.scan_delay = no_reply, find_delay, scan_delay
         self.find_started, self.scan_cancelled = threading.Event(), threading.Event()
         self.reply_override = None
+        self.legacy_theme = legacy_theme
         self.scan_error = None
+        self.disconnect_delay = disconnect_delay
+        self.disconnect_started = threading.Event()
         self.advertisements = {
             self.address: self.advertisement(self.address, "VietOCR-Assistant", -45),
         }
@@ -36,7 +39,7 @@ class FakeBLE:
         class Scanner:
             @staticmethod
             async def discover(**kwargs):
-                assert kwargs["return_adv"] and kwargs["service_uuids"] == [SERVICE_UUID]
+                assert kwargs["return_adv"] and "service_uuids" not in kwargs
                 try:
                     await asyncio.sleep(peripheral.scan_delay)
                     if peripheral.scan_error:
@@ -48,14 +51,15 @@ class FakeBLE:
 
             @staticmethod
             async def find_device_by_address(address, **kwargs):
-                assert kwargs["service_uuids"] == [SERVICE_UUID]
+                assert "service_uuids" not in kwargs, "Target address must not depend on advertised UUIDs"
                 peripheral.find_started.set()
                 await asyncio.sleep(peripheral.find_delay)
                 return SimpleNamespace(address=address, name="VietOCR-Assistant")
 
         class Client:
-            def __init__(self, device, *, disconnected_callback, services):
+            def __init__(self, device, *, disconnected_callback, services, **kwargs):
                 assert device.address == peripheral.address and services == [SERVICE_UUID]
+                assert not kwargs or kwargs == {"winrt": {"use_cached_services": False}}
                 self.callback, self.is_connected = disconnected_callback, False
                 self.loop, self.notify = None, None
                 self.received, self.state = bytearray(), "sleep"
@@ -97,6 +101,8 @@ class FakeBLE:
                         self.state = "processing"
                     if command.startswith("PROGRESS ") and self.state != "processing":
                         reply = b"ERR PROGRESS_REQUIRES_PROCESSING\r\n"
+                    elif peripheral.legacy_theme and command.startswith("THEME "):
+                        reply = b"ERR INVALID_COMMAND: send HELP\r\n"
                     elif peripheral.wrong_first and self.session == 1:
                         reply = b"OTHER DEVICE\r\n"
                     else:
@@ -111,6 +117,8 @@ class FakeBLE:
             async def disconnect(self):
                 if self.loop is not None:
                     self.check_loop()
+                peripheral.disconnect_started.set()
+                await asyncio.sleep(peripheral.disconnect_delay)
                 self.is_connected = False
                 self.callback(self)
 
@@ -138,6 +146,85 @@ class FakeBLE:
 
 
 class RobotProtocolTests(unittest.TestCase):
+    def test_replacement_waits_until_previous_native_disconnect_finishes(self):
+        lock = threading.Lock()
+        with FakeBLE(disconnect_delay=0.35) as radio:
+            first = RobotClient(radio.address, lambda *_: None, radio_lock=lock)
+            second = RobotClient(radio.address, lambda *_: None, radio_lock=lock)
+            first.start()
+            try:
+                self.assertTrue(first.connected.wait(2))
+                first.stop()
+                second.start()
+                self.assertTrue(radio.disconnect_started.wait(1))
+                self.assertFalse(second.connected.wait(0.1))
+                self.assertEqual(len(radio.clients), 1)
+                self.assertTrue(second.connected.wait(2))
+                self.assertFalse(radio.clients[0].is_connected)
+                self.assertEqual(radio.sessions, 2)
+            finally:
+                first.stop(); second.stop()
+                self.assertTrue(first.closed.wait(2))
+                self.assertTrue(second.closed.wait(2))
+
+    def test_manual_retry_wakes_existing_thread_from_backoff(self):
+        failed = threading.Event()
+        calls = []
+        class Missing:
+            client = None
+            def __init__(self, *args): pass
+            async def connect(self):
+                calls.append(time.monotonic())
+                raise RobotProtocolError("no advertisement")
+            async def disconnect(self): pass
+        client = RobotClient(FakeBLE.address, lambda status, _: failed.set() if status == "offline" else None,
+                             protocol_factory=Missing, retry_delay=10)
+        client.start()
+        thread = client._thread
+        try:
+            self.assertTrue(failed.wait(2))
+            self.assertEqual(len(calls), 1)
+            client.retry_now()
+            deadline = time.monotonic() + 2
+            while (len(calls) < 2 or client.retry_seconds != 20) and time.monotonic() < deadline:
+                time.sleep(0.01)
+            self.assertEqual(len(calls), 2)
+            self.assertIs(client._thread, thread)
+            self.assertEqual(client.retry_seconds, 20)
+        finally:
+            client.stop()
+            self.assertTrue(client.closed.wait(2))
+    def test_old_firmware_rejects_theme_without_disconnect_loop(self):
+        with FakeBLE(legacy_theme=True) as radio:
+            client = RobotClient(radio.address, lambda *_: None, retry_delay=0.01)
+            client.set_theme("dark")
+            client.start()
+            try:
+                radio.wait_for("THEME DARK")
+                client.set_state(State.PROCESSING, 2)
+                radio.wait_for("PROCESS")
+                client.set_theme("light")
+                client.set_state(State.DONE, 2)
+                radio.wait_for("DONE")
+                self.assertEqual(radio.sessions, 1)
+                self.assertEqual(sum(text.startswith("THEME ") for _, text in radio.commands), 1)
+            finally:
+                client.stop()
+                self.assertTrue(client.closed.wait(3))
+
+    def test_theme_syncs_in_place_and_after_reconnect(self):
+        radio = FakeBLE(drop_on="THEME LIGHT")
+        with radio:
+            client = RobotClient(radio.address, lambda *_: None, retry_delay=0.01, heartbeat=0.1)
+            client.set_theme("light")
+            client.start()
+            try:
+                radio.wait_for("THEME LIGHT", session=2)
+                client.set_theme("dark")
+                radio.wait_for("THEME DARK", session=2)
+            finally:
+                client.stop()
+                self.assertTrue(client.closed.wait(3))
     def test_ble_identifiers_and_old_ip_rejected(self):
         self.assertEqual(validate_address(" " + FakeBLE.address + " "), FakeBLE.address)
         identifier = "a5b82fed-0d6e-4214-b7c3-cb0e37948354"
@@ -291,6 +378,13 @@ class RobotProtocolTests(unittest.TestCase):
 
 
 class BLETransportTests(unittest.IsolatedAsyncioTestCase):
+    async def test_scan_accepts_named_assistant_with_missing_service_advertisement(self):
+        with FakeBLE() as radio:
+            device, advertisement = radio.advertisement(radio.address, "VietOCR-Assistant", -45)
+            advertisement.service_uuids = []
+            radio.advertisements = {radio.address: (device, advertisement)}
+            self.assertEqual((await scan_robots())[0].address, radio.address)
+
     async def test_scan_filters_services_and_sorts_signal_strength(self):
         with FakeBLE() as server:
             server.advertisements["second"] = server.advertisement("AA:BB:CC:DD:EE:02", "VietOCR-2", -30)

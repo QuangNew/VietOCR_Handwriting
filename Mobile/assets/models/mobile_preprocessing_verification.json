@@ -1,38 +1,90 @@
 [
   {
     "sample": "test.jpg",
+    "imported": false,
     "split": false,
     "same_text": true,
     "lines": 1,
     "characters": [
       30
-    ]
+    ],
+    "runtime_options": "Android CPU / BASIC optimization / arena and memory pattern disabled"
   },
   {
     "sample": "test.jpg",
+    "imported": false,
     "split": true,
     "same_text": true,
     "lines": 1,
     "characters": [
       30
-    ]
+    ],
+    "runtime_options": "Android CPU / BASIC optimization / arena and memory pattern disabled"
+  },
+  {
+    "sample": "test.jpg",
+    "imported": true,
+    "split": false,
+    "same_text": true,
+    "lines": 1,
+    "characters": [
+      30
+    ],
+    "runtime_options": "Android CPU / BASIC optimization / arena and memory pattern disabled"
+  },
+  {
+    "sample": "test.jpg",
+    "imported": true,
+    "split": true,
+    "same_text": true,
+    "lines": 1,
+    "characters": [
+      30
+    ],
+    "runtime_options": "Android CPU / BASIC optimization / arena and memory pattern disabled"
   },
   {
     "sample": "test2.jpg",
+    "imported": false,
     "split": false,
     "same_text": true,
     "lines": 1,
     "characters": [
       77
-    ]
+    ],
+    "runtime_options": "Android CPU / BASIC optimization / arena and memory pattern disabled"
   },
   {
     "sample": "test2.jpg",
+    "imported": false,
     "split": true,
     "same_text": true,
     "lines": 1,
     "characters": [
       77
-    ]
+    ],
+    "runtime_options": "Android CPU / BASIC optimization / arena and memory pattern disabled"
+  },
+  {
+    "sample": "test2.jpg",
+    "imported": true,
+    "split": false,
+    "same_text": true,
+    "lines": 1,
+    "characters": [
+      77
+    ],
+    "runtime_options": "Android CPU / BASIC optimization / arena and memory pattern disabled"
+  },
+  {
+    "sample": "test2.jpg",
+    "imported": true,
+    "split": true,
+    "same_text": true,
+    "lines": 1,
+    "characters": [
+      77
+    ],
+    "runtime_options": "Android CPU / BASIC optimization / arena and memory pattern disabled"
   }
 ]

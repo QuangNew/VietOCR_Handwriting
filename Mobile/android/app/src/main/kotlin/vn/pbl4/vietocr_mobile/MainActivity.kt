@@ -12,9 +12,12 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity : FlutterActivity() {
     private var pendingEnable: MethodChannel.Result? = null
     private val enableRequest = 4205
+    private var ocrBridge: OcrBridge? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        ocrBridge = OcrBridge(applicationContext)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "vietocr/ocr").setMethodCallHandler(ocrBridge)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "vietocr/device")
             .setMethodCallHandler { call, result ->
                 when (call.method) {
@@ -55,6 +58,7 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun onDestroy() {
+        ocrBridge?.close(); ocrBridge = null
         pendingEnable?.error("CLOSED", "Cửa sổ ứng dụng đã đóng.", null)
         pendingEnable = null
         super.onDestroy()

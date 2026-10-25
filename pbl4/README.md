@@ -1,7 +1,8 @@
 # Trợ lý VietOCR — ESP32-S3
 
-Firmware hiển thị trợ lý hoạt hình trên TFT ILI9341 320×240, giao diện tối,
-thông báo tiếng Việt có dấu và tiếng beep qua còi active TMB12A05 tại GPIO 5.
+Firmware hiển thị trợ lý hoạt hình trên TFT ILI9341 320×240, giao diện sáng/tối,
+thông báo tiếng Việt có dấu và âm báo qua GPIO 5. Thư viện VietMusic hỗ trợ
+giai điệu trên còi passive; TMB12A05 active hiện có chỉ phát theo nhịp.
 Có chớp mắt, thức dậy, nhận ảnh, đọc chữ, mặt vui khi hoàn tất và mặt báo lỗi.
 Có thể điều khiển qua Bluetooth BLE bằng app desktop/điện thoại, hoặc Serial qua USB/UART.
 ESP32 chỉ nhận trạng thái từ app; model OCR và ảnh được xử lý trên máy tính.
@@ -40,12 +41,17 @@ flowchart LR
    hiển thị tiến độ, mặt vui khi hoàn tất và ngủ khi đóng/ngắt app.
 5. Để thử bằng điện thoại ngay, dùng **nRF Connect for Mobile** theo
    [hướng dẫn điện thoại và giao thức BLE](docs/BLE_PROTOCOL.md).
-   Repository hiện có app OCR desktop; app OCR mobile chưa được xây dựng.
+   App OCR Android offline nằm trong [Mobile](../Mobile/README.md).
 
 App lưu thiết bị đã chọn cùng theme trong `.desktop-preferences.json` và tự kết
 nối ở lần mở sau. **Ngắt kết nối** xóa thiết bị đã lưu; đóng app giữ lựa chọn đó.
 Các địa chỉ IP từ phiên bản Wi-Fi cũ không dùng để tự kết nối BLE.
 Firmware không đọc cấu hình Wi-Fi.
+
+App desktop và Android gửi `THEME DARK` / `THEME LIGHT` khi kết nối hoặc đổi nền.
+Nạp lại firmware mới để bật đồng bộ này. Đổi theme giữ nguyên biểu cảm, tiến độ
+và âm báo đang chạy; nền TFT mặc định tối khi khởi động. App vẫn kết nối với
+firmware cũ nhưng sẽ nhắc cập nhật nếu lệnh THEME bị từ chối.
 
 Một thiết bị điều khiển tại một thời điểm: ngắt desktop trước khi kết nối điện
 thoại và ngược lại. App gửi `PING` mỗi 4 giây; ESP32 ngủ khi BLE ngắt hoặc không
@@ -92,9 +98,12 @@ nếu module thực tế dùng driver khác thì cần đổi driver tương ứ
 ## Đấu còi
 
 TMB12A05 là **còi active điện từ**, có bộ dao động bên trong: cấp DC là kêu.
-Firmware bật/tắt GPIO theo nhịp, không dùng `tone()` hay PWM để đổi cao độ.
-Còi phát tiếng beep, **không đọc được câu nói**. Muốn phát giọng nói ở bản sau
-cần phần cứng phát âm thanh và loa.
+Mặc định firmware bật/tắt GPIO theo nhịp bản nhạc; còi này không đổi đúng cao độ
+Đô/Rê/Mi bằng phần mềm. Muốn nghe giai điệu nhiều cao độ, thay bằng **còi passive**
+với mạch điều khiển phù hợp rồi đặt `kBuzzerMode = vietmusic::OutputMode::PassiveBuzzer`
+trong `include/assistant_config.h`. Chế độ này dùng PWM LEDC, không chặn BLE/màn hình.
+Xem [VietMusic: bảng nốt, thêm bài và lệnh MUSIC](lib/VietMusic/README.md).
+Còi không đọc được câu nói; muốn phát giọng nói cần mạch âm thanh và loa.
 
 Theo [datasheet TMB12A05 của nhà sản xuất](https://datasheet.lcsc.com/datasheet/pdf/2a16321f74deffcaef3942d9437fae37.pdf?productCode=C96093),
 điện áp định mức là 5V, dòng hoạt động tới 30mA. Với còi hai chân bạn đang nối
@@ -157,18 +166,24 @@ Không phân biệt chữ hoa/thường. Lệnh đổi trạng thái sẽ dừng
 
 | Lệnh | Hành vi |
 | --- | --- |
-| `WAKE` | Thức dậy, hai beep; sau 1,6 giây chuyển sang chờ |
-| `RECEIVED` / `RECEIVED 3` | Đã nhận ảnh, hai beep ngắn; số ảnh từ 1 đến 10, mặc định 1 |
-| `PROCESS` | Đọc chữ, một beep ngắn, thanh chờ chuyển động |
+| `WAKE` | Thức dậy, cue tăng dần; sau 1,6 giây chuyển sang chờ |
+| `RECEIVED` / `RECEIVED 3` | Đã nhận ảnh, cue ngắn; số ảnh từ 1 đến 10, mặc định 1 |
+| `PROCESS` | Đọc chữ, cue xử lý, thanh chờ chuyển động |
 | `PROGRESS 45` | Cập nhật phần trăm 0–100; chỉ chấp nhận khi đang xử lý |
-| `DONE` | Mặt vui, ba beep; sau 3,5 giây chuyển sang chờ ảnh tiếp |
-| `ERROR` | Mặt báo lỗi, ba beep dài; chờ lệnh tiếp theo |
-| `SLEEP` | Nhắm mắt, hai beep; giữ khả năng nhận lệnh BLE/Serial |
+| `DONE` | Mặt vui, cue hoàn tất; sau 3,5 giây chuyển sang chờ ảnh tiếp |
+| `ERROR` | Mặt báo lỗi, cue hạ dần; chờ lệnh tiếp theo |
+| `SLEEP` | Nhắm mắt, cue ngủ; giữ khả năng nhận lệnh BLE/Serial |
 | `DEMO` | Chạy một vòng minh họa, khoảng 14,7 giây |
 | `STOP` | Hủy demo, chuyển sang ngủ, ngắt tiếng ngay |
 | `MUTE ON` / `MUTE OFF` | Tắt/bật âm báo; tắt âm ngắt cả nhịp đang phát |
-| `BEEP` | Thử còi 120ms; vẫn tuân theo chế độ mute |
-| `STATUS` | Trả trạng thái, phần trăm, số ảnh, mute và demo |
+| `BEEP` | Phát cue TEST; giữ nguyên lệnh/ACK cho app cũ, tuân theo mute |
+| `MUSIC LIST` | Liệt kê các bài có sẵn |
+| `MUSIC SCALE` / `MUSIC TWINKLE` | Phát bài mẫu; không đổi trạng thái trợ lý |
+| `MUSIC COIN` / `MUSIC JUMP` / `MUSIC POWERUP` / `MUSIC WIN` / `MUSIC HURT` | Hiệu ứng arcade nhặt xu, nhảy, tăng sức mạnh, thắng và trúng đòn |
+| `MUSIC WAKE` / `RECEIVED` / `PROCESS` / `DONE` / `ERROR` / `SLEEP` / `TEST` | Thử cue tương ứng, mỗi tên đều cần tiền tố MUSIC |
+| `MUSIC STOP` | Dừng nhạc, giữ trạng thái/demo |
+| `THEME DARK` / `THEME LIGHT` | Đổi nền TFT; giữ trạng thái, tiến độ, demo và còi |
+| `STATUS` | Trả trạng thái, phần trăm, ảnh, mute, demo, theme và thông tin nhạc |
 | `PING` | Trả `PONG` |
 | `HELP` | In danh sách lệnh |
 
@@ -176,6 +191,7 @@ App desktop và [Flutter mobile](../Mobile/README.md) dùng cùng luồng lệnh
 
 ```text
 WAKE
+THEME DARK
 RECEIVED 3
 PROCESS
 PROGRESS 40
@@ -198,7 +214,7 @@ là `OK`. BLE chỉ trả phản hồi lệnh qua TX Notify, không gửi dòng 
 Ví dụ kết quả `STATUS`:
 
 ```text
-STATUS {"state":"processing","progress":45,"images":3,"muted":false,"demo":false}
+STATUS {"state":"processing","progress":45,"images":3,"muted":false,"demo":false,"theme":"dark","audio":"active","music":false,"note_hz":0}
 ```
 
 Lệnh dài tối đa 79 ký tự; dòng quá dài hoặc chứa byte không hợp lệ bị bỏ cả dòng,
@@ -210,23 +226,24 @@ sau đó bộ nhận phục hồi ở dòng kế tiếp. Chỉ DEMO giả lập 
 - `src/main.cpp`: lệnh BLE/Serial, điều phối trạng thái và GPIO 5.
 - `src/assistant_bluetooth.cpp`: BLE GATT/NUS, hàng đợi nhận/gửi, quảng bá lại và ngủ khi ngắt app.
 - `docs/BLE_PROTOCOL.md`: UUID, cách thử bằng điện thoại và tích hợp bản mobile.
-- `src/assistant_display.cpp`: vẽ mặt hoạt hình, thanh tiến độ, giao diện tối.
+- `src/assistant_display.cpp`: vẽ mặt hoạt hình, thanh tiến độ, hai bảng màu sáng/tối.
 - `include/assistant_config.h`: chân còi, âm báo, xoay màn hình, tên/UUID BLE và timeout.
-- `src/assistant_logic.cpp`: logic thuần C++ cho lệnh, bộ đếm thời gian và còi.
+- `src/assistant_logic.cpp`: logic thuần C++ cho lệnh, bộ đếm thời gian và trạng thái.
+- `lib/VietMusic`: nốt Hz, score/BPM, player không chặn và đầu ra GPIO/LEDC.
 - `include/assistant_labels.h`: bitmap chữ tiếng Việt, đọc từ flash.
 - `tools/generate_labels.py`: sửa câu chữ và tạo lại bitmap bằng Python + Pillow.
 - `test/test_assistant_logic.cpp`: kiểm tra logic trên máy tính, không cần ESP32.
+- `test/test_music.cpp`, `test/test_music_output.cpp`: kiểm tra nhạc và đầu ra active/passive.
 
 Animation và các nhịp còi dùng `millis()`, không chờ bằng `delay()` dài.
 Vùng mặt dùng sprite 16-bit; nếu thiếu RAM thì thử 8-bit, sau đó vẽ trực tiếp.
 Đồng hồ vẫn hoạt động đúng khi `millis()` tràn. Trạng thái ngủ chỉ là biểu cảm;
 board vẫn chạy, và đèn nền vẫn sáng vì LED màn hình nối cố định 3V3.
 
-Kiểm tra logic bằng g++ từ thư mục gốc repository (sau lần build để có `.pio`):
+Kiểm tra logic, nhạc và đầu ra GPIO/LEDC bằng g++ từ thư mục gốc repository:
 
 ```powershell
-g++ -std=c++11 -Wall -Wextra -Werror -I pbl4/include pbl4/src/assistant_logic.cpp pbl4/test/test_assistant_logic.cpp -o pbl4/.pio/assistant_logic_tests.exe
-./pbl4/.pio/assistant_logic_tests.exe
+powershell -ExecutionPolicy Bypass -File pbl4/tools/test_host.ps1
 ```
 
 Khi sửa câu tiếng Việt, cài Pillow vào môi trường Python của bạn rồi chạy:

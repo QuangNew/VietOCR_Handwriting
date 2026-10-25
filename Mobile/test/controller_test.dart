@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -14,6 +15,7 @@ import 'package:vietocr_mobile/services/session_store.dart';
 class FakeEngine implements OcrEngine {
   int calls = 0;
   bool failFirst = false;
+  bool workerDies = false;
   Completer<void>? gate;
   @override
   bool get loaded => true;
@@ -29,6 +31,9 @@ class FakeEngine implements OcrEngine {
     progress('Đang đọc', .5);
     await gate?.future;
     cancel.check();
+    if (workerDies) {
+      throw PlatformException(code: 'OCR_PROCESS_DIED', message: 'AI đã dừng');
+    }
     if (failFirst && calls == 1) throw StateError('Thử lại ảnh');
     return 'Tiếng Việt $calls';
   }
@@ -129,6 +134,28 @@ void main() {
       expect(engine.calls, 3);
     },
   );
+  test(
+    'a dead AI process stops the batch, preserves text and can be retried',
+    () async {
+      await app.importImages([(bytes, 'one.png'), (bytes, 'two.png')]);
+      app.edit(app.documents.first.id, 'Văn bản đã sửa');
+      engine.workerDies = true;
+      await app.recognize();
+      expect(engine.calls, 1);
+      expect(app.busy, isFalse);
+      expect(app.documents.first.text, 'Văn bản đã sửa');
+      expect(app.documents.last.status, DocumentStatus.ready);
+      expect(app.message, contains('AI gặp lỗi'));
+      engine.workerDies = false;
+      await app.recognize();
+      expect(
+        app.documents.every(
+          (document) => document.status == DocumentStatus.done,
+        ),
+        isTrue,
+      );
+    },
+  );
   test('session restores interrupted processing as cancelled', () async {
     await app.importImages([(bytes, 'one.png')]);
     app.documents.first.status = DocumentStatus.processing;
@@ -150,8 +177,19 @@ void main() {
         Theme.of(tester.element(find.text('VietOCR'))).brightness,
         Brightness.dark,
       );
+      final headings = ['Đọc chữ từ ảnh', 'Hoạt động ngoại tuyến', 'Chụp ảnh'];
+      final geometry = [
+        for (final text in headings) tester.getRect(find.text(text)),
+      ];
       await tester.tap(find.byTooltip('Giao diện sáng'));
+      await tester.pump(const Duration(milliseconds: 16));
+      expect([
+        for (final text in headings) tester.getRect(find.text(text)),
+      ], geometry);
       await tester.pump(const Duration(milliseconds: 300));
+      expect([
+        for (final text in headings) tester.getRect(find.text(text)),
+      ], geometry);
       expect(app.dark, isFalse);
       await tester.tap(find.text('Trợ lý'));
       await tester.pump(const Duration(milliseconds: 300));

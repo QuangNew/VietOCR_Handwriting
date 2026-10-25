@@ -1,11 +1,50 @@
 import 'dart:async';
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'domain/app_controller.dart';
 import 'services/ble_assistant.dart';
+import 'services/app_log.dart';
+import 'ocr/offline_engine.dart';
 import 'ui/home_page.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  final log = AppLog.instance;
+  FlutterError.onError = (details) {
+    FlutterError.presentError(details);
+    log.add(
+      'Flutter',
+      'Lỗi giao diện',
+      level: 'ERROR',
+      error: details.exception,
+      stack: details.stack,
+    );
+  };
+  PlatformDispatcher.instance.onError = (error, stack) {
+    log.add(
+      'Dart',
+      'Lỗi bất đồng bộ',
+      level: 'ERROR',
+      error: error,
+      stack: stack,
+    );
+    return true;
+  };
+  unawaited(() async {
+    await log.initialize();
+    try {
+      log.add('App', 'Khởi động', error: await OfflineEngine.diagnostics());
+      await log.captureNative();
+    } catch (error, stack) {
+      log.add(
+        'App',
+        'Không đọc được thông tin thiết bị',
+        level: 'ERROR',
+        error: error,
+        stack: stack,
+      );
+    }
+  }());
   runApp(const VietOcrApp());
 }
 
@@ -21,14 +60,15 @@ class _VietOcrAppState extends State<VietOcrApp> with WidgetsBindingObserver {
   late final AppController app;
   BleAssistant? ble;
   Future<void> _lifecycle = Future.value();
+  bool _dark = true;
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     app = widget.controller ?? AppController();
+    _dark = app.dark;
     if (widget.enableBluetooth) ble = BleAssistant();
     app.addListener(_changed);
-    ble?.addListener(_changed);
     unawaited(_initialize());
   }
 
@@ -47,9 +87,10 @@ class _VietOcrAppState extends State<VietOcrApp> with WidgetsBindingObserver {
     ble?.update(
       app.assistant,
       app.documents.length,
-      ((app.progress ?? 0) * 100).round(),
+      app.progress == null ? null : (app.progress! * 100).round(),
+      dark: app.dark,
     );
-    setState(() {});
+    if (_dark != app.dark) setState(() => _dark = app.dark);
   }
 
   @override
@@ -64,11 +105,21 @@ class _VietOcrAppState extends State<VietOcrApp> with WidgetsBindingObserver {
     }
     _lifecycle = _lifecycle
         .then((_) async {
-          if (!foreground) await app.background();
+          if (!foreground) {
+            await app.background();
+          } else {
+            app.foreground();
+          }
           await ble?.setForeground(foreground);
         })
-        .catchError((Object error) {
-          debugPrint('Lifecycle: $error');
+        .catchError((Object error, StackTrace stack) {
+          AppLog.instance.add(
+            'App',
+            'Chuyển trạng thái ứng dụng thất bại',
+            level: 'ERROR',
+            error: error,
+            stack: stack,
+          );
         });
   }
 
@@ -76,7 +127,6 @@ class _VietOcrAppState extends State<VietOcrApp> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     app.removeListener(_changed);
-    ble?.removeListener(_changed);
     ble?.dispose();
     if (widget.controller == null) app.dispose();
     super.dispose();
@@ -91,8 +141,13 @@ class _VietOcrAppState extends State<VietOcrApp> with WidgetsBindingObserver {
     return MaterialApp(
       title: 'VietOCR',
       debugShowCheckedModeBanner: false,
+      themeAnimationDuration: Duration.zero,
       theme: ThemeData(
         useMaterial3: true,
+        fontFamily: 'Roboto',
+        // Keep font sizes/weights identical in both palettes: color changes only.
+        textTheme: ThemeData(useMaterial3: true, fontFamily: 'Roboto').textTheme
+            .apply(bodyColor: colors.onSurface, displayColor: colors.onSurface),
         colorScheme: colors,
         scaffoldBackgroundColor: app.dark
             ? const Color(0xff101410)

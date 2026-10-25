@@ -15,6 +15,7 @@ class AssistantDisplay {
   TFT_eSprite face_{&tft_};
   bool buffered_ = false;
   bool firstFrame_ = true;
+  bool darkTheme_ = true;
   uint32_t lastFrame_ = 0;
   String connectionLabel_;
 

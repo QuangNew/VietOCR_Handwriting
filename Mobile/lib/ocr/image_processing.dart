@@ -1,8 +1,25 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
+import 'dart:io';
 import 'package:image/image.dart' as img;
 
 const maxPhotoPixels = 40000000;
+
+List<LineTensor> prepareDocument((String, bool, int) request) {
+  final (path, split, rotation) = request;
+  final file = File(path);
+  if (file.lengthSync() > 40 * 1024 * 1024) {
+    throw const FormatException('Ảnh vượt 40 MB.');
+  }
+  final lines = prepareLines((file.readAsBytesSync(), split, rotation));
+  final tensors = <LineTensor>[];
+  for (var i = 0; i < lines.length; i++) {
+    tensors.add(makeTensor(lines[i]));
+    // Release crop pixels as we go instead of retaining all lines plus tensors.
+    lines[i] = GrayImage(1, 1, Uint8List(1));
+  }
+  return tensors;
+}
 
 img.Image decodePhoto(Uint8List bytes) {
   final decoder = img.findDecoderForData(bytes);
@@ -129,7 +146,10 @@ int otsu(Uint8List pixels) {
 }
 
 GrayImage deskew(GrayImage source) {
-  final scale = math.min(1.0, 600 / source.width);
+  final scale = math.min(
+    1.0,
+    math.min(600 / source.width, 400 / source.height),
+  );
   final width = math.max(1, (source.width * scale).round());
   final height = math.max(1, (source.height * scale).round());
   final small = Uint8List(width * height);
@@ -163,7 +183,8 @@ GrayImage deskew(GrayImage source) {
       if (y > 0) score += (count - previous) * (count - previous);
       previous = count;
     }
-    if (score > bestScore) {
+    if (score > bestScore ||
+        (score == bestScore && angle.abs() < bestAngle.abs())) {
       bestScore = score;
       bestAngle = angle;
     }

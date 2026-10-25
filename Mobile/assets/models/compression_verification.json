@@ -1,0 +1,51 @@
+{
+  "format": "FP16 weight storage, explicit Cast to FP32 compute",
+  "original_bytes": 152819648,
+  "compact_bytes": 77925797,
+  "samples": [
+    {
+      "sample": "test.jpg",
+      "same_text": true
+    },
+    {
+      "sample": "test2.jpg",
+      "same_text": true
+    },
+    {
+      "sample": "test3.jpg",
+      "same_text": true
+    },
+    {
+      "sample": "test4.jpg",
+      "same_text": true
+    },
+    {
+      "sample": "test.jpg",
+      "mobile_split": false,
+      "same_text": true
+    },
+    {
+      "sample": "test.jpg",
+      "mobile_split": true,
+      "same_text": true
+    },
+    {
+      "sample": "test2.jpg",
+      "mobile_split": false,
+      "same_text": true
+    },
+    {
+      "sample": "test2.jpg",
+      "mobile_split": true,
+      "same_text": true
+    }
+  ],
+  "dynamic_widths": [
+    32,
+    90,
+    256,
+    510,
+    1024
+  ],
+  "limits": "Lossy compression. Sample parity is not an accuracy evaluation on unseen handwriting."
+}

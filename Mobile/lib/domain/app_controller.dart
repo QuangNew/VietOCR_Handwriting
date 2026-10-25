@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../ocr/decoder.dart';
 import '../ocr/offline_engine.dart';
 import '../services/session_store.dart';
+import '../services/app_log.dart';
 import 'document.dart';
 
 class AppController extends ChangeNotifier {
@@ -27,7 +28,7 @@ class AppController extends ChangeNotifier {
       busy = false,
       importing = false,
       initialized = false;
-  bool _disposed = false, _picking = false;
+  bool _disposed = false, _picking = false, _background = false;
   bool get picking => _picking;
   String message = 'Chụp rõ nét, đủ sáng để đọc chữ tốt hơn.',
       progressLabel = '';
@@ -290,6 +291,7 @@ class AppController extends ChangeNotifier {
 
   Future<void> _recognize(CancellationToken cancel) async {
     var completed = 0, failed = 0;
+    var workerStopped = false;
     Document? active;
     try {
       for (var i = 0; i < _documents.length; i++) {
@@ -320,16 +322,45 @@ class AppController extends ChangeNotifier {
           completed++;
         } on OcrCancelled {
           rethrow;
-        } catch (error) {
+        } catch (error, stack) {
+          AppLog.instance.add(
+            'OCR',
+            'Ảnh ${i + 1}/${_documents.length} thất bại',
+            level: 'ERROR',
+            error: error,
+            stack: stack,
+          );
+          await AppLog.instance.captureNative();
+          try {
+            AppLog.instance.add(
+              'OCR',
+              'Thông tin sau lỗi',
+              error: await OfflineEngine.diagnostics(),
+            );
+          } catch (_) {}
           active.status = DocumentStatus.error;
           active.error = readableError(error);
           failed++;
+          if (error is PlatformException &&
+              [
+                'OCR_PROCESS_DIED',
+                'OCR_TIMEOUT',
+                'OCR_BIND',
+                'OCR_MEMORY',
+                'OCR_MODEL',
+                'OCR_NATIVE',
+              ].contains(error.code)) {
+            workerStopped = true;
+            break; // Do not repeatedly reload a crashed worker for every queued image.
+          }
         }
         await flush();
         _notify();
       }
       assistant = failed == 0 ? AssistantState.done : AssistantState.error;
-      message = failed == 0
+      message = workerStopped
+          ? 'Đã dừng do AI gặp lỗi. Kết quả đã đọc được giữ lại; thử lại với từng ảnh nhỏ hơn.'
+          : failed == 0
           ? 'Đã đọc xong $completed ảnh. Bạn có thể sửa và sao chép văn bản.'
           : 'Đã đọc $completed ảnh; $failed ảnh cần thử lại.';
     } on OcrCancelled {
@@ -338,7 +369,14 @@ class AppController extends ChangeNotifier {
       }
       assistant = AssistantState.awake;
       message = 'Đã dừng. Kết quả của $completed ảnh đã đọc được giữ lại.';
-    } catch (error) {
+    } catch (error, stack) {
+      AppLog.instance.add(
+        'OCR',
+        'Lượt nhận diện thất bại',
+        level: 'ERROR',
+        error: error,
+        stack: stack,
+      );
       if (active?.status == DocumentStatus.processing) {
         active!.status = DocumentStatus.error;
         active.error = readableError(error);
@@ -351,11 +389,18 @@ class AppController extends ChangeNotifier {
       progress = null;
       progressLabel = '';
       await flush();
+      await AppLog.instance.captureNative();
+      if (_background && engine is OfflineEngine) {
+        try {
+          await (engine as OfflineEngine).releaseMemory();
+        } catch (_) {}
+      }
       _notify();
     }
   }
 
   void cancel() {
+    if (_cancel != null) AppLog.instance.add('OCR', 'Yêu cầu dừng nhận diện');
     _cancel?.cancel();
     progressLabel = 'Đang dừng sau bước hiện tại…';
     _notify();
@@ -380,8 +425,18 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> background() async {
+    _background = true;
     if (!_picking) cancel();
     await flush();
+    if (!busy && engine is OfflineEngine) {
+      try {
+        await (engine as OfflineEngine).releaseMemory();
+      } catch (_) {}
+    }
+  }
+
+  void foreground() {
+    _background = false;
   }
 
   String get allText => _documents

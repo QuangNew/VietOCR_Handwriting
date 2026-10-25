@@ -1,11 +1,15 @@
 #pragma once
 
 #include <stdint.h>
+#include <VietMusicOutput.h>
 
 // The TFT's SPI pins and ILI9341 driver are configured in platformio.ini.
 namespace assistant_config {
 constexpr uint8_t kBuzzerPin = 5;
 constexpr bool kBuzzerActiveHigh = true;
+// TMB12A05: rhythm only. Select PassiveBuzzer after fitting a passive transducer.
+constexpr vietmusic::OutputMode kBuzzerMode = vietmusic::OutputMode::ActiveBuzzer;
+constexpr uint8_t kBuzzerPwmChannel = 0;
 constexpr bool kSoundEnabled = true;
 constexpr bool kDemoOnBoot = false;
 constexpr uint8_t kDisplayRotation = 1;

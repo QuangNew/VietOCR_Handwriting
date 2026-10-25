@@ -1,4 +1,5 @@
 #include "assistant_logic.h"
+#include <VietMusicSongs.h>
 
 #include <ctype.h>
 #include <string.h>
@@ -24,18 +25,6 @@ constexpr DemoStage kDemoStages[] = {
     {State::Done, 3500}, {State::Idle, 1600}, {State::Sleeping, 1200}};
 constexpr uint8_t kDemoStagesCount = sizeof(kDemoStages) / sizeof(kDemoStages[0]);
 
-constexpr SoundStep kWake[] = {{true, 60}, {false, 80}, {true, 120}};
-constexpr SoundStep kReceived[] = {{true, 60}, {false, 55}, {true, 60}};
-constexpr SoundStep kProcessing[] = {{true, 35}};
-constexpr SoundStep kDone[] = {{true, 80}, {false, 80}, {true, 80}, {false, 80}, {true, 160}};
-constexpr SoundStep kError[] = {{true, 220}, {false, 120}, {true, 220}, {false, 120}, {true, 220}};
-constexpr SoundStep kSleep[] = {{true, 70}, {false, 60}, {true, 35}};
-constexpr SoundStep kTest[] = {{true, 120}};
-
-template <size_t Size>
-SoundPattern pattern(const SoundStep (&steps)[Size]) {
-  return {steps, static_cast<uint8_t>(Size)};
-}
 }  // namespace
 
 const char* stateName(State state) {
@@ -78,6 +67,22 @@ bool parseCommand(const char* line, Command& command) {
     if (argument && !strcmp(argument, "ON")) { command.value = 1; return true; }
     if (argument && !strcmp(argument, "OFF")) return true;
     return false;
+  }
+  if (!strcmp(verb, "THEME")) {
+    command.type = CommandType::Theme;
+    if (argument && !strcmp(argument, "DARK")) { command.value = 1; return true; }
+    if (argument && !strcmp(argument, "LIGHT")) return true;
+    return false;
+  }
+  if (!strcmp(verb, "MUSIC")) {
+    if (!argument) return false;
+    if (!strcmp(argument, "STOP")) { command.type = CommandType::MusicStop; return true; }
+    if (!strcmp(argument, "LIST")) { command.type = CommandType::MusicList; return true; }
+    vietmusic::Song song;
+    if (!vietmusic::findSong(argument, song)) return false;
+    command.type = CommandType::Music;
+    command.value = static_cast<int>(song);
+    return true;
   }
   if (argument) return false;
   struct Entry { const char* name; CommandType type; };
@@ -161,45 +166,4 @@ bool Demo::update(Model& model, uint32_t now) {
   return changed;
 }
 
-SoundPattern soundFor(State state) {
-  switch (state) {
-    case State::Awake: return pattern(kWake);
-    case State::Received: return pattern(kReceived);
-    case State::Processing: return pattern(kProcessing);
-    case State::Done: return pattern(kDone);
-    case State::Error: return pattern(kError);
-    case State::Sleeping: return pattern(kSleep);
-    case State::Idle: return {nullptr, 0};
-  }
-  return {nullptr, 0};
-}
-
-SoundPattern testSound() { return pattern(kTest); }
-
-void Buzzer::play(SoundPattern next, uint32_t now) {
-  stop();
-  if (muted_ || !next.steps || !next.count) return;
-  pattern_ = next;
-  stepSince_ = now;
-  output_ = pattern_.steps[0].on;
-}
-
-void Buzzer::update(uint32_t now) {
-  while (pattern_.steps && now - stepSince_ >= pattern_.steps[index_].milliseconds) {
-    stepSince_ += pattern_.steps[index_].milliseconds;
-    if (++index_ >= pattern_.count) { stop(); return; }
-    output_ = pattern_.steps[index_].on;
-  }
-}
-
-void Buzzer::stop() {
-  pattern_ = {nullptr, 0};
-  index_ = 0;
-  output_ = false;
-}
-
-void Buzzer::setMuted(bool muted) {
-  muted_ = muted;
-  if (muted_) stop();
-}
 }  // namespace assistant

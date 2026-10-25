@@ -9,6 +9,11 @@ import threading
 from pathlib import Path
 
 
+def default_weights(base: Path) -> Path:
+    compact = base / "vgg_transformer_compact.pth"
+    return compact if compact.is_file() else base / "vgg_transformer_final.pth"
+
+
 def run_mainloop(root, app):
     """Ctrl+C requests the same cleanup as closing the window, without a traceback."""
     requested = threading.Event()
@@ -40,7 +45,7 @@ def main() -> int:
     base = Path(__file__).resolve().parent
     parser = argparse.ArgumentParser(description="VietOCR Handwriting desktop · Tối đa 10 ảnh mỗi lượt")
     parser.add_argument("images", nargs="*", help="Ảnh mở sẵn khi khởi động (tối đa 10)")
-    parser.add_argument("--weights", default=str(base / "vgg_transformer_final.pth"), help="File trọng số .pth")
+    parser.add_argument("--weights", default=str(default_weights(base)), help="File trọng số .pth")
     parser.add_argument("--device", choices=("cpu", "cuda:0"), default="cpu")
     parser.add_argument("--camera", type=int, default=0, help="Chỉ số webcam, mặc định 0")
     args = parser.parse_args()

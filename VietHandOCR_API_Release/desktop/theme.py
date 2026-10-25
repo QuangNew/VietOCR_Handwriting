@@ -2,6 +2,7 @@
 
 import sys
 import tkinter as tk
+from contextlib import contextmanager
 from pathlib import Path
 from tkinter import ttk
 
@@ -33,6 +34,93 @@ PALETTES = {"light": LIGHT, "dark": DARK}
 # Keep this dictionary's identity: widgets and camera import the same object.
 COLORS = DARK.copy()
 PREFERENCES_PATH = Path(__file__).resolve().parents[1] / ".desktop-preferences.json"
+
+
+def _pause_windows_redraw(root):
+    """Freeze only visible HWNDs. Re-enabling hidden HWNDs would unhide them.
+
+    https://learn.microsoft.com/windows/win32/gdi/wm-setredraw
+    Collect everything before WM_SETREDRAW changes WS_VISIBLE.
+    """
+    if sys.platform != "win32" or not root.winfo_ismapped():
+        return lambda: None
+    import ctypes
+    from ctypes import wintypes
+
+    user = ctypes.windll.user32
+    user.GetParent.argtypes = [wintypes.HWND]
+    user.GetParent.restype = wintypes.HWND
+    for name in ("IsWindowVisible", "IsWindow"):
+        method = getattr(user, name)
+        method.argtypes, method.restype = [wintypes.HWND], wintypes.BOOL
+    user.SendMessageW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
+    user.SendMessageW.restype = wintypes.LPARAM
+    user.RedrawWindow.argtypes = [wintypes.HWND, ctypes.c_void_p, ctypes.c_void_p, wintypes.UINT]
+    user.RedrawWindow.restype = wintypes.BOOL
+    callback_type = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    user.EnumChildWindows.argtypes = [wintypes.HWND, callback_type, wintypes.LPARAM]
+    user.EnumChildWindows.restype = wintypes.BOOL
+    handles, top_levels = [], []
+
+    @callback_type
+    def collect(hwnd, _):
+        if user.IsWindowVisible(hwnd) and hwnd not in handles:
+            handles.append(hwnd)
+        return True
+
+    def collect_top(widget):
+        if isinstance(widget, (tk.Tk, tk.Toplevel)) and widget.winfo_ismapped():
+            hwnd = user.GetParent(widget.winfo_id()) or widget.winfo_id()
+            if user.IsWindowVisible(hwnd):
+                collect(hwnd, 0)
+                top_levels.append(hwnd)
+                user.EnumChildWindows(hwnd, collect, 0)
+        for child in widget.winfo_children():
+            collect_top(child)
+
+    collect_top(root)
+    frozen = []
+
+    def restore():
+        for hwnd in reversed(frozen):
+            if user.IsWindow(hwnd):
+                user.SendMessageW(hwnd, 0x000B, True, 0)
+        # Invalidate background, frame and descendants, then paint the final palette.
+        for hwnd in top_levels:
+            if user.IsWindow(hwnd):
+                user.RedrawWindow(hwnd, None, None, 0x0585)
+
+    try:
+        for hwnd in handles:
+            user.SendMessageW(hwnd, 0x000B, False, 0)
+            frozen.append(hwnd)
+    except BaseException:
+        restore()
+        raise
+    return restore
+
+
+@contextmanager
+def atomic_repaint(root):
+    """Apply a palette in one Windows paint without hiding/rebuilding widgets."""
+    restore = _pause_windows_redraw(root)
+    try:
+        yield
+        root.update_idletasks()
+    finally:
+        restore()
+
+
+def recolor_canvas(canvas, previous):
+    replacements = {value.lower(): COLORS[key] for key, value in previous.items()}
+    for item in canvas.find_all():
+        for option in ("fill", "outline"):
+            try:
+                value = str(canvas.itemcget(item, option)).lower()
+                if value in replacements:
+                    canvas.itemconfigure(item, **{option: replacements[value]})
+            except tk.TclError:  # Images/windows have no fill or outline.
+                pass
 
 
 def load_theme(path: Path) -> str:

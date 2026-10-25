@@ -1,5 +1,6 @@
 // Host tests: no board, Arduino framework, or third-party test library needed.
 #include "assistant_logic.h"
+#include <VietMusicSongs.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -26,6 +27,16 @@ void testCommands() {
       {"ERROR", CommandType::Error, 0}, {"SLEEP", CommandType::Sleep, 0},
       {"DEMO", CommandType::Demo, 0}, {"STOP", CommandType::Stop, 0},
       {"mute on", CommandType::Mute, 1}, {"MUTE OFF", CommandType::Mute, 0},
+      {"theme dark", CommandType::Theme, 1}, {"THEME LIGHT", CommandType::Theme, 0},
+      {"music wake", CommandType::Music, static_cast<int>(vietmusic::Song::Wake)},
+      {"music twinkle", CommandType::Music, static_cast<int>(vietmusic::Song::Twinkle)},
+      {"MUSIC SCALE", CommandType::Music, static_cast<int>(vietmusic::Song::Scale)},
+      {"MUSIC COIN", CommandType::Music, static_cast<int>(vietmusic::Song::Coin)},
+      {"music jump", CommandType::Music, static_cast<int>(vietmusic::Song::Jump)},
+      {"MUSIC POWERUP", CommandType::Music, static_cast<int>(vietmusic::Song::PowerUp)},
+      {"MUSIC WIN", CommandType::Music, static_cast<int>(vietmusic::Song::Win)},
+      {"MUSIC HURT", CommandType::Music, static_cast<int>(vietmusic::Song::Hurt)},
+      {"MUSIC STOP", CommandType::MusicStop, 0}, {"MUSIC LIST", CommandType::MusicList, 0},
       {"BEEP", CommandType::Beep, 0}, {"STATUS", CommandType::Status, 0},
       {"HELP", CommandType::Help, 0}, {"PING", CommandType::Ping, 0}};
   Command command;
@@ -36,7 +47,9 @@ void testCommands() {
   const char* invalid[] = {nullptr, "", "   ", "UNKNOWN", "WAKE NOW", "RECEIVED 0",
       "RECEIVED 11", "RECEIVED -1", "RECEIVED 1 2", "RECEIVED 1.5", "PROGRESS",
       "PROGRESS -1", "PROGRESS 101", "PROGRESS 99999999999999999999999999",
-      "PROGRESS 50%", "PROGRESS +1", "PROGRESS 10 EXTRA", "MUTE", "MUTE YES", "MUTE ON OFF"};
+      "PROGRESS 50%", "PROGRESS +1", "PROGRESS 10 EXTRA", "MUTE", "MUTE YES", "MUTE ON OFF",
+      "THEME", "THEME BLUE", "THEME DARK EXTRA", "MUSIC", "MUSIC UNKNOWN",
+      "MUSIC 440", "MUSIC SCALE EXTRA", "MUSIC STOP EXTRA", "MUSIC LIST EXTRA"};
   for (const char* text : invalid) CHECK(!parseCommand(text, command));
   char longLine[LineReceiver::kCapacity + 1];
   memset(longLine, 'A', sizeof(longLine) - 1);
@@ -102,6 +115,9 @@ void testModel() {
   CHECK(model.state == State::Idle && model.imageCount == 10);
   model.enter(State::Sleeping, 504000);
   CHECK(model.imageCount == 0 && model.progress == -1);
+  model.darkTheme = false;
+  model.enter(State::Processing, 504100);
+  CHECK(!model.darkTheme);  // State changes must not reset the app's appearance.
   model.enter(State::Error, 505000);
   CHECK(!model.update(900000));
   const uint32_t nearWrap = UINT32_MAX - 1000;
@@ -146,37 +162,8 @@ void testDemo() {
   CHECK(model.state == State::Error);
 }
 
-void testBuzzer() {
-  Buzzer buzzer;
-  CHECK(!buzzer.output() && !buzzer.playing());
-  buzzer.play(soundFor(State::Awake), 100);
-  CHECK(buzzer.output());
-  buzzer.update(159); CHECK(buzzer.output());
-  buzzer.update(160); CHECK(!buzzer.output() && buzzer.playing());
-  buzzer.update(239); CHECK(!buzzer.output());
-  buzzer.update(240); CHECK(buzzer.output());
-  buzzer.update(359); CHECK(buzzer.output());
-  buzzer.update(360); CHECK(!buzzer.output() && !buzzer.playing());
-  buzzer.play(soundFor(State::Error), 1000);
-  buzzer.update(5000); CHECK(!buzzer.output() && !buzzer.playing());
-  buzzer.play(soundFor(State::Done), 6000);
-  buzzer.setMuted(true); CHECK(!buzzer.output() && !buzzer.playing());
-  buzzer.play(testSound(), 6001); CHECK(!buzzer.playing());
-  buzzer.setMuted(false); CHECK(!buzzer.playing());
-  buzzer.play(testSound(), 7000); CHECK(buzzer.output());
-  buzzer.play(soundFor(State::Received), 7050);  // New event replaces old pattern.
-  buzzer.update(7119); CHECK(!buzzer.output() && buzzer.playing());
-  buzzer.update(7165); CHECK(buzzer.output());
-  buzzer.stop(); CHECK(!buzzer.output() && !buzzer.playing());
-  buzzer.play(soundFor(State::Idle), 8000); CHECK(!buzzer.playing());
-  const uint32_t nearWrap = UINT32_MAX - 40;
-  buzzer.play(testSound(), nearWrap);
-  buzzer.update(nearWrap + 119u); CHECK(buzzer.output());
-  buzzer.update(nearWrap + 120u); CHECK(!buzzer.output() && !buzzer.playing());
-}
-
 int main() {
-  testCommands(); testReceiver(); testModel(); testDemo(); testBuzzer();
-  printf("PASS: %d checks (protocol, framing, states, demo, buzzer, timer wrap)\n", checks);
+  testCommands(); testReceiver(); testModel(); testDemo();
+  printf("PASS: %d checks (protocol, music commands, framing, states, demo, timer wrap)\n", checks);
   return 0;
 }

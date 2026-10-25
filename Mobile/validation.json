@@ -1,19 +1,67 @@
 {
   "platform": "Android",
+  "version": "1.2.1+4",
+  "validation_date": "2026-10-21",
   "min_sdk": 26,
   "abis": [
     "arm64-v8a"
   ],
   "build": "release, debug certificate for sideload testing",
   "apk": "dist/VietOCR-arm64.apk",
-  "apk_bytes": 191124940,
-  "apk_sha256": "c24185e81713dec4fea1bb3a086c1b39aa172069bac424fd2f31533ef4f9121b",
-  "analyzer": "No issues found",
-  "unit_widget_tests_passed": 21,
-  "internet_permission": false,
+  "apk_bytes": 109283751,
+  "apk_sha256": "14d200b09fcb3da63db117ed1ad2af26632d12c8a21ece329092e67aa21a5137",
+  "previous_apk_bytes": 109250983,
+  "same_signing_certificate_as_previous": true,
   "apk_signature_v2_verified": true,
+  "apk_16k_zip_alignment_verified": true,
+  "native_elf_load_segment_alignment": {
+    "lib/arm64-v8a/libapp.so": 65536,
+    "lib/arm64-v8a/libdartjni.so": 16384,
+    "lib/arm64-v8a/libdatastore_shared_counter.so": 16384,
+    "lib/arm64-v8a/libflutter.so": 65536,
+    "lib/arm64-v8a/libonnxruntime.so": 16384,
+    "lib/arm64-v8a/libonnxruntime4j_jni.so": 16384
+  },
+  "internet_permission": false,
+  "ocr_private_process_verified": true,
   "packaged_model_sha256_verified": true,
-  "onnx_conversion": "passed numerical and text parity against PyTorch; see assets/models/verification.json",
-  "dart_preprocessing": "passed model parity on both bundled images in both modes; see assets/models/mobile_preprocessing_verification.json",
-  "native_device_test": "not completed: emulator ADB getprop hung; physical camera, BLE and OCR still need device verification"
+  "models_sha256": {
+    "encoder": "d68d67f8869f1e210ff7b26a72d6074c45ff1ba2a778cffc6288dcda11ca518e",
+    "decoder": "8423f7adb8346da0d7abac025a3df88a78b3e574d2edab224dd108b7d18d293e"
+  },
+  "analyzer": "No issues found",
+  "unit_widget_tests_passed": 34,
+  "desktop_tests_passed": 102,
+  "firmware_host_checks_passed": 575,
+  "firmware_build": "passed, not flashed",
+  "windows_native_ble_scans_passed": 2,
+  "latest_windows_ble_probe": {
+    "advertising_devices": 53,
+    "expected_address": "F0:9E:9E:3D:06:E9",
+    "target_seen": false,
+    "candidates": []
+  },
+  "windows_gatt_device_test": "Not attempted: expected ESP32 was not found during the latest broad native scan",
+  "java_jni_ocr_host_cases_passed": 8,
+  "java_jni_validation": "assets/models/java_runtime_verification.json",
+  "r8_jni_callback_verification": {
+    "onnx_classes_preserved": 60,
+    "r8_generated_helpers_excluded": 4,
+    "jni_classes_verified_in_dex": [
+      "NodeInfo",
+      "OnnxJavaType",
+      "OnnxTensor",
+      "OrtException",
+      "OrtSession",
+      "TensorInfo",
+      "ValueInfo"
+    ],
+    "tensor_info_constructor_preserved": true
+  },
+  "previous_release_jni_regression": "1.2.0+3 confirmed missing TensorInfo and renamed OrtException/OnnxJavaType in actual APK DEX/mapping",
+  "onnx_compression": "FP16 weight storage / FP32 CPU; reference compression check retained. 8 raw/imported Dart preprocessing cases match PyTorch/Python ORT/Java JNI text",
+  "onnx_conversion": "Original FP32 export verification retained in assets/models/verification.json",
+  "native_device_test": "User screenshots confirm 1.2.0+3 native OCR crash (exit reason 5) at encoder on Xiaomi 23106RN0DA / Android 35. New 1.2.1+4 was not installed or run on a physical phone; device OCR/BLE/camera/performance remain unverified.",
+  "r8_mapping": "dist/VietOCR-1.2.1+4-mapping.txt",
+  "r8_mapping_sha256": "1e6ce9a4487267df110f8316d31a116e9db4db438f76f127a4343f6f0d22932d"
 }

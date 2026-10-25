@@ -10,6 +10,7 @@
         android:label="VietOCR"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
+        <service android:name=".OcrService" android:exported="false" android:process=":ocr" android:stopWithTask="true" />
         <activity
             android:name=".MainActivity"
             android:exported="true"

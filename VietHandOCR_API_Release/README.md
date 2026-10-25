@@ -72,13 +72,19 @@ Chạy từ thư mục `VietHandOCR_API_Release`:
 .\.venv\Scripts\python.exe -X utf8 app.py
 ```
 
-Hoặc mở `Run-VietOCR.cmd` bằng cách nhấp đúp. Nếu đứng ở thư mục gốc repository:
+Hoặc mở `Run-VietOCR.cmd` bằng cách nhấp đúp. Launcher mở **terminal debug riêng**
+và chạy giao diện bằng tiến trình con. Đóng app hoặc app crash đều giữ terminal;
+nhấn **Enter** để mở lại, **Q rồi Enter** để đóng terminal. Log trực tiếp được
+lưu ở `.logs/console-*.log` (giữ 20 phiên gần nhất), kèm mã thoát dạng số/hex.
+Muốn có terminal bền vững, dùng launcher; lệnh chạy thẳng `app.py` chỉ chạy GUI.
+
+Nếu đứng ở thư mục gốc repository:
 
 ```powershell
 .\VietHandOCR_API_Release\.venv\Scripts\python.exe -X utf8 .\VietHandOCR_API_Release\app.py
 ```
 
-Đường dẫn model mặc định luôn được tính theo vị trí `app.py`, nên có thể mở app từ bất kỳ thư mục nào. Model mặc định là `vgg_transformer_final.pth` nằm cạnh `AI.py`; trọng số bị bỏ qua bởi Git và phải được cung cấp riêng trên máy mới.
+Đường dẫn model mặc định luôn được tính theo vị trí `app.py`, nên có thể mở app từ bất kỳ thư mục nào. App ưu tiên `vgg_transformer_compact.pth` nếu file này tồn tại, sau đó dùng `vgg_transformer_final.pth` nằm cạnh `AI.py`. `--weights` cho phép chọn bản gốc hoặc model khác. Trọng số bị bỏ qua bởi Git và phải được cung cấp riêng trên máy mới.
 
 Có thể mở sẵn ảnh hoặc chọn thiết bị/camera từ dòng lệnh:
 
@@ -114,6 +120,44 @@ và chỉ báo thành công sau khi xác nhận bộ thu đã bật. Windows có
 cấp quyền, app mở **Cài đặt Bluetooth** để bạn kiểm tra/bật thủ công rồi quét lại.
 Tính năng này không bảo đảm bật được Bluetooth trên mọi máy.
 
+Quét và kết nối GATT chạy trong **tiến trình Bluetooth riêng**, kể cả lần mở
+hộp thoại đầu tiên. Lỗi driver/WinRT hoặc tiến trình này chết được báo về GUI;
+không nạp backend BLE native vào tiến trình Tk để quét/kết nối. Thao tác bật
+radio vẫn dùng hộp thoại quyền của Windows. Log BLE TX/RX nằm trong terminal,
+`.logs/vietocr.log` và `.logs/bluetooth.log`; lỗi native có thêm
+`.logs/bluetooth-crash.log`. Chỉ kết nối một app với ESP32 tại một thời điểm.
+
+Quét, bật radio và kết nối dùng chung khóa điều phối: quét thủ công chờ GATT cũ
+dọn xong; mở hộp thoại khi đang tự kết nối không tạo thêm lượt quét. Nhấn Kết nối
+lặp không tạo client mới. Worker nhận lệnh đóng ngay cả khi đang chờ WinRT và
+có thời gian dọn GATT trước khi bị buộc dừng. Lỗi kết nối thử lại sau 3, 6, 12,
+24 rồi tối đa 30 giây; bấm Kết nối khi offline yêu cầu thử lại ngay.
+
+Windows quét quảng bá rộng rồi lọc theo service **hoặc** tên VietOCR, tránh bỏ
+sót thiết bị khi gói quảng bá chưa có UUID. Kết nối không dùng cache service
+Windows cũ. Log ghi riêng bước tìm địa chỉ, mở GATT, đăng ký Notify và PING/WAKE;
+chỉ báo đã nối khi ESP32 đã ACK. Dòng `Không tìm thấy ESP32` là lỗi tìm thiết
+bị, chưa phải một kết nối GATT thành công rồi bị ngắt.
+
+Để kiểm tra quảng bá từ terminal riêng, đóng kết nối desktop rồi chạy trong
+`VietHandOCR_API_Release`:
+
+```powershell
+.\.venv\Scripts\python.exe -X utf8 tools/diagnose_bluetooth.py --seconds 6
+# Khi muốn kiểm tra thêm GATT + Notify + PING, không phát còi:
+.\.venv\Scripts\python.exe -X utf8 tools/diagnose_bluetooth.py --seconds 6 --connect
+```
+
+Lệnh mặc định dùng địa chỉ đã lưu; thêm `--address <MAC>` để chỉ định thiết bị.
+Lần quét thực tế ngày 21/10 thấy 53 thiết bị, chưa thấy ESP32 đã lưu
+`F0:9E:9E:3D:06:E9`, nên chưa xác nhận được kết nối board từ máy tính này.
+Trạng thái TFT **Chờ kết nối** chưa đủ để xác nhận Windows nhận được quảng bá.
+
+Firmware cũ trả `ERR INVALID_COMMAND: send HELP` khi nhận THEME được nhận biết
+đúng: giữ kết nối và nhắc nạp firmware mới. Nạp firmware hiện tại để đổi theme
+trên TFT. Đổi theme desktop cập nhật màu tại chỗ trong một lượt vẽ Windows,
+giữ widget, font/padding, con trỏ, vị trí cuộn và ảnh xem trước.
+
 `requirements.txt` gồm **Bleak**; gói `winrt-Windows.Devices.Radios` chỉ được cài
 trên Windows. Cập nhật thư viện bằng Python trong `.venv` nếu dùng môi trường cũ.
 Máy tính cần Bluetooth hỗ trợ BLE; không phải nhập Wi-Fi hay IP.
@@ -122,6 +166,42 @@ App gửi trạng thái/phần trăm OCR, giữ kết nối bằng `PING`, tự 
 cùng theme; **Ngắt kết nối** xóa lựa chọn đã lưu. App vẫn nhận diện khi chưa có
 ESP32 hoặc khi mất Bluetooth; trạng thái kết nối hiển thị dưới trợ lý.
 Trong hộp kết nối có nút **Thử còi**; TMB12A05 phát beep theo nhịp trạng thái.
+
+Đổi sáng/tối gửi `THEME LIGHT` / `THEME DARK` tới ESP32 và khôi phục lựa chọn
+sau khi nối lại. Cần nạp firmware mới trong `pbl4` để TFT đổi màu theo app.
+Firmware cũ vẫn nhận các trạng thái OCR và app nhắc cập nhật. Đổi theme trên
+desktop chỉ cập nhật màu tại chỗ, giữ các hàng ảnh, vị trí con trỏ và độ rộng nút.
+
+### Giảm dung lượng bản desktop
+
+Tạo checkpoint gọn từ thư mục gốc repository:
+
+```powershell
+.\VietHandOCR_API_Release\.venv\Scripts\python.exe -X utf8 VietHandOCR_API_Release/tools/compact_model.py
+```
+
+Script giữ nguyên bản gốc, tạo `vgg_transformer_compact.pth` và chỉ lưu sau khi
+bốn ảnh mẫu trả cùng văn bản. Dung lượng trọng số giảm **144,8 → 73,2 MiB**;
+Conv/Linear lưu FP16, nạp vào model tính FP32. Xem
+[báo cáo kiểm chứng](docs/compact-model-verification.json). Đây là nén có mất mát,
+cần đánh giá thêm trên tập chữ thực tế; RAM và tổng dung lượng ứng dụng không
+giảm cùng tỷ lệ vì còn Python, PyTorch và thư viện khác.
+
+Để phân phối bản chỉ dùng CPU, tạo môi trường riêng, cài Torch/Torchvision từ
+[nguồn wheel CPU chính thức](https://pytorch.org/get-started/locally/) trước khi
+cài `requirements.txt`; không đổi môi trường GPU đang dùng:
+
+```powershell
+py -3.11 -m venv .venv-cpu
+.\.venv-cpu\Scripts\python.exe -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+.\.venv-cpu\Scripts\python.exe -m pip install -r requirements.txt
+```
+
+Gói phát hành chỉ cần một checkpoint đã chọn, mã chạy và thư viện runtime.
+Không kèm SDK Android, model ONNX mobile, dữ liệu huấn luyện, cache, log và công
+cụ export/kiểm thử. ZIP giúp tải gọn nhưng dung lượng sau giải nén vẫn lớn.
+Chuyển desktop sang dùng chung ONNX Runtime với Android có thể giảm phụ thuộc
+PyTorch; hướng này cần một lượt tích hợp và kiểm chứng riêng.
 
 Muốn thử từ điện thoại ngay: dùng **nRF Connect for Mobile**, kết nối
 `VietOCR-Assistant`, bật TX Notify và ghi `44454D4F0A` (HEX của `DEMO` + LF) vào RX.

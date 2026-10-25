@@ -20,6 +20,15 @@ class LineFramer {
 }
 
 // One command in flight: the ESP32 acknowledges ASCII lines, not BLE writes.
+class CommandRejected implements Exception {
+  const CommandRejected(this.response);
+  final String response;
+  String get code =>
+      RegExp(r'^ERR\s+([^:\s]+)').firstMatch(response)?.group(1) ?? response;
+  @override
+  String toString() => response;
+}
+
 class CommandQueue {
   CommandQueue(this.write, {this.timeout = const Duration(seconds: 3)});
   final Future<void> Function(List<int>) write;
@@ -34,7 +43,7 @@ class CommandQueue {
     if (line == _expected) {
       _reply!.complete(line);
     } else if (line.startsWith('ERR ')) {
-      _reply!.completeError(StateError(line));
+      _reply!.completeError(CommandRejected(line));
     }
   }
 
@@ -61,9 +70,10 @@ class CommandQueue {
           ).timeout(timeout);
         }
         await response;
-      } catch (_) {
+      } catch (error) {
         // A late acknowledgement must never satisfy a subsequent command.
-        _closed = true;
+        // An explicit ERR is a complete response, so the channel remains usable.
+        if (error is! CommandRejected) _closed = true;
         if (!reply.isCompleted) reply.complete('');
         await response.catchError((_) => '');
         rethrow;
@@ -84,9 +94,25 @@ class CommandQueue {
 }
 
 class AssistantSnapshot {
-  const AssistantSnapshot(this.state, {this.count = 0, this.progress = 0});
+  const AssistantSnapshot(
+    this.state, {
+    this.count = 0,
+    this.progress,
+    this.dark,
+  });
   final AssistantState state;
-  final int count, progress;
+  final int count;
+  final int? progress;
+  final bool? dark;
+  @override
+  bool operator ==(Object other) =>
+      other is AssistantSnapshot &&
+      state == other.state &&
+      count == other.count &&
+      progress == other.progress &&
+      dark == other.dark;
+  @override
+  int get hashCode => Object.hash(state, count, progress, dark);
 }
 
 List<String> transitionCommands(
@@ -94,6 +120,9 @@ List<String> transitionCommands(
   AssistantSnapshot next,
 ) {
   final result = <String>[];
+  if (next.dark != null && previous?.dark != next.dark) {
+    result.add('THEME ${next.dark! ? 'DARK' : 'LIGHT'}');
+  }
   final changed = previous?.state != next.state;
   final count = next.count.clamp(1, 10);
   if (next.state == AssistantState.awake) {
@@ -109,8 +138,9 @@ List<String> transitionCommands(
       }
       result.add('PROCESS');
     }
-    if (changed || previous?.progress != next.progress) {
-      result.add('PROGRESS ${next.progress.clamp(0, 100)}');
+    if (next.progress != null &&
+        (changed || previous?.progress != next.progress)) {
+      result.add('PROGRESS ${next.progress!.clamp(0, 100)}');
     }
   }
   if (changed && next.state == AssistantState.done) result.add('DONE');

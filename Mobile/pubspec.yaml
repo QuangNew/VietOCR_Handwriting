@@ -1,7 +1,7 @@
 name: vietocr_mobile
 description: VietOCR Handwriting offline, with a Bluetooth desk assistant.
 publish_to: none
-version: 1.0.0+1
+version: 1.2.1+4
 
 environment:
   sdk: ^3.11.1
@@ -9,8 +9,6 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  crypto: ^3.0.7
-  flutter_onnxruntime: ^1.9.0
   flutter_reactive_ble: ^5.5.0
   image: ^4.12.0
   image_picker: ^1.2.4

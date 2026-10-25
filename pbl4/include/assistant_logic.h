@@ -10,7 +10,7 @@ const char* stateName(State state);
 
 enum class CommandType : uint8_t {
   Wake, Received, Process, Progress, Done, Error, Sleep, Demo, Stop,
-  Mute, Beep, Status, Help, Ping
+  Mute, Theme, Beep, Music, MusicStop, MusicList, Status, Help, Ping
 };
 
 struct Command {
@@ -39,6 +39,7 @@ struct Model {
   uint32_t stateSince = 0;
   int progress = -1;  // -1: indeterminate, otherwise 0..100.
   uint8_t imageCount = 0;
+  bool darkTheme = true;  // Appearance is independent of assistant state.
 
   void enter(State next, uint32_t now);
   bool update(uint32_t now);
@@ -56,38 +57,6 @@ class Demo {
   bool active_ = false;
   uint8_t stage_ = 0;
   uint32_t stageSince_ = 0;
-};
-
-struct SoundStep {
-  bool on;
-  uint16_t milliseconds;
-};
-
-struct SoundPattern {
-  const SoundStep* steps;
-  uint8_t count;
-};
-
-SoundPattern soundFor(State state);
-SoundPattern testSound();
-
-// TMB12A05 has its own oscillator: only switch it on/off, without tone()/PWM.
-class Buzzer {
- public:
-  void play(SoundPattern pattern, uint32_t now);
-  void update(uint32_t now);
-  void stop();
-  void setMuted(bool muted);
-  bool muted() const { return muted_; }
-  bool output() const { return output_; }
-  bool playing() const { return pattern_.steps != nullptr; }
-
- private:
-  SoundPattern pattern_ = {nullptr, 0};
-  uint8_t index_ = 0;
-  uint32_t stepSince_ = 0;
-  bool output_ = false;
-  bool muted_ = false;
 };
 
 }  // namespace assistant

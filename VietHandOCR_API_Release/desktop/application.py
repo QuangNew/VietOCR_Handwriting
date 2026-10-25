@@ -13,6 +13,8 @@ from tkinter import filedialog, messagebox, ttk
 from PIL import Image, ImageTk
 
 from .bluetooth_transport import RobotDevice, scan_robots, validate_address
+from .bluetooth_process import ProcessBLEProtocol, scan_robots_isolated
+from .bluetooth_coordinator import radio_access
 from .bluetooth_radio import begin_bluetooth_access, enable_bluetooth, open_bluetooth_settings
 from .camera import CameraWindow
 from .domain import AssistantState, BatchFullError, ImageBatch, MAX_IMAGES
@@ -22,7 +24,8 @@ from .ocr_service import OCRSettings
 from .preferences import read_preferences, update_preferences
 from .robot_connection import RobotClient
 from .tasks import import_images, recognize_images
-from .theme import PREFERENCES_PATH, apply_titlebar, load_theme, recolor_widgets, save_theme, set_palette
+from .theme import (PREFERENCES_PATH, apply_titlebar, atomic_repaint, load_theme,
+                    recolor_canvas, recolor_widgets, save_theme, set_palette)
 from .widgets import COLORS as C, RobotFace, ScrollableFrame, card, configure_styles, label
 
 STATUS_LABELS = {
@@ -32,13 +35,19 @@ STATUS_LABELS = {
 logger = logging.getLogger("vietocr_desktop.ui")
 
 
-def _scan_robot_devices(events, token, cancel):
+def _scan_robot_devices(events, token, cancel, isolated=True, radio_lock=None):
     # Only plain data crosses the worker/UI boundary; no Tk objects in this thread.
     try:
-        devices = asyncio.run(scan_robots(cancel=cancel))
+        scanner = scan_robots_isolated if isolated else scan_robots
+        logger.info("Starting Bluetooth scan (isolated=%s)", isolated)
+        async def run():
+            async with radio_access(radio_lock, cancel):
+                return await scanner(cancel=cancel)
+        devices = asyncio.run(run())
     except asyncio.CancelledError:
         return
     except Exception as exc:
+        logger.exception("Bluetooth scan failed")
         events.put(("robot_scan", token, [], str(exc)))
     else:
         events.put(("robot_scan", token, devices, ""))
@@ -55,7 +64,7 @@ async def _complete_radio_access(operation, promise):
             promise.set_result(result)
 
 
-def _enable_robot_radio(events, token, cancel):
+def _enable_robot_radio(events, token, cancel, radio_lock=None):
     async def run():
         async def request_access():
             loop = asyncio.get_running_loop()
@@ -75,8 +84,12 @@ def _enable_robot_radio(events, token, cancel):
                 operation.cancel()
                 await asyncio.gather(operation, return_exceptions=True)
 
+    async def gated():
+        async with radio_access(radio_lock, cancel):
+            return await run()
+
     try:
-        result = asyncio.run(run())
+        result = asyncio.run(gated())
     except asyncio.CancelledError:
         return
     except Exception:
@@ -88,8 +101,9 @@ def _enable_robot_radio(events, token, cancel):
 
 class Application:
     def __init__(self, root: tk.Tk, weights: str, device: str = "cpu", camera_index: int = 0,
-                 preferences_path: Path | None = None):
+                 preferences_path: Path | None = None, *, isolate_bluetooth: bool = True):
         self.root = root
+        self.isolate_bluetooth = isolate_bluetooth
         self.preferences_path = preferences_path if preferences_path is not None else PREFERENCES_PATH
         self.theme = load_theme(self.preferences_path)
         set_palette(self.theme)
@@ -111,6 +125,7 @@ class Application:
         self._robot_radio_token = 0
         self._robot_scan_cancel = threading.Event()
         self._robot_radio_cancel = threading.Event()
+        self._robot_radio_lock = threading.Lock()
         self.assistant_state = AssistantState.AWAKE
         self.robot_connection_var = tk.StringVar(value="ESP32 chưa kết nối")
         self.cancel_event = threading.Event()
@@ -175,7 +190,7 @@ class Application:
         self.settings_button.pack(side="right")
         self.robot_button = ttk.Button(header, text="Kết nối ESP32", command=self.open_robot_settings)
         self.robot_button.pack(side="right", padx=(10, 10))
-        self.theme_button = ttk.Button(header, text=self._theme_button_text(), command=self.toggle_theme)
+        self.theme_button = ttk.Button(header, text=self._theme_button_text(), width=18, command=self.toggle_theme)
         self.theme_button.pack(side="right", padx=(0, 10))
         label(header, "●  Xử lý trên máy", size=9, color=C["green"]).pack(side="right", padx=20)
 
@@ -323,15 +338,18 @@ class Application:
         if self.closing:
             return
         self._save_editor()
-        self.theme = "light" if self.theme == "dark" else "dark"
-        previous = set_palette(self.theme)
-        configure_styles(self.root)
-        recolor_widgets(self.root, previous)
-        self.theme_button.configure(text=self._theme_button_text())
-        self._draw_brand()
-        self.robot._draw()
-        self._render_queue()
-        self._draw_preview()
+        with atomic_repaint(self.root):
+            self.theme = "light" if self.theme == "dark" else "dark"
+            previous = set_palette(self.theme)
+            configure_styles(self.root)
+            recolor_widgets(self.root, previous)
+            self.theme_button.configure(text=self._theme_button_text())
+            recolor_canvas(self.brand_mark, previous)
+            recolor_canvas(self.preview, previous)
+            self.robot._draw()
+        logger.info("Theme changed to %s", self.theme)
+        if self.robot_link is not None:
+            self.robot_link.set_theme(self.theme)
         try:
             save_theme(self.preferences_path, self.theme)
         except OSError:
@@ -363,13 +381,27 @@ class Application:
 
     def connect_robot(self, address: str, *, name: str = "VietOCR-Assistant", save: bool = True):
         address = validate_address(address)
+        if (self.robot_link is not None and not self.robot_link.closed.is_set()
+                and not self.robot_link.stopping and self.robot_link.address.casefold() == address.casefold()):
+            logger.info("Reusing Bluetooth connection attempt: address=%s phase=%s", address, self.robot_link.status)
+            self.robot_link.retry_now()
+            self._sync_robot_dialog_controls()
+            return
+        self._robot_scan_cancel.set()
+        self._robot_radio_cancel.set()
+        if self._robot_dialog:
+            self._robot_dialog["token"] = self._robot_dialog["radio_token"] = None
         if self.robot_link is not None:
             self.robot_link.stop()
         self.robot_address = address
         self.robot_name = name or "VietOCR-Assistant"
         events = self.events  # Worker callbacks keep no reference to Tk widgets.
+        from .bluetooth_transport import BLEProtocol
         link = RobotClient(address, lambda status, detail: events.put(("robot_connection", link, status, detail)),
-                           name=self.robot_name)
+                           name=self.robot_name,
+                           protocol_factory=ProcessBLEProtocol if self.isolate_bluetooth else BLEProtocol,
+                           radio_lock=self._robot_radio_lock)
+        link.set_theme(self.theme)
         self.robot_link = link
         self._robot_links = [old for old in self._robot_links if not old.closed.is_set()]
         self._robot_links.append(link)
@@ -377,10 +409,15 @@ class Application:
         self.robot_connection_var.set(f"Đang kết nối Bluetooth · {self.robot_name}")
         self.robot_connection_label.configure(text="ESP32 · Đang kết nối…", fg=C["muted"])
         link.start()
+        self._sync_robot_dialog_controls()
         if save:
             self._save_robot_address(address, self.robot_name)
 
     def disconnect_robot(self):
+        self._robot_scan_cancel.set()
+        self._robot_radio_cancel.set()
+        if self._robot_dialog:
+            self._robot_dialog["token"] = self._robot_dialog["radio_token"] = None
         if self.robot_link is not None:
             self.robot_link.stop()
             self.robot_link = None
@@ -389,6 +426,28 @@ class Application:
         self.robot_connection_var.set("ESP32 chưa kết nối")
         self.robot_connection_label.configure(text="ESP32 chưa kết nối", fg=C["muted"])
         self._save_robot_address("")
+        self._sync_robot_dialog_controls()
+
+    def _pause_robot_connection(self):
+        if self.robot_link is not None:
+            self.robot_link.stop()
+            self.robot_link = None
+        self.robot_connection_var.set("Đang tìm trợ lý Bluetooth…")
+        self.robot_connection_label.configure(text="ESP32 · Chưa kết nối", fg=C["muted"])
+
+    def _sync_robot_dialog_controls(self):
+        dialog = self._robot_dialog
+        if not dialog or not dialog["window"].winfo_exists() or "connect_button" not in dialog:
+            return
+        link = self.robot_link
+        active = link is not None and not link.closed.is_set() and not link.stopping
+        connected = active and link.connected.is_set()
+        connecting = active and link.status in ("connecting", "waiting")
+        scanning, radio = dialog["token"] is not None, dialog["radio_token"] is not None
+        dialog["connect_button"].configure(state="disabled" if connected or connecting or scanning or radio or not dialog["devices"] else "normal")
+        dialog["scan_button"].configure(state="disabled" if scanning or radio else "normal")
+        dialog["enable_button"].configure(state="disabled" if radio else "normal")
+        dialog["beep_button"].configure(state="normal" if connected else "disabled")
 
     def _save_robot_address(self, address: str, name: str = ""):
         try:
@@ -397,6 +456,7 @@ class Application:
             self.operation_var.set("Đã cập nhật kết nối · Không lưu được thiết bị cho lần mở sau")
 
     def open_robot_settings(self):
+        logger.info("Opening Bluetooth dialog")
         if self.closing:
             return
         if self._robot_dialog and self._robot_dialog["window"].winfo_exists():
@@ -440,6 +500,7 @@ class Application:
             if self.closing or not window.winfo_exists():
                 return
             self._robot_scan_cancel.set()
+            self._pause_robot_connection()
             self._robot_scan_cancel = threading.Event()
             self._robot_scan_token += 1
             token = self._robot_scan_token
@@ -447,11 +508,13 @@ class Application:
             scan_status.set("Đang quét Bluetooth…")
             scan_button.state(["disabled"])
             threading.Thread(target=_scan_robot_devices,
-                             args=(self.events, token, self._robot_scan_cancel),
+                             args=(self.events, token, self._robot_scan_cancel, self.isolate_bluetooth, self._robot_radio_lock),
                              name="VietOCR-BLE-scan", daemon=True).start()
+            self._sync_robot_dialog_controls()
 
         def turn_on():
             self._robot_scan_cancel.set()
+            self._pause_robot_connection()
             self._robot_radio_cancel.set()
             self._robot_radio_cancel = threading.Event()
             self._robot_dialog["token"] = None
@@ -461,9 +524,12 @@ class Application:
             scan_button.state(["disabled"])
             enable_button.state(["disabled"])
             scan_status.set("Đang bật Bluetooth…")
-            self._start_background(_enable_robot_radio, (self.events, token, self._robot_radio_cancel), "VietOCR-Bluetooth-on")
+            self._start_background(_enable_robot_radio, (self.events, token, self._robot_radio_cancel, self._robot_radio_lock), "VietOCR-Bluetooth-on")
+            self._sync_robot_dialog_controls()
 
         def connect():
+            if self._robot_dialog["connect_button"].instate(["disabled"]):
+                return
             index = choice.current()
             available = self._robot_dialog["devices"]
             if index < 0 or index >= len(available):
@@ -486,17 +552,25 @@ class Application:
 
         buttons = tk.Frame(body, bg=C["white"])
         buttons.pack(fill="x", side="bottom")
-        ttk.Button(buttons, text="Kết nối", style="Primary.TButton", command=connect).pack(side="left")
+        connect_button = ttk.Button(buttons, text="Kết nối", style="Primary.TButton", command=connect)
+        connect_button.pack(side="left")
         ttk.Button(buttons, text="Ngắt kết nối", command=self.disconnect_robot).pack(side="left", padx=8)
-        ttk.Button(buttons, text="Thử còi", command=beep).pack(side="left")
+        beep_button = ttk.Button(buttons, text="Thử còi", command=beep)
+        beep_button.pack(side="left")
         ttk.Button(buttons, text="Đóng", command=close_dialog).pack(side="right")
         scan_button.configure(command=scan)
         enable_button.configure(command=turn_on)
         self._robot_dialog["scan"] = scan
+        self._robot_dialog["connect_button"] = connect_button
+        self._robot_dialog["beep_button"] = beep_button
         window.protocol("WM_DELETE_WINDOW", close_dialog)
         window.bind("<Return>", lambda _: connect())
         window.bind("<Escape>", lambda _: close_dialog())
-        scan()
+        if self.robot_link is None or self.robot_link.closed.is_set() or self.robot_link.stopping:
+            scan()
+        else:
+            scan_status.set("App đang kết nối thiết bị đã lưu. Quét Bluetooth để chọn thiết bị khác.")
+            self._sync_robot_dialog_controls()
 
     def _receive_robot_permission(self, token, loop, promise):
         dialog = self._robot_dialog
@@ -534,6 +608,7 @@ class Application:
         if (self.closing or not dialog or token != dialog["radio_token"]
                 or not dialog["window"].winfo_exists()):
             return
+        dialog["radio_token"] = None
         dialog["enable_button"].state(["!disabled"])
         dialog["scan_button"].state(["!disabled"])
         dialog["scan_status"].set(result.message)
@@ -544,12 +619,14 @@ class Application:
                 open_bluetooth_settings()
             except OSError:
                 logger.exception("Cannot open Windows Bluetooth settings")
+        self._sync_robot_dialog_controls()
 
     def _receive_robot_scan(self, token, devices, error):
         dialog = self._robot_dialog
         if (self.closing or not dialog or token != dialog["token"]
                 or not dialog["window"].winfo_exists()):
             return
+        dialog["token"] = None
         dialog["scan_button"].state(["!disabled"])
         dialog["devices"] = devices
         choice = dialog["choice"]
@@ -566,6 +643,7 @@ class Application:
         else:
             text = "Chưa tìm thấy. Đưa ESP32 lại gần và ngắt điện thoại/app khác đang kết nối."
         dialog["scan_status"].set(text)
+        self._sync_robot_dialog_controls()
 
     def _sync_controls(self):
         locked = self.running or self.importing or self.camera is not None or self.closing
@@ -636,10 +714,18 @@ class Application:
         self._preview_timer = self.root.after(80, self._draw_preview)
 
     def _draw_preview(self):
+        if self._preview_timer:
+            self.root.after_cancel(self._preview_timer)
         self._preview_timer = None
-        self.preview.delete("all")
         width, height = max(1, self.preview.winfo_width()), max(1, self.preview.winfo_height())
         item = self.batch.get(self.selected_id)
+        # Configure notifications also occur during ttk palette updates. A pending
+        # resize must not rebuild the same PhotoImage after the atomic repaint.
+        key = (item.id if item else None, id(item.image) if item else None, width, height)
+        if getattr(self, "_preview_key", None) == key and self.preview.find_all():
+            return
+        self._preview_key = key
+        self.preview.delete("all")
         if item is None:
             scale = min(1.0, max(0.5, (height-65)/125))
             x, y = width / 2, max(50*scale+8, height/2-30*scale)
@@ -904,8 +990,10 @@ class Application:
             link, status, detail = data
             if link is self.robot_link:
                 self.robot_connection_var.set(detail)
-                summary = "ESP32 · Đã kết nối BLE" if status == "connected" else "ESP32 · Đang thử Bluetooth…"
+                summary = {"connected": "ESP32 · Đã kết nối BLE", "connecting": "ESP32 · Đang kết nối…",
+                           "waiting": "ESP32 · Đang chờ Bluetooth…"}.get(status, "ESP32 · Chưa kết nối")
                 self.robot_connection_label.configure(text=summary, fg=C["green"] if status == "connected" else C["muted"])
+                self._sync_robot_dialog_controls()
         elif kind == "robot_scan":
             self._receive_robot_scan(*data)
         elif kind == "robot_radio":

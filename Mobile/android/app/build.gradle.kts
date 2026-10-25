@@ -32,6 +32,7 @@ android {
 
     buildTypes {
         release {
+            proguardFiles("proguard-rules.pro")
             ndk {
                 abiFilters.clear()
                 abiFilters += setOf("arm64-v8a")
@@ -45,4 +46,9 @@ android {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    // Same runtime family as the Python conversion checks. Only :ocr loads JNI.
+    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.23.2")
 }

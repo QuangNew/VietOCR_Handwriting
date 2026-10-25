@@ -83,10 +83,15 @@ def digest(path):
         return hashlib.file_digest(source, "sha256").hexdigest()
 
 
-def session(path):
+def session(path, *, android_options=False):
     options = ort.SessionOptions()
     options.intra_op_num_threads = 2
     options.inter_op_num_threads = 1
+    if android_options:
+        options.enable_cpu_mem_arena = False
+        options.enable_mem_pattern = False
+        options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_BASIC
+        options.add_session_config_entry("session.intra_op.allow_spinning", "0")
     return ort.InferenceSession(str(path), options, providers=["CPUExecutionProvider"])
 
 
@@ -108,6 +113,11 @@ def main():
     parser.add_argument("--output", type=Path, default=ROOT / "Mobile/assets/models")
     parser.add_argument("--verify-only", action="store_true")
     args = parser.parse_args()
+    existing_manifest = args.output / "manifest.json"
+    if args.verify_only and existing_manifest.is_file():
+        existing = json.loads(existing_manifest.read_text(encoding="utf-8"))
+        if existing.get("compression"):
+            parser.error("--verify-only checks FP32 numerical parity. These assets use compact weights; use compact_models.py with the preserved FP32 models, or export FP32 again without --verify-only.")
     torch.set_num_threads(2)
     torch.backends.mha.set_fastpath_enabled(False)
     args.output.mkdir(parents=True, exist_ok=True)

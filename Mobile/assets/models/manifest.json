@@ -248,13 +248,14 @@
   "models": {
     "encoder": {
       "file": "vietocr_encoder.onnx",
-      "bytes": 113295181,
-      "sha256": "5c9b526fc2edc8a9d530dd9a732ee99bdb253a857b03984a81a877ac44add724"
+      "bytes": 57270862,
+      "sha256": "d68d67f8869f1e210ff7b26a72d6074c45ff1ba2a778cffc6288dcda11ca518e"
     },
     "decoder": {
       "file": "vietocr_decoder.onnx",
-      "bytes": 39524467,
-      "sha256": "a869559aab9f4c754a04e10af1275aaf00b12798ef9066cad0c43899d9a62563"
+      "bytes": 20654935,
+      "sha256": "8423f7adb8346da0d7abac025a3df88a78b3e574d2edab224dd108b7d18d293e"
     }
-  }
+  },
+  "compression": "FP16 weight storage, explicit Cast to FP32 compute"
 }

@@ -1,13 +1,16 @@
 """Nordic UART Service over BLE. Each connection lives on one asyncio loop."""
 
 import asyncio
+import logging
 import re
+import sys
 import threading
 from dataclasses import dataclass
 
 SERVICE_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
 RX_UUID = "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
 TX_UUID = "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+LOGGER = logging.getLogger("vietocr_desktop.ble")
 
 
 def _backend():
@@ -43,10 +46,18 @@ class RobotProtocolError(Exception):
     pass
 
 
+class RobotCommandRejected(RobotProtocolError):
+    def __init__(self, response: str):
+        super().__init__(response)
+        match = re.match(r"^ERR\s+([^:\s]+)", response)
+        self.code = match.group(1) if match else "UNKNOWN"
+
+
 async def scan_robots(timeout: float = 5.0, *, cancel: threading.Event | None = None) -> list[RobotDevice]:
     scanner, _ = _backend()
-    operation = asyncio.create_task(scanner.discover(timeout=timeout, return_adv=True,
-                                                     service_uuids=[SERVICE_UUID]))
+    # Some firmware/Windows advertisements expose the name before service UUIDs.
+    # Scan broadly, then filter candidates; validate NUS + PING before WAKE.
+    operation = asyncio.create_task(scanner.discover(timeout=timeout, return_adv=True))
     try:
         while not operation.done():
             if cancel is not None and cancel.is_set():
@@ -59,10 +70,15 @@ async def scan_robots(timeout: float = 5.0, *, cancel: threading.Event | None = 
             await asyncio.gather(operation, return_exceptions=True)
     devices = {}
     for device, advertisement in discovered.values():
-        if SERVICE_UUID not in {uuid.lower() for uuid in advertisement.service_uuids}:
+        name = advertisement.local_name or device.name or ""
+        if (SERVICE_UUID not in {uuid.lower() for uuid in advertisement.service_uuids}
+                and name.casefold() not in ("vietocr-assistant", "vietocr assistant")):
             continue
-        name = advertisement.local_name or device.name or "Thiết bị UART BLE"
+        name = name or "Thiết bị UART BLE"
         devices[device.address.casefold()] = RobotDevice(device.address, name, advertisement.rssi)
+        LOGGER.info("Scan candidate: address=%s name=%s rssi=%s uuids=%s",
+                    device.address, name, advertisement.rssi, advertisement.service_uuids)
+    LOGGER.info("Scan complete: advertising_devices=%d candidates=%d", len(discovered), len(devices))
     return sorted(devices.values(), key=lambda device: (-(device.rssi if device.rssi is not None else -999),
                                                        device.name, device.address))
 
@@ -78,12 +94,26 @@ class BLEProtocol:
     async def connect(self) -> None:
         scanner, client_type = _backend()
         # Resolve again on this loop; GUI scan results contain only portable IDs.
-        device = await scanner.find_device_by_address(self.address, timeout=8.0, service_uuids=[SERVICE_UUID])
+        LOGGER.info("Resolve target: address=%s, timeout=8s, no advertisement UUID filter", self.address)
+        device = await scanner.find_device_by_address(self.address, timeout=8.0)
         if device is None:
-            raise RobotProtocolError("Không tìm thấy ESP32. Bật Bluetooth và ngắt app khác đang kết nối.")
-        self.client = client_type(device, disconnected_callback=self._disconnected, services=[SERVICE_UUID])
-        await asyncio.wait_for(self.client.connect(), 12.0)
-        await asyncio.wait_for(self.client.start_notify(TX_UUID, self._notification), 5.0)
+            raise RobotProtocolError(f"Không thấy quảng bá BLE từ {self.address} sau 8 giây. "
+                                     "Kiểm tra TFT đang Chờ kết nối; nếu vừa nạp firmware, quét và chọn lại thiết bị.")
+        LOGGER.info("Target found: address=%s name=%s; opening GATT", device.address, device.name)
+        options = {"winrt": {"use_cached_services": False}} if sys.platform == "win32" else {}
+        self.client = client_type(device, disconnected_callback=self._disconnected, services=[SERVICE_UUID], **options)
+        try:
+            await asyncio.wait_for(self.client.connect(), 15.0)
+        except TimeoutError:
+            raise RobotProtocolError(f"Tìm thấy {self.address} nhưng mở GATT quá 15 giây.") from None
+        LOGGER.info("GATT connected: %s; enabling TX notifications", self.address)
+        try:
+            await asyncio.wait_for(self.client.start_notify(TX_UUID, self._notification), 5.0)
+        except TimeoutError:
+            raise RobotProtocolError("GATT đã mở nhưng bật Notify TX quá 5 giây. Kiểm tra firmware NUS.") from None
+        # Windows can complete CCCD registration before the peer sees it.
+        await asyncio.sleep(0.25)
+        LOGGER.info("TX notifications ready: %s", self.address)
 
     def _fail(self, error: Exception) -> None:
         if self._error is None:
@@ -104,7 +134,9 @@ class BLEProtocol:
                 if len(line) > 1024:
                     raise RobotProtocolError("Phản hồi ESP32 quá dài.")
                 self._buffer = remainder
-                self._lines.put_nowait(line.rstrip(b"\r").decode("ascii"))
+                decoded = line.rstrip(b"\r").decode("ascii")
+                LOGGER.debug("RX %s", decoded)
+                self._lines.put_nowait(decoded)
             if len(self._buffer) > 1024:
                 raise RobotProtocolError("Phản hồi ESP32 quá dài.")
         except (UnicodeError, asyncio.QueueFull):
@@ -120,6 +152,7 @@ class BLEProtocol:
         if "\n" in command or "\r" in command:
             raise ValueError("One command per request")
         data = (command + "\n").encode("ascii")
+        LOGGER.debug("TX %s", command)
 
         async def exchange():
             # Do not depend on a negotiated MTU; even default MTU 23 works.
@@ -132,6 +165,8 @@ class BLEProtocol:
                 raise reply
             expected = "PONG" if command == "PING" else "OK " + command
             if reply != expected:
+                if reply.startswith("ERR "):
+                    raise RobotCommandRejected(reply)
                 raise RobotProtocolError(reply if reply.startswith("ERR ") else "Sai giao thức VietOCR BLE.")
 
         try:
@@ -142,6 +177,7 @@ class BLEProtocol:
     async def disconnect(self) -> None:
         if self.client is not None:
             try:
+                LOGGER.info("Closing GATT: %s", self.address)
                 await asyncio.wait_for(self.client.disconnect(), 1.2)
             except Exception:
-                pass  # The ESP32 also sleeps on a lost connection / expired lease.
+                LOGGER.warning("GATT cleanup did not finish: %s", self.address, exc_info=True)

@@ -6,7 +6,9 @@ import 'package:share_plus/share_plus.dart';
 import '../domain/app_controller.dart';
 import '../domain/document.dart';
 import '../services/ble_assistant.dart';
+import '../ocr/offline_engine.dart';
 import 'assistant_face.dart';
+import 'log_page.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key, required this.app, this.ble});
@@ -36,7 +38,12 @@ class _HomePageState extends State<HomePage> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: Listenable.merge([app, if (widget.ble != null) widget.ble!]),
+    builder: (context, _) => _buildPage(context),
+  );
+
+  Widget _buildPage(BuildContext context) => Scaffold(
     appBar: AppBar(
       title: const Text(
         'VietOCR',
@@ -63,7 +70,8 @@ class _HomePageState extends State<HomePage> {
               : switch (tab) {
                   0 => _photos(),
                   1 => _results(),
-                  _ => _assistant(),
+                  2 => _assistant(),
+                  _ => const LogPage(),
                 },
         ),
       ),
@@ -90,6 +98,11 @@ class _HomePageState extends State<HomePage> {
               icon: Icon(Icons.smart_toy_outlined),
               selectedIcon: Icon(Icons.smart_toy),
               label: 'Trợ lý',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.bug_report_outlined),
+              selectedIcon: Icon(Icons.bug_report),
+              label: 'Log',
             ),
           ],
         ),
@@ -179,6 +192,7 @@ class _HomePageState extends State<HomePage> {
   );
 
   Widget _photos() => ListView(
+    key: const PageStorageKey('photos'),
     padding: const EdgeInsets.all(20),
     children: [
       _statusCard(),
@@ -443,6 +457,7 @@ class _HomePageState extends State<HomePage> {
       );
     }
     return ListView(
+      key: const PageStorageKey('results'),
       padding: const EdgeInsets.all(20),
       children: [
         Text(
@@ -558,9 +573,33 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  Future<void> _exportDiagnostics(BuildContext buttonContext) async {
+    final box = buttonContext.findRenderObject()! as RenderBox;
+    final origin = box.localToGlobal(Offset.zero) & box.size;
+    try {
+      final report = await OfflineEngine.diagnostics();
+      final folder = await getTemporaryDirectory();
+      final file = File('${folder.path}/VietOCR-diagnostic.json');
+      await file.writeAsString(report, flush: true);
+      if (!mounted) return;
+      await SharePlus.instance.share(
+        ShareParams(
+          files: [XFile(file.path, mimeType: 'application/json')],
+          title: 'Chẩn đoán VietOCR',
+          sharePositionOrigin: origin,
+        ),
+      );
+    } catch (error) {
+      _notice(
+        'Không xuất được chẩn đoán: ${AppController.readableError(error)}',
+      );
+    }
+  }
+
   Widget _assistant() {
     final ble = widget.ble;
     return ListView(
+      key: const PageStorageKey('assistant'),
       padding: const EdgeInsets.all(20),
       children: [
         _statusCard(large: true),
@@ -574,6 +613,13 @@ class _HomePageState extends State<HomePage> {
         const SizedBox(height: 8),
         const Text(
           'Trợ lý thức dậy khi kết nối, báo đã nhận ảnh, hiển thị tiến trình và mỉm cười khi xong.',
+        ),
+        Builder(
+          builder: (buttonContext) => TextButton.icon(
+            onPressed: () => _exportDiagnostics(buttonContext),
+            icon: const Icon(Icons.bug_report_outlined),
+            label: const Text('Xuất chẩn đoán lỗi'),
+          ),
         ),
         const SizedBox(height: 20),
         Card(

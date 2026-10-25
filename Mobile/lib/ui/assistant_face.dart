@@ -27,12 +27,11 @@ class _AssistantFaceState extends State<AssistantFace>
     label: 'Gương mặt trợ lý ${widget.state.name}',
     child: SizedBox.square(
       dimension: widget.size,
-      child: AnimatedBuilder(
-        animation: animation,
-        builder: (_, _) => CustomPaint(
+      child: RepaintBoundary(
+        child: CustomPaint(
           painter: _FacePainter(
             widget.state,
-            animation.value,
+            animation,
             Theme.of(context).colorScheme.primary,
             Theme.of(context).colorScheme.surfaceContainerHighest,
           ),
@@ -43,9 +42,11 @@ class _AssistantFaceState extends State<AssistantFace>
 }
 
 class _FacePainter extends CustomPainter {
-  _FacePainter(this.state, this.phase, this.color, this.background);
+  _FacePainter(this.state, this.animation, this.color, this.background)
+    : super(repaint: animation);
   final AssistantState state;
-  final double phase;
+  final Animation<double> animation;
+  double get phase => animation.value;
   final Color color, background;
   @override
   void paint(Canvas canvas, Size size) {
@@ -118,7 +119,6 @@ class _FacePainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _FacePainter oldDelegate) =>
       state != oldDelegate.state ||
-      phase != oldDelegate.phase ||
       color != oldDelegate.color ||
       background != oldDelegate.background;
 }

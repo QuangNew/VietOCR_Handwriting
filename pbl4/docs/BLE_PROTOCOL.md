@@ -66,8 +66,11 @@ dùng chọn, lưu định danh thiết bị được hệ điều hành trả v
   Một notification không tương đương một phản hồi hoàn chỉnh.
 - Gửi tuần tự và chờ phản hồi từng lệnh. `PING` → `PONG`; lệnh điều khiển →
   `OK ...`; lỗi → `ERR ...`. Đóng/kết nối lại nếu timeout hoặc sai giao thức để
-  tránh dùng phản hồi cũ cho lệnh tiếp theo. `HELP` trả ba dòng; `STATUS` trả một
+  tránh dùng phản hồi cũ cho lệnh tiếp theo. `HELP` trả bốn dòng; `STATUS` trả một
   dòng `STATUS {json}`. Xem đầy đủ lệnh trong [README](../README.md#lệnh-điều-khiển).
+- Với firmware cũ, lỗi `ERR INVALID_COMMAND: send HELP` có mã `INVALID_COMMAND`;
+  phần sau dấu `:` là mô tả. App mới giữ kết nối nếu chỉ THEME chưa được hỗ trợ.
+  Các lỗi khác và timeout vẫn được ghi log và phục hồi kết nối.
 - Gửi `PING` khoảng **4 giây/lần**, kể cả lúc chưa có ảnh hay khi đang OCR.
   Timeout phiên BLE là **60 giây** kể từ lúc kết nối/lệnh hoàn chỉnh gần nhất.
 - Ngắt BLE, timeout hoặc tràn hàng đợi → ESP32 dừng xử lý/âm báo, về ngủ và
@@ -80,6 +83,7 @@ Ví dụ phiên app (mỗi dòng dưới đây phải gửi kèm LF và chờ ph
 ```text
 PING          -> PONG
 WAKE          -> OK WAKE
+THEME DARK    -> OK THEME DARK
 RECEIVED 3    -> OK RECEIVED 3
 PROCESS       -> OK PROCESS
 PROGRESS 40   -> OK PROGRESS 40
@@ -91,13 +95,21 @@ SLEEP         -> OK SLEEP
 ## Luồng tích hợp app mobile
 
 1. Quét BLE theo service UUID, chọn trợ lý, kết nối GATT và đăng ký Notify TX.
-2. Kiểm tra `PING`/`PONG`, gửi `WAKE`; duy trì heartbeat trên luồng không bị OCR chặn.
+2. Kiểm tra `PING`/`PONG`, gửi `WAKE`, rồi `THEME DARK` hoặc `THEME LIGHT` theo
+   lựa chọn app; duy trì heartbeat trên luồng không bị OCR chặn.
 3. App nhận ảnh → `RECEIVED n`; bắt đầu OCR → `PROCESS`; tiến độ → `PROGRESS n`;
    thành công → `DONE`; lỗi → `ERROR`.
 4. Rời phiên app → gửi `SLEEP`, ngắt BLE. Hệ điều hành có thể đóng app đột ngột;
    khi đó timeout/ngắt kết nối trên ESP32 đưa trợ lý về ngủ.
 5. Khi kết nối lại, gửi trạng thái hiện tại, không phát lại mọi sự kiện cũ.
-   Nếu đang OCR: `WAKE`, `RECEIVED n`, `PROCESS`, `PROGRESS n` nếu có.
+   Nếu đang OCR: `WAKE`, `THEME ...`, `RECEIVED n`, `PROCESS`, `PROGRESS n` nếu có.
+
+`THEME DARK` / `THEME LIGHT` chỉ đổi bảng màu TFT, không đặt lại trạng thái,
+tiến độ, demo hoặc âm báo. App gửi lại khi người dùng đổi nền, kể cả đang xử lý.
+`STATUS` bổ sung trường `"theme":"dark"` hoặc `"theme":"light"`. Firmware cũ trả
+`ERR INVALID_COMMAND`: app bỏ qua tính năng theme trong kết nối đó và nhắc nạp
+firmware mới; vẫn giữ kết nối cho các lệnh còn lại. Một phản hồi ERR đầy đủ không
+phải timeout và không cần hủy đường truyền chỉ vì lệnh THEME chưa được hỗ trợ.
 
 Android 12+ cần khai báo và xin quyền runtime `BLUETOOTH_SCAN` /
 `BLUETOOTH_CONNECT`; quyền quét ở Android cũ khác nhau theo phiên bản.
@@ -107,3 +119,20 @@ App Flutter Android dùng cùng luồng trạng thái và UUID với bản deskt
 BLE ở đây truyền trạng thái, không chuyển ảnh/model sang ESP32. Flutter mobile
 chạy encoder/decoder ONNX trực tiếp trên điện thoại; bản desktop chạy `AI.py`
 và PyTorch trên máy tính. Không cần Wi-Fi cho kết nối trợ lý hoặc OCR mobile.
+
+## Nhạc và âm báo
+
+`MUSIC LIST` trả một dòng danh sách tên bài. `MUSIC <tên>` trả ngay
+`OK MUSIC <TÊN>` rồi phát nền; `MUSIC STOP` trả `OK MUSIC STOP` và chỉ tắt nhạc.
+Các tên có sẵn: WAKE, RECEIVED, PROCESS, DONE, ERROR, SLEEP, TEST, SCALE, TWINKLE.
+Lệnh `BEEP` vẫn trả `OK BEEP`, nay phát cue TEST để app cũ tiếp tục dùng được.
+
+PROGRESS, THEME và PING không phát lại/đặt lại bài. Lệnh đổi trạng thái thay bài
+đang chạy bằng cue mới. MUTE ON, STOP và ngắt BLE dừng nhạc ngay; MUTE OFF không
+phát lại nhạc đã dừng. Khi đang DEMO, trạng thái demo kế tiếp có thể phát cue
+mới sau MUSIC STOP; dùng MUTE ON nếu muốn tắt toàn bộ âm.
+
+`STATUS` thêm `"audio":"active"` hoặc `"passive"`, `"music":true/false`, và
+`"note_hz":n`. `note_hz` là tần số nốt player yêu cầu, bằng 0 trong khoảng nghỉ;
+TMB12A05 active vẫn có cao độ cố định. Để nghe đúng nốt, dùng còi passive và
+cấu hình chế độ PWM theo [hướng dẫn VietMusic](../lib/VietMusic/README.md).
