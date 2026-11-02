@@ -1,10 +1,23 @@
 #include "assistant_display.h"
 
 #include <math.h>
+#include <TJpg_Decoder.h>
 #include "assistant_config.h"
 #include "assistant_labels.h"
 
+#if defined(VIETOCR_CAMERA) && VIETOCR_CAMERA
+// Check AFTER TFT_eSPI's processor header has rewritten the user's macros.
+static_assert(TFT_MISO != TFT_MOSI,
+              "TFT MISO must use GPIO39; TFT_eSPI aliases MISO=-1 to MOSI on ESP32-S3");
+#endif
+
 namespace {
+TFT_eSPI* cameraTft = nullptr;
+bool drawJpegBlock(int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t* pixels) {
+  if (!cameraTft || y >= cameraTft->height()) return false;
+  cameraTft->pushImage(x, y, w, h, pixels);
+  return true;
+}
 constexpr uint16_t rgb(uint8_t red, uint8_t green, uint8_t blue) {
   return ((red & 0xf8) << 8) | ((green & 0xfc) << 3) | (blue >> 3);
 }
@@ -116,11 +129,59 @@ void drawFace(Canvas& canvas, const assistant::Model& model, uint32_t now) {
 }
 }  // namespace
 
+AssistantDisplay::CameraFrame AssistantDisplay::renderCamera(const uint8_t* jpeg, size_t length) {
+  uint16_t width = 0, height = 0;
+  const JRESULT header = TJpgDec.getJpgSize(&width, &height, jpeg, length);
+  if (header != JDR_OK) {
+    Serial.printf("ERR TFT CAMERA JPEG header=%d bytes=%u\n", int(header), unsigned(length));
+    return CameraFrame::Failed;
+  }
+  // A buffered UXGA frame may remain after changing the sensor to QVGA.
+  // Skip it instead of aborting the whole preview on the first large frame.
+  if (width != 320 || height != 240) {
+    static uint32_t lastWarning = 0;
+    if (millis() - lastWarning > 2000) {
+      Serial.printf("CAMERA PREVIEW waiting for 320x240; JPEG is %ux%u\n", width, height);
+      lastWarning = millis();
+    }
+    return CameraFrame::Waiting;
+  }
+  cameraMode_ = true;
+  cameraTft = &tft_;
+  TJpgDec.setJpgScale(1);
+  TJpgDec.setSwapBytes(true);
+  TJpgDec.setCallback(drawJpegBlock);
+  const JRESULT result = TJpgDec.drawJpg(0, 0, jpeg, length);
+  if (result != JDR_OK) Serial.printf("ERR TFT CAMERA JPEG decode=%d bytes=%u\n", int(result), unsigned(length));
+  if (result == JDR_OK) recordFrame(true);
+  return result == JDR_OK ? CameraFrame::Drawn : CameraFrame::Failed;
+}
+
 void AssistantDisplay::begin() {
+  delay(120); // Let the panel supply settle before the library's hardware reset.
+  setup_t setup{};
+  tft_.getSetup(setup);
+  Serial.printf("TFT CONFIG driver=0x%04x MOSI=%d MISO=%d SCK=%d CS=%d DC=%d RST=%d SPI=%ld Hz\n",
+                setup.tft_driver,setup.pin_tft_mosi,setup.pin_tft_miso,setup.pin_tft_clk,
+                setup.pin_tft_cs,setup.pin_tft_dc,setup.pin_tft_rst,long(setup.tft_spi_freq)*100000L);
+  Serial.println("TFT INIT start");
+  Serial.flush();
   tft_.init();
+  // ILI9341 FRMCTR1: DIVA=0, RTNA=31 is nominally 61 Hz (closest
+  // documented setting to 60 Hz). Panel scanning and incoming camera FPS
+  // are independent. See ILI9341 datasheet, section 8.3.2.
+  tft_.writecommand(ILI9341_FRMCTR1);
+  tft_.writedata(0x00);
+  tft_.writedata(0x1f);
+  Serial.println("TFT refresh: nominal 61 Hz, animation target 60 FPS, boot color test removed");
   tft_.setRotation(assistant_config::kDisplayRotation);
   tft_.invertDisplay(assistant_config::kInvertDisplay);
+#if defined(VIETOCR_CAMERA) && VIETOCR_CAMERA
+  const uint16_t panelId = (uint16_t(tft_.readcommand8(0xD3,2)) << 8) | tft_.readcommand8(0xD3,3);
+  Serial.printf("TFT READ ID=0x%04x (ILI9341 normally 0x9341; 0x0000/0xffff: check SDO/MISO wiring)\n",panelId);
+#endif
   tft_.fillScreen(kDark.background);
+  Serial.println("TFT INIT complete (SPI writes sent; visual confirmation required)");
   tft_.setTextWrap(false);
   face_.setTextWrap(false);
   face_.setColorDepth(16);
@@ -152,7 +213,7 @@ void AssistantDisplay::drawChrome(const assistant::Model& model, bool demo, bool
   if (connectionLabel_.length()) tft_.drawCentreString(connectionLabel_, 176, 9, 1);
   if (model.imageCount) {
     char images[16];
-    snprintf(images, sizeof(images), "%u/10 anh", model.imageCount);
+    snprintf(images, sizeof(images), "%lu anh", (unsigned long)model.imageCount);
     tft_.drawCentreString(images, 178, 21, 1);
   }
   tft_.drawFastHLine(18, 35, 284, p.border);
@@ -189,25 +250,48 @@ void AssistantDisplay::drawProgress(const assistant::Model& model, uint32_t now)
 
 void AssistantDisplay::render(const assistant::Model& model, bool demo, bool muted,
                               uint32_t now, bool refresh) {
+  if (cameraMode_) {
+    cameraMode_ = false;
+    tft_.fillScreen(palette(model.darkTheme).background);
+    firstFrame_ = true;
+  }
   if (darkTheme_ != model.darkTheme) {
     darkTheme_ = model.darkTheme;
     tft_.fillScreen(palette(darkTheme_).background);
     firstFrame_ = true;
   }
   uint32_t interval = model.state == assistant::State::Sleeping
-      ? assistant_config::kSleepFrameIntervalMs : assistant_config::kFrameIntervalMs;
-  if (!buffered_ && interval < 150) interval = 150;
-  if (!firstFrame_ && !refresh && now - lastFrame_ < interval) return;
-  lastFrame_ = now;
+      ? assistant_config::kSleepFrameIntervalMs * 1000 : assistant_config::kFrameIntervalUs;
+  if (!buffered_ && interval < 150000) interval = 150000;
+  const uint32_t frameAt = micros();
+  if (!firstFrame_ && !refresh && frameAt - lastFrameUs_ < interval) return;
+  lastFrameUs_ = frameAt;
+  const bool fullFace = refresh || firstFrame_ || model.state == assistant::State::Done;
   if (refresh || firstFrame_) drawChrome(model, demo, muted);
   firstFrame_ = false;
   if (buffered_) {
     drawFace(face_, model, now);
-    face_.pushSprite(kFaceX, kFaceY);
+    if (fullFace) face_.pushSprite(kFaceX, kFaceY);
+    else face_.pushSprite(kFaceX + 50, kFaceY + 8, 50, 8, 205, 116);
   } else {
     tft_.setViewport(kFaceX, kFaceY, kFaceWidth, kFaceHeight, true);
     drawFace(tft_, model, now);
     tft_.resetViewport();
   }
   drawProgress(model, now);
+  recordFrame(false);
+}
+
+void AssistantDisplay::recordFrame(bool camera) {
+  const uint32_t now = millis();
+  if (!statsAt_ || statsCamera_ != camera) {
+    statsAt_ = now; statsFrames_ = 0; statsCamera_ = camera;
+  }
+  ++statsFrames_;
+  const uint32_t elapsed = now - statsAt_;
+  if (elapsed >= 5000) {
+    Serial.printf("TFT FPS %s=%lu (animation target=60; camera limited by SPI/JPEG)\n",
+                  camera ? "camera" : "assistant", (unsigned long)(statsFrames_ * 1000 / elapsed));
+    statsAt_ = now; statsFrames_ = 0;
+  }
 }

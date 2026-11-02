@@ -1,6 +1,8 @@
 vietocr>=0.3.12
 torch
 torchvision
+# Windows iGPU / non-CUDA GPU inference; includes CPUExecutionProvider too.
+onnxruntime-directml==1.24.4; sys_platform == 'win32'
 opencv-python
 Pillow>=10.0.0
 bleak>=3.0.2,<4.0

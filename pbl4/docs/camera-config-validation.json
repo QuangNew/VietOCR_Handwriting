@@ -1,0 +1,88 @@
+{
+  "date": "2026-10-29",
+  "firmware": "2.6.0-config",
+  "artifact": "pbl4/dist/VietOCR-OV3660.bin",
+  "versioned_artifact": "pbl4/dist/VietOCR-OV3660-2.6.0-config.bin",
+  "bytes": 1485360,
+  "sha256": "fa413032af024db84546c5a4f31827bf7cdb7c5c1130ab3bf65d250d3247e5f8",
+  "preview_default": [
+    640,
+    480
+  ],
+  "preview_width_choices": [
+    320,
+    640,
+    800,
+    1024,
+    1600,
+    2048
+  ],
+  "preview_jpeg_qs_default": 16,
+  "still": [
+    2048,
+    1536
+  ],
+  "still_jpeg_qs_default": 4,
+  "frame_buffers": 2,
+  "bytes_per_frame_buffer": 2097152,
+  "settings": {
+    "schema": 1,
+    "fields": 19,
+    "http": "authenticated GET/POST /camera/config",
+    "presets": [
+      "Mượt",
+      "Cân bằng",
+      "Chi tiết"
+    ],
+    "validate_before_mutating": true,
+    "apply_on_camera_task": true,
+    "settling_frames_discarded": 2,
+    "nvs": "vietocr-camera/profile",
+    "nvs_record_bytes": 88,
+    "version_and_crc32": true,
+    "read_back_verified": true,
+    "legacy_orientation_migration": true,
+    "apps_wait_for_applied_revision_and_persisted_confirmation": true
+  },
+  "desktop": {
+    "tests_passed": 177,
+    "includes_real_HTTP_and_Tk_controls": true,
+    "opening_camera_preserves_ESP32_orientation": true
+  },
+  "android": {
+    "version": "1.8.0+13",
+    "tests_passed": 72,
+    "apk": "Mobile/dist/VietOCR-arm64.apk",
+    "bytes": 182781578,
+    "sha256": "17ba73de1eab3558a60c0992e47edd59d3cc7900cf33eb1fdaaf3727f0dccf3b",
+    "signature_v2_verified": true,
+    "alignment_16kb_verified": true,
+    "model_hashes_verified": true,
+    "config_close_does_not_reopen_departed_preview": true
+  },
+  "build_succeeded": true,
+  "legacy_build_succeeded": true,
+  "flashed": false,
+  "android_installed_or_run_on_phone": false,
+  "physical_sensor_controls_verified": false,
+  "physical_fps_measured": false,
+  "model_changed": false,
+  "new_dependencies_installed": false,
+  "reason_not_flashed": "User requested continuing without flashing while hardware is inconvenient.",
+  "reference": {
+    "repository": "https://github.com/easytarget/esp32-cam-webserver",
+    "commit": "19eec9c143a6181f8970842bb8f1e50cfbf8191e",
+    "code_copied": false
+  },
+  "logs": {
+    "firmware-build": ".toolchain/camera-config-firmware-build.log",
+    "legacy-build": ".toolchain/camera-config-legacy-build.log",
+    "host-tests": ".toolchain/camera-config-host-tests.log",
+    "desktop-tests": ".toolchain/camera-config-desktop-tests.log",
+    "mobile-tests": ".toolchain/camera-config-mobile-tests.log",
+    "android-analyze": ".toolchain/camera-config-android-analyze.log",
+    "android-build": ".toolchain/camera-config-android-build.log",
+    "android-validation": ".toolchain/camera-config-android-validation.log"
+  },
+  "limitations": "Host tests/build do not prove sensor register output, FPS or absence of device-specific crashes. No new firmware flashed or APK installed."
+}

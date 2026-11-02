@@ -9,15 +9,20 @@ import time
 from pathlib import Path
 
 from .diagnostics import LOG_DIRECTORY, configure_logging
-from .ocr_service import OCRService, OCRSettings, RecognitionCancelled, RecognitionError
+from .ocr_service import OCRService, OCRSettings, RecognitionCancelled, RecognitionError, DeviceExecutionError
+from .compute_devices import CPU, ComputeDevice, select_devices, validate_device
 
 logger = logging.getLogger("vietocr_desktop.ocr")
+
+
+class OCRWorkerStopped(RecognitionError):
+    pass
 
 
 def _serve_ocr(connection, log_directory, engine_factory):
     signal.signal(signal.SIGINT, signal.SIG_IGN)  # Parent handles Ctrl+C and cancellation.
     configure_logging(Path(log_directory), worker=True)
-    threads = min(4, max(1, (os.cpu_count() or 2) // 2))
+    threads = min(2, max(1, (os.cpu_count() or 2) // 2))
     os.environ.setdefault("OMP_NUM_THREADS", str(threads))
     os.environ.setdefault("MKL_NUM_THREADS", str(threads))
     service = None
@@ -27,15 +32,21 @@ def _serve_ocr(connection, log_directory, engine_factory):
             try:
                 if service is None:
                     if engine_factory is None:
+                        logger.info('AI worker boot: pid=%s phase=import_torch threads=%s', os.getpid(), threads)
+                        import cv2
+                        cv2.setNumThreads(1)
                         import torch
                         torch.set_num_threads(threads)
                         service = OCRService()
                     else:
                         service = engine_factory()
-                if operation == "load":
+                if operation == "devices":
+                    from .compute_devices import discover_devices
+                    connection.send(("devices", discover_devices() if engine_factory is None else [CPU]))
+                elif operation == "load":
                     logger.info("Loading model: %s (%s)", payload.weights, payload.device)
                     service.load(payload)
-                    connection.send(("loaded", None))
+                    connection.send(("loaded", getattr(service, "device_id", payload.device)))
                     logger.info("Model ready")
                 elif operation == "recognize":
                     image, settings = payload
@@ -46,7 +57,8 @@ def _serve_ocr(connection, log_directory, engine_factory):
                     raise ValueError("Unknown OCR operation")
             except Exception as exc:
                 logger.exception("OCR %s failed", operation)
-                connection.send(("error", str(exc)[:3000] or type(exc).__name__))
+                connection.send(("device_error" if isinstance(exc, DeviceExecutionError) else "error",
+                                 str(exc)[:3000] or type(exc).__name__))
     except (EOFError, BrokenPipeError, OSError):
         pass
     finally:
@@ -63,6 +75,10 @@ class OCRProcessService:
         self._lock = threading.RLock()
         self._process = self._connection = None
         self._model_key = None
+        self._selection_key = None
+        self._candidates = []
+        self._candidate_index = 0
+        self.device_info = None
         self._closing = threading.Event()
         self.closed = threading.Event()
 
@@ -87,6 +103,7 @@ class OCRProcessService:
     def _dispose_worker(self):
         process, connection = self._process, self._connection
         self._process = self._connection = self._model_key = None
+        self.device_info = None
         if connection is not None:
             connection.close()
         if process is not None:
@@ -125,25 +142,30 @@ class OCRProcessService:
                     self._check_cancelled(cancel)
                     if kind == "error":
                         raise RecognitionError(value)
+                    if kind == "device_error":
+                        raise DeviceExecutionError(value)
                     if kind == "progress" and operation == "recognize":
                         last_activity = time.monotonic()
                         if on_progress:
                             on_progress(*value)
-                    elif kind == ("loaded" if operation == "load" else "result"):
+                    elif kind == {"load": "loaded", "recognize": "result", "devices": "devices"}[operation]:
                         return value
                 elif not self._process.is_alive():
                     raise EOFError
                 if time.monotonic() - last_activity > timeout:
                     self._dispose_worker()
                     action = "Nạp model" if operation == "load" else "Nhận diện"
-                    raise RecognitionError(f"{action} quá {timeout:g} giây không phản hồi. Hãy thử lại hoặc chọn CPU.")
+                    raise OCRWorkerStopped(f"{action} quá {timeout:g} giây không phản hồi. Hãy thử lại hoặc chọn CPU.")
         except (EOFError, BrokenPipeError, OSError) as exc:
             self._check_cancelled(cancel)
+            if self._process is not None:
+                self._process.join(timeout=0.1)
             code = self._process.exitcode if self._process is not None else None
+            hexadecimal = f'0x{code & 0xffffffff:08X}' if code is not None else 'unknown'
             logger.error("AI process stopped unexpectedly, exit=%s", code, exc_info=True)
             self._dispose_worker()
-            detail = f" (mã {code})" if code is not None else ""
-            raise RecognitionError(
+            detail = f" (mã {code}, {hexadecimal}; bước {operation})" if code is not None else ""
+            raise OCRWorkerStopped(
                 f"Tiến trình AI đã dừng bất thường{detail}. Giao diện vẫn hoạt động; bấm nhận diện để thử lại.\n"
                 f"Chi tiết: {self.log_directory / 'ocr-worker.log'} và ocr-crash.log"
             ) from exc
@@ -156,6 +178,33 @@ class OCRProcessService:
             # let the next image receive this request's result.
             self._dispose_worker()
             raise
+
+    def _discover_devices(self, cancel):
+        try:
+            return self._request("devices", None, cancel, self.load_timeout)
+        except RecognitionError:
+            logger.exception("GPU discovery failed in isolated worker; trying CPU")
+            self._dispose_worker()
+            return [CPU]
+
+    def _load_remaining(self, settings, key, cancel):
+        while self._candidate_index < len(self._candidates):
+            device = self._candidates[self._candidate_index]
+            logger.info("Trying compute device: %s | %s | %s", device.id, device.kind, device.name)
+            try:
+                actual_id = self._request("load", OCRSettings(key[0], device.id, settings.layout, device.adapter_luid), cancel, self.load_timeout)
+            except RecognitionError as exc:
+                self._dispose_worker()
+                self._candidate_index += 1
+                logger.warning("Device %s could not load model: %s", device.id, exc)
+                if self._candidate_index == len(self._candidates):
+                    raise
+            else:
+                self._model_key = key
+                self.device_info = {"id": actual_id or device.id, "name": device.name, "kind": device.kind,
+                                    "adapter_luid": device.adapter_luid}
+                logger.info("Active compute device: %s | %s", self.device_info["id"], device.name)
+                return
 
     def load(self, settings: OCRSettings, cancel: threading.Event | None = None):
         with self._lock:
@@ -172,17 +221,33 @@ class OCRProcessService:
                 return
             # Replacing a model first releases its RAM/VRAM, including allocator caches.
             self._dispose_worker()
-            try:
-                self._request("load", OCRSettings(str(path), settings.device, settings.layout), cancel, self.load_timeout)
-            except Exception:
+            validate_device(settings.device)
+            if self._selection_key != key or self._candidate_index >= len(self._candidates):
+                devices = [CPU] if settings.device == "cpu" else self._discover_devices(cancel)
+                self._candidates = select_devices(devices, settings.device)
+                self._candidate_index = 0
+                self._selection_key = key
+            if not self._candidates:
                 self._dispose_worker()
-                raise
-            self._model_key = key
+                raise RecognitionError(f"Thiết bị {settings.device} chưa khả dụng. Chọn Tự động hoặc CPU; xem log về runtime/driver.")
+            self._load_remaining(settings, key, cancel)
 
     def recognize(self, image, settings: OCRSettings, cancel: threading.Event, on_progress=None):
         with self._lock:
             self.load(settings, cancel)
-            return self._request("recognize", (image, settings), cancel, self.recognition_timeout, on_progress)
+            key = self._model_key
+            while True:
+                device = self._candidates[self._candidate_index]
+                effective = OCRSettings(settings.weights, device.id, settings.layout, device.adapter_luid)
+                try:
+                    return self._request("recognize", (image, effective), cancel, self.recognition_timeout, on_progress)
+                except (DeviceExecutionError, OCRWorkerStopped) as exc:
+                    if settings.device != "auto" or device.kind == "cpu" or self._candidate_index + 1 == len(self._candidates):
+                        raise
+                    logger.warning("Device %s failed during inference; retrying the whole image on the next device: %s", device.id, exc)
+                    self._dispose_worker()
+                    self._candidate_index += 1
+                    self._load_remaining(settings, key, cancel)
 
     def close(self):
         if self._closing.is_set():

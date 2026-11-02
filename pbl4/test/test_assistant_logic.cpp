@@ -22,6 +22,8 @@ void testCommands() {
       {"WAKE", CommandType::Wake, 0}, {"  awake\t", CommandType::Wake, 0},
       {"received", CommandType::Received, 1}, {"RECEIVED 1", CommandType::Received, 1},
       {"received 10", CommandType::Received, 10}, {"PROCESS", CommandType::Process, 0},
+      {"RECEIVED 11", CommandType::Received, 11}, {"RECEIVED 1000", CommandType::Received, 1000},
+      {"RECEIVED 2147483647", CommandType::Received, 2147483647},
       {"processing", CommandType::Process, 0}, {"PROGRESS 0", CommandType::Progress, 0},
       {"progress 100", CommandType::Progress, 100}, {"DONE", CommandType::Done, 0},
       {"ERROR", CommandType::Error, 0}, {"SLEEP", CommandType::Sleep, 0},
@@ -45,7 +47,7 @@ void testCommands() {
     CHECK(command.type == item.type && command.value == item.value);
   }
   const char* invalid[] = {nullptr, "", "   ", "UNKNOWN", "WAKE NOW", "RECEIVED 0",
-      "RECEIVED 11", "RECEIVED -1", "RECEIVED 1 2", "RECEIVED 1.5", "PROGRESS",
+      "RECEIVED 2147483648", "RECEIVED 999999999999999999999999", "RECEIVED -1", "RECEIVED 1 2", "RECEIVED 1.5", "PROGRESS",
       "PROGRESS -1", "PROGRESS 101", "PROGRESS 99999999999999999999999999",
       "PROGRESS 50%", "PROGRESS +1", "PROGRESS 10 EXTRA", "MUTE", "MUTE YES", "MUTE ON OFF",
       "THEME", "THEME BLUE", "THEME DARK EXTRA", "MUSIC", "MUSIC UNKNOWN",

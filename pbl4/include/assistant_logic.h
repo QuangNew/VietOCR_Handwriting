@@ -38,7 +38,7 @@ struct Model {
   State state = State::Sleeping;
   uint32_t stateSince = 0;
   int progress = -1;  // -1: indeterminate, otherwise 0..100.
-  uint8_t imageCount = 0;
+  uint32_t imageCount = 0;
   bool darkTheme = true;  // Appearance is independent of assistant state.
 
   void enter(State next, uint32_t now);

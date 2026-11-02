@@ -1,12 +1,14 @@
 #include "assistant_bluetooth.h"
 #include "assistant_config.h"
 #include <BLEDevice.h>
+#include <esp_gap_ble_api.h>
 
 AssistantBluetooth::AssistantBluetooth(CommandHandler command, DisconnectHandler disconnected)
     : command_(command), disconnected_(disconnected) {}
 
 void AssistantBluetooth::begin() {
   BLEDevice::init(assistant_config::kBluetoothName);
+  BLEDevice::setMTU(517);
   server_ = BLEDevice::createServer();
   server_->setCallbacks(this);
   BLEService* service = server_->createService(assistant_config::kBleServiceUuid);
@@ -17,6 +19,11 @@ void AssistantBluetooth::begin() {
   BLECharacteristic* rx = service->createCharacteristic(
       assistant_config::kBleRxUuid, BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_WRITE_NR);
   rx->setCallbacks(this);
+  if (camera_) {
+    BLECharacteristic* image = service->createCharacteristic(assistant_config::kBleImageUuid,
+        BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE);
+    image->setCallbacks(camera_);
+  }
   service->start();
   BLEAdvertising* advertising = BLEDevice::getAdvertising();
   // A 128-bit service UUID and the full name need separate advertising packets.
@@ -43,6 +50,17 @@ void AssistantBluetooth::onConnect(BLEServer*, esp_ble_gatts_cb_param_t* param) 
   rxHead_ = rxTail_ = rxSize_ = 0;
   rxOverflow_ = false;
   portEXIT_CRITICAL(&mutex_);
+  esp_ble_conn_update_params_t params{};
+  memcpy(params.bda, param->connect.remote_bda, sizeof(esp_bd_addr_t));
+  params.min_int = 12;  // 15 ms; central chooses the final connection interval.
+  params.max_int = 24;  // 30 ms.
+  params.latency = 0;
+  params.timeout = 400;
+  Serial.printf("BLE LINK fast interval request rc=%d\n", int(esp_ble_gap_update_conn_params(&params)));
+}
+
+void AssistantBluetooth::onMtuChanged(BLEServer*, esp_ble_gatts_cb_param_t* param) {
+  Serial.printf("BLE MTU negotiated=%u\n", param->mtu.mtu);
 }
 
 void AssistantBluetooth::onDisconnect(BLEServer*, esp_ble_gatts_cb_param_t*) {
@@ -126,6 +144,7 @@ void AssistantBluetooth::update(uint32_t now) {
     disconnectedAt_ = lastSeen_ = now;
     label_ = connected ? "Da ket noi" : "Cho ket noi";
     Serial.println(connected ? "BLE APP CONNECTED" : "BLE APP DISCONNECTED");
+    if (connected && connectedHandler_) connectedHandler_(now);
   }
   if (restartAdvertising_ && now - disconnectedAt_ >= 250) {
     // Restart from loop, after the stack finishes its disconnect callback.

@@ -10,6 +10,19 @@ from .ocr_service import RecognitionCancelled
 logger = logging.getLogger("vietocr_desktop.tasks")
 
 
+def warm_model(settings, service, events, stop):
+    started = time.perf_counter()
+    try:
+        service.load(settings, cancel=stop)
+    except RecognitionCancelled:
+        return
+    except Exception as error:
+        logger.warning('Background model load failed: %s', error)
+        events.put(('model_warmed', service, None, time.perf_counter()-started, str(error)))
+    else:
+        events.put(('model_warmed', service, getattr(service, 'device_info', None), time.perf_counter()-started, ''))
+
+
 def import_images(paths, events, stop):
     errors = []
     for path in paths:
@@ -31,12 +44,16 @@ def recognize_images(jobs, settings, cancel, service, events):
         if cancel.is_set():
             raise RecognitionCancelled()
         events.put(("model_loaded",))
+        events.put(("model_device", getattr(service, "device_info", None)))
         for index, (item_id, image) in enumerate(jobs, 1):
             if cancel.is_set():
                 break
             events.put(("started", item_id, index, len(jobs)))
             started = time.perf_counter()
             try:
+                # Queue entries are paths; decode only the active image.
+                if isinstance(image, (str, Path)):
+                    image = load_image(image)
                 result = service.recognize(image, settings, cancel,
                                            lambda line, total, job_id=item_id: events.put(("line_progress", job_id, line, total)))
             except RecognitionCancelled:
@@ -49,6 +66,8 @@ def recognize_images(jobs, settings, cancel, service, events):
             else:
                 successes += 1
                 events.put(("result", item_id, result, "", time.perf_counter()-started))
+            finally:
+                events.put(("model_device", getattr(service, "device_info", None)))
     except RecognitionCancelled:
         pass
     except Exception as exc:

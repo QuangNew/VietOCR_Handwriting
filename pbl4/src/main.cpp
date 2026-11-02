@@ -3,6 +3,8 @@
 #include "assistant_display.h"
 #include "assistant_logic.h"
 #include "assistant_bluetooth.h"
+#include "assistant_camera.h"
+#include "assistant_wifi.h"
 #include <VietMusic.h>
 #include <VietMusicSongs.h>
 #include <VietMusicOutput.h>
@@ -14,16 +16,22 @@ vietmusic::Player buzzer;
 vietmusic::Esp32Output audioOutput;
 assistant::LineReceiver receiver;
 AssistantDisplay display;
+AssistantCamera camera;
+AssistantWifi wifi;
 bool displayDirty = true;
 bool announcedDemo = false;
 
 void handleCommand(const char* line, uint32_t now, Print& response);
 void sleepAfterDisconnect(uint32_t now) {
+  wifi.endSession();
+  camera.disconnect();
   if (model.state != assistant::State::Sleeping || buzzer.playing() || demo.active()) {
     handleCommand("STOP", now, Serial);
   }
 }
 AssistantBluetooth bluetooth(handleCommand, sleepAfterDisconnect);
+
+void connectSavedWifi(uint32_t) { wifi.bluetoothConnected(); }
 
 void writeBuzzer() {
   if (audioOutput.ready() && !audioOutput.write(buzzer.frequency())) {
@@ -71,6 +79,16 @@ void printStatus(Print& response) {
 }
 
 void handleCommand(const char* line, uint32_t now, Print& response) {
+  if (!strcmp(line, "INFO")) {
+#if defined(VIETOCR_CAMERA) && VIETOCR_CAMERA
+    response.printf("INFO VIETOCR_ASSISTANT %s WIFI1 CAMERA_OV5640_2592x1944 AF1\n", assistant_config::kFirmwareVersion);
+#else
+    response.printf("INFO VIETOCR_ASSISTANT %s WIFI1 CAMERA_DISABLED\n", assistant_config::kFirmwareVersion);
+#endif
+    return;
+  }
+  if (wifi.command(line, response)) return;
+  if (camera.command(line, response)) { displayDirty = true; return; }
   using assistant::CommandType;
   using assistant::State;
   assistant::Command command;
@@ -85,7 +103,7 @@ void handleCommand(const char* line, uint32_t now, Print& response) {
       break;
     case CommandType::Received:
       enterState(State::Received, now);
-      model.imageCount = static_cast<uint8_t>(command.value);
+      model.imageCount = static_cast<uint32_t>(command.value);
       response.printf("OK RECEIVED %d\n", command.value);
       break;
     case CommandType::Process:
@@ -110,6 +128,7 @@ void handleCommand(const char* line, uint32_t now, Print& response) {
       response.println("OK ERROR");
       break;
     case CommandType::Sleep:
+      camera.disconnect();
       enterState(State::Sleeping, now);
       response.println("OK SLEEP");
       break;
@@ -119,6 +138,7 @@ void handleCommand(const char* line, uint32_t now, Print& response) {
       response.println("OK DEMO");
       break;
     case CommandType::Stop:
+      camera.disconnect();
       demo.stop();
       model.enter(State::Sleeping, now);
       buzzer.stop();
@@ -165,9 +185,12 @@ void handleCommand(const char* line, uint32_t now, Print& response) {
     case CommandType::Status: printStatus(response); break;
     case CommandType::Ping: response.println("PONG"); break;
     case CommandType::Help:
-      response.println("COMMANDS WAKE | RECEIVED [1..10] | PROCESS | PROGRESS 0..100 | DONE | ERROR | SLEEP");
+      response.println("COMMANDS WAKE | RECEIVED [count] | PROCESS | PROGRESS 0..100 | DONE | ERROR | SLEEP");
+      response.println("CAM OPEN | CAM STATUS | CAM CLOSE | CAM SHOT <id> | CAM META <id> | CAM RELEASE <id>");
+      response.println("WIFI SCAN | WIFI COUNT | WIFI NET <index> | WIFI STATUS | WIFI SSID <hex> | WIFI PASS <hex> | WIFI JOIN | WIFI FORGET");
       response.println("COMMANDS DEMO | STOP | MUTE ON/OFF | THEME DARK/LIGHT | BEEP | STATUS | PING | HELP");
       response.println("COMMANDS MUSIC LIST | MUSIC <name> | MUSIC STOP");
+      response.println("INFO: firmware version and capabilities");
       response.println("One ASCII command per line (LF/CRLF). STOP sleeps; MUSIC STOP only stops audio.");
       break;
   }
@@ -195,24 +218,34 @@ void setup() {
       assistant_config::kBuzzerPwmChannel);
   buzzer.setMuted(!assistant_config::kSoundEnabled);
   Serial.begin(assistant_config::kSerialBaud);
+#if defined(VIETOCR_CAMERA) && VIETOCR_CAMERA
+  Serial.println("FIRMWARE esp32-s3-cam-ov5640 AF | TFT pins: CS42 RST40 DC41 MOSI21 SCK47");
+#else
+  Serial.println("FIRMWARE esp32-s3-devkitc-1 LEGACY | TFT pins: CS10 RST8 DC9 MOSI11 SCK12");
+#endif
   if (!audioReady) Serial.println("ERR AUDIO_INIT: check LEDC channel and GPIO");
   Serial.println(audioOutput.mode() == vietmusic::OutputMode::ActiveBuzzer
       ? "AUDIO ACTIVE: rhythm only; use a passive buzzer for musical pitch."
       : "AUDIO PASSIVE: LEDC melody output on GPIO 5.");
   display.begin();
-  Serial.println("READY VIETOCR_ASSISTANT 1");
+  camera.begin();
+  Serial.printf("READY VIETOCR_ASSISTANT %s\n", assistant_config::kFirmwareVersion);
   Serial.println("Send HELP for commands; DEMO to preview all normal states.");
   const uint32_t now = millis();
   model.enter(assistant::State::Sleeping, now);
   if (assistant_config::kDemoOnBoot) demo.start(model, now);
   announceState(now, demo.active());
+  bluetooth.setCameraCallbacks(&camera);
+  bluetooth.setConnectHandler(connectSavedWifi);
   bluetooth.begin();
+  wifi.begin(&camera);
 }
 
 void loop() {
   const uint32_t now = millis();
   pollSerial(now);
   bluetooth.update(now);
+  wifi.update(now);
   if (demo.active()) {
     if (demo.update(model, now)) announceState(now);
   } else if (model.update(now)) {

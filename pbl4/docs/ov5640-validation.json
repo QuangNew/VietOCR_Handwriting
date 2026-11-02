@@ -1,0 +1,154 @@
+{
+  "date": "2026-11-02",
+  "firmware": "3.0.0-ov5640",
+  "environment": "esp32-s3-cam-ov5640",
+  "artifact": "pbl4/dist/VietOCR-OV5640.bin",
+  "bytes": 1495328,
+  "sha256": "aebfd7d3a0550c08587af03e9f3cd2b037fd849326a39932bde47ef9bcb33e9f",
+  "flashed": true,
+  "port": "COM8",
+  "esptool_flash_hash_verified": true,
+  "sensor": "OV5640",
+  "preview": [
+    640,
+    480
+  ],
+  "preview_jpeg_qs": 18,
+  "preview_fps_ceiling": 30,
+  "preview_transport": "UDP VOJ1; authenticated HTTP setup; frame CRC32; drop stale/incomplete frames",
+  "preview_frames_received_and_decoded": 2818,
+  "received_fps_by_cycle": [
+    19.86,
+    20.277,
+    18.505,
+    21.476,
+    21.813,
+    21.714
+  ],
+  "received_fps_min": 18.505,
+  "received_fps_max": 21.813,
+  "still": [
+    2592,
+    1944
+  ],
+  "still_jpeg_qs": 8,
+  "still_transport": "HTTP LAN with byte length and CRC32",
+  "verified_photos": [
+    {
+      "dimensions": [
+        2592,
+        1944
+      ],
+      "bytes": 235935,
+      "crc32_verified": true,
+      "capture_and_download_seconds": 3.891,
+      "mean_luminance": 155.11
+    },
+    {
+      "dimensions": [
+        2592,
+        1944
+      ],
+      "bytes": 242723,
+      "crc32_verified": true,
+      "capture_and_download_seconds": 4.422,
+      "mean_luminance": 167.15
+    },
+    {
+      "dimensions": [
+        2592,
+        1944
+      ],
+      "bytes": 311755,
+      "crc32_verified": true,
+      "capture_and_download_seconds": 6.172,
+      "mean_luminance": 145.21
+    },
+    {
+      "dimensions": [
+        2592,
+        1944
+      ],
+      "bytes": 500125,
+      "crc32_verified": true,
+      "capture_and_download_seconds": 11.687,
+      "mean_luminance": 165.25
+    },
+    {
+      "dimensions": [
+        2592,
+        1944
+      ],
+      "bytes": 491077,
+      "crc32_verified": true,
+      "capture_and_download_seconds": 5.359,
+      "mean_luminance": 164.28
+    },
+    {
+      "dimensions": [
+        2592,
+        1944
+      ],
+      "bytes": 558778,
+      "crc32_verified": true,
+      "capture_and_download_seconds": 5.422,
+      "mean_luminance": 156.2
+    }
+  ],
+  "photo_count": 6,
+  "autofocus": {
+    "firmware_loaded": true,
+    "single_lock_reported": true,
+    "continuous_preview": true,
+    "optical_resolution_chart_measured": false,
+    "first_AF_load_seconds_approx": 5
+  },
+  "ble_and_udp": {
+    "heartbeats_sent": 28,
+    "pongs": 28,
+    "errors": [],
+    "camera_exit_code": 0,
+    "ble_stayed_connected": true,
+    "seconds": 59.579,
+    "windows_radio_restored": true
+  },
+  "nvs_camera_persistence_after_hard_reset_verified": true,
+  "nvs_camera_key": "vietocr-camera/profile5640",
+  "nvs_record_bytes": 92,
+  "wifi_profile": "QuangNew",
+  "wifi_reconnect_after_hard_reset_verified": true,
+  "wifi_power_save": "MAX_MODEM with listen_interval=1; modem sleep stays enabled for BLE",
+  "tcp_mjpeg_compatibility": {
+    "port": 81,
+    "prior_VGA_received_fps": [
+      9.202,
+      10.11,
+      10.124
+    ],
+    "note": "UDP is the measured fast preview. Old apps still need UDP/schema integration."
+  },
+  "physical_logs": [
+    ".toolchain/ov5640-hotspot-udp/result.json",
+    ".toolchain/ov5640-ble-udp/result.json",
+    ".toolchain/ov5640-after-reset/result.json"
+  ],
+  "upload_log": ".toolchain/ov5640-final-upload.log",
+  "host_tests_log": ".toolchain/ov5640-host-tests.log",
+  "receiver_tests_passed": 2,
+  "cleanup_freed_bytes": 229770033,
+  "source_sha256": {
+    "platformio.ini": "e2e81fd382415d08b38e92764b8cc37015bf72915ff8a2926c665f4065f398b6",
+    "src/assistant_camera.cpp": "c08d25716b6339e90362e68628b2d346d0b67696bb1d595d71336470f6f7665d",
+    "src/assistant_wifi.cpp": "bf1f0714391d41321be6bfa22bc82d0dbf2b1ed84c9592d985bbe4a7c9613a01",
+    "src/main.cpp": "032639ea4178814020aad49c52b8a5ed9c7250f902d420b041ab19b8802235f8",
+    "include/camera_settings.h": "d769e7c580770c3e9adbf93dc50dea14ccfd7b4eec38f329cf7107c3e144ef1c",
+    "include/camera_transfer.h": "72795b53e69b7ed76981b81f564c33c93a2508549541aab5aa45fc4a48df1a8e",
+    "include/camera_udp.h": "0f7cb6e7a31f5a724da604dea993b32fd7311a3e541dcdaa5d4b086ecb3062af",
+    "lib/Ov5640Autofocus/src/autofocus_control.h": "9d524709c3f1e73e4295a164c6eba6a194f2eedf4b25eb93dda8d67729fbf931",
+    "lib/NativeCameraHal/src/native_jpeg.h": "7ee47d9634b8f95fe287b420dbd8337c6893d5f783325b3ca2bf65c0329981ec"
+  },
+  "apps_modified_or_built_this_turn": false,
+  "new_SDK_or_AI_model_downloaded": false,
+  "hotspot_testing_uses_LAN_only": true,
+  "notes": "Measured on this physical board/hotspot/scene. AF status does not certify optical sharpness. UDP may discard incomplete frames. Camera was closed after testing; Wi-Fi settings retained."
+}

@@ -11,8 +11,11 @@ class AssistantBluetooth : public BLEServerCallbacks, public BLECharacteristicCa
  public:
   using CommandHandler = void (*)(const char*, uint32_t, Print&);
   using DisconnectHandler = void (*)(uint32_t);
+  using ConnectHandler = void (*)(uint32_t);
   AssistantBluetooth(CommandHandler command, DisconnectHandler disconnected);
   void begin();
+  void setCameraCallbacks(BLECharacteristicCallbacks* camera) { camera_ = camera; }
+  void setConnectHandler(ConnectHandler handler) { connectedHandler_ = handler; }
   void update(uint32_t now);
   const String& label() const { return label_; }
   using Print::write;
@@ -23,8 +26,10 @@ class AssistantBluetooth : public BLEServerCallbacks, public BLECharacteristicCa
   BLEServer* server_ = nullptr;
   BLECharacteristic* tx_ = nullptr;
   BLE2902* subscription_ = nullptr;
+  BLECharacteristicCallbacks* camera_ = nullptr;
   CommandHandler command_;
   DisconnectHandler disconnected_;
+  ConnectHandler connectedHandler_ = nullptr;
   assistant::LineReceiver receiver_;
   String label_;
   portMUX_TYPE mutex_ = portMUX_INITIALIZER_UNLOCKED;
@@ -44,6 +49,7 @@ class AssistantBluetooth : public BLEServerCallbacks, public BLECharacteristicCa
   size_t txHead_ = 0, txTail_ = 0, txSize_ = 0;
 
   void onConnect(BLEServer*, esp_ble_gatts_cb_param_t* param) override;
+  void onMtuChanged(BLEServer*, esp_ble_gatts_cb_param_t* param) override;
   void onDisconnect(BLEServer*, esp_ble_gatts_cb_param_t*) override;
   void onWrite(BLECharacteristic* characteristic) override;
   void onStatus(BLECharacteristic*, Status status, uint32_t) override;

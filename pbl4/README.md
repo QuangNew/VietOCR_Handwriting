@@ -1,18 +1,126 @@
 # Trợ lý VietOCR — ESP32-S3
 
+**Hiện tại (02/11/2026): OV5640 autofocus, firmware `3.0.0-ov5640`.**
+Chỉ còn profile **`esp32-s3-cam-ov5640`** trong PlatformIO. Preview mặc định
+**640×480/QS18**, mục tiêu **15 FPS trở lên**, trần gửi 30 FPS; ảnh chụp **2592×1944/QS8**, không lấy
+ảnh preview phóng lớn. Cùng bo N16R8 và dây TFT/còi hiện tại, không đổi GPIO.
+Đã nạp qua **COM8** để kiểm tra. Hướng dẫn và số đo thực ở
+[OV5640.md](docs/OV5640.md); phần OV3660 dưới đây giữ làm lịch sử.
+
+```powershell
+pio run -e esp32-s3-cam-ov5640
+pio run -e esp32-s3-cam-ov5640 -t upload --upload-port COM8
+pio device monitor --port COM8 --baud 115200
+```
+
+Preview **UDP đã đo 18,5–21,8 FPS tại máy nhận**, kể cả khi BLE cùng kết nối;
+MJPEG qua TCP vẫn có để tương thích nhưng chậm hơn. Chạy công cụ xem IoT
+`tools/camera_check.py --udp --show`; chưa cập nhật desktop/Android ở lượt này.
+
+Serial: `CAM OPEN`, `CAM CLOSE`, `CAM FOCUS`, `CAM AF STATUS`, `CAM CONFIG`,
+`CAM SET preview_width 640`, `CAM SAVE`. Xem luồng HTTP và chụp kiểm tra bằng
+`tools/camera_check.py` mà không cần chạy desktop/Android. Các bản build cũ
+đã được dọn, mã nguồn và báo cáo cũ giữ lại; chi tiết `docs/ov5640-cleanup.json`.
+
+## Lịch sử firmware trước OV5640
+
 Firmware hiển thị trợ lý hoạt hình trên TFT ILI9341 320×240, giao diện sáng/tối,
-thông báo tiếng Việt có dấu và âm báo qua GPIO 5. Thư viện VietMusic hỗ trợ
+thông báo tiếng Việt có dấu và âm báo qua GPIO 14 (profile camera), GPIO 5
+(profile cũ). Thư viện VietMusic hỗ trợ
 giai điệu trên còi passive; TMB12A05 active hiện có chỉ phát theo nhịp.
 Có chớp mắt, thức dậy, nhận ảnh, đọc chữ, mặt vui khi hoàn tất và mặt báo lỗi.
 Có thể điều khiển qua Bluetooth BLE bằng app desktop/điện thoại, hoặc Serial qua USB/UART.
-ESP32 chỉ nhận trạng thái từ app; model OCR và ảnh được xử lý trên máy tính.
+ESP32 chụp JPEG gốc **2048×1536** từ OV3660 và gửi qua **Wi-Fi LAN**, OCR chạy offline trên Android/máy tính. BLE điều khiển trợ lý và cấu hình Wi-Fi. Chụp trong app cần HTTP camera hoạt động.
+
+**Mới: OV3660 + N16R8.** Camera dùng profile riêng `esp32-s3-cam-ov3660`.
+Firmware camera mới **`2.6.0-config`**; gửi `INFO` trong Serial/BLE để xác nhận.
+Desktop: **Xem camera → Cấu hình camera**. Android **1.8.0+13**: biểu tượng
+thanh trượt trong trang camera. Chỉnh preview/JPEG/FPS, màu sắc, ánh sáng và
+hướng ảnh, rồi **Áp dụng**; tùy chọn nhớ lưu trong NVS `vietocr-camera/profile`
+qua ngắt Bluetooth và mất điện. Có preset Mượt/Cân bằng/Chi tiết, Tải lại và
+Mặc định. [Hướng dẫn/API](docs/CAMERA.md#cấu-hình-camera-trong-app).
+Preview **640×480/QS16**, cùng cửa sổ cảm biến 4:3 với ảnh chụp
+**2048×1536/QS4**. Hai framebuffer và bỏ giới hạn gửi 10 FPS; desktop hiển
+thị FPS thực. Chọn **Lật ngang / Lật dọc** trong cửa sổ camera để đổi cả
+preview lẫn JPEG chụp; hướng ảnh nằm cùng bản ghi NVS cấu hình camera.
+Sau chuyển chế độ/hướng, bỏ hai frame đầu và kiểm tra timestamp/kích thước
+JPEG để không đưa nhầm preview hoặc frame cũ vào OCR.
+**2.6.0 chỉ build firmware và APK Android, chưa nạp/cài theo yêu cầu mới nhất;
+chưa đo FPS trên bo hoặc kiểm tra thay đổi cảm biến bằng bản mới.**
+15–30 FPS là mục tiêu, không phải kết quả đã đo. Không tắt modem sleep.
+
+Kết quả phần cứng trước đó của 2.4.4 (preview 3 MP):
+Đã kiểm tra trực tiếp COM8 và nhận/giải mã JPEG trên máy tính ngày 29/10/2026.
+Thử đổi riêng mức nén xác nhận **QS=0/1 không có JPEG hoàn chỉnh; QS=2 vẫn
+ngắt; QS=4 chạy được ở nguyên 2048×1536**. Lượt stream QS4 nhận 28 ảnh trong
+125 giây, không lỗi giải mã hay khởi tạo lại camera (~0,22 FPS trên LAN hiện
+tại). Xem [báo cáo camera](docs/camera-validation.json). `/health` và Serial
+lấy mức JPEG từ cấu hình thực, không ghi cố định QS=0 nữa.
+
+Từ 2.4.3:
+Sửa quyền sở hữu GDMA: cấp kênh RX qua ESP-IDF, giữ clock trong suốt phiên
+camera, nối đúng peripheral CAM và giải phóng sau khi đã gỡ ISR. Không dò
+kênh trống bằng thanh ghi nữa. Serial có `CAMERA GDMA owned RX=...`.
+Lượt này chỉ build profile camera; app desktop/Android dùng tiếp bản hiện có.
+App tự đọc `WIFI STATUS` / `WIFI SAVED` sau BLE và mỗi 5 giây, hiển thị mạng
+đã lưu cùng IP. Đọc trạng thái không quét mạng, không kết nối lại và không
+ghi flash. `CAMERA INIT OK` chỉ xác nhận khởi tạo; `CAMERA FIRST JPEG` mới
+xác nhận có ảnh. Lỗi camera có thêm `CAMERA DVP TIMEOUT` với bộ đếm VSYNC,
+EOF, thiếu marker JPEG và tràn bộ đệm, không bị mức log mặc định che mất.
+Từ 2.5.0 preview VGA và ảnh chụp 3 MP được chọn riêng; HAL camera cục bộ cấp
+hai bộ đệm JPEG **2 MiB** thay vì khoảng 629 KB mặc định. Các bản sao preview
+chỉ cấp theo độ dài JPEG thực để vừa PSRAM 8 MiB. `/health` trả kích thước
+preview/still, QS từng chế độ, `mirror`, `flip`, `camera_status`, `jpeg_capacity`.
+App xem ảnh vừa chụp 3 giây hoặc Bỏ qua, sau đó tự vào hàng đợi và trở lại
+preview; cửa sổ camera chỉ đóng khi người dùng đóng. Từ 2.5.0 bỏ giới hạn
+gửi 10 FPS; xem số đo thực trên giao diện và log, chưa cam kết FPS trên bo.
+Sửa reset lặp đã xác nhận bằng Serial/backtrace của 2.3.1: bật
+`WIFI_PS_MIN_MODEM` trước STA, bỏ `setSleep(false)` sau kết nối. Không tắt
+modem sleep khi Wi-Fi/BLE chạy cùng Arduino core 2.0.14/IDF 4.4.
+Không cần xóa Wi-Fi đã nhớ hay đổi dây. Khi boot có
+`WIFI COEX power_save=MIN_MODEM rc=ESP_OK`. Bản 2.4.4 đã được nạp và kiểm tra qua COM8.
+Mỗi lần **kết nối BLE**, ESP32 chủ động tìm SSID đã lưu và kết nối ngay,
+không chờ người dùng mở Wi-Fi camera hoặc chờ hết thời gian retry. Kết nối
+Wi-Fi đang hoạt động được giữ nguyên; lượt connect đang chạy tiếp tục chạy.
+Mạng kết nối thành công được nhớ trong NVS `vietocr-wifi/profile`; bật nguồn
+sẽ tự kết nối, mất mạng sẽ thử lại sau 3/6/12/24/60 giây, không cần mở app.
+Cấu hình SSID/password cũ được đọc lại và tự chuyển sang bản ghi mới.
+Wi-Fi/HTTP/NVS chạy task riêng; BLE và TFT không phải chờ connect hay stop HTTP.
+`WIFI SAVED` kiểm tra có mạng lưu (không trả mật khẩu), `WIFI FORGET` xóa mạng.
+
+Từ 2.2.1:
+Sửa scan Wi-Fi khi mạng cũ không còn: hủy kết nối offline, tắt reconnect
+trong lúc scan, đợi driver rồi thử tối đa ba lần. Quá hạn kết nối 25 giây
+sẽ thực sự dừng driver connect; không xóa NVS/mật khẩu đã lưu. Trạng thái
+OFFLINE bổ sung mã lý do ngắt mạng, Serial ghi từng lần thử scan.
+Ở các bản 2.2–2.3 cũ, stream **320×240** chạy trên HTTP **:81/stream**;
+ảnh chụp **2048×1536/quality6**, HTTP :80. Bản 2.4.1–2.4.3 thử 3 MP/QS0 nhưng
+không xuất được JPEG hoàn chỉnh trên bo này; 2.4.4 dùng 3 MP/QS4. Hai server/task
+riêng để stream không chặn chụp hay `/health`.
+Serial ghi `WIFI MJPEG listening`, `first_frame_ms`, số khung và thời gian chụp/gửi.
+Lỗi app báo `INVALID_COMMAND` khi Quét mạng đã xác nhận do bo chạy firmware
+cũ. Đã nạp bản 2.0.1 vào COM8 và quét được mạng qua BLE ngày 27/10/2026;
+bản mới chỉ build, chưa nạp theo lựa chọn người dùng.
+Mặc định là `esp32-s3-cam-ov3660`, theo bộ dây mới người dùng xác nhận ngày 26/10.
+Camera trùng GPIO với dây TFT/còi cũ: **phải chuyển dây trước khi nạp profile
+camera**. Xem [bảng dây, cách chụp và giao thức ảnh](docs/CAMERA.md). Pinout đã
+được người dùng kiểm tra ngày 26/10: OV3660 PID 0x3660, sáu JPEG giải mã đạt
+qua hai biến thể PWDN. Profile chính giữ **PWDN=-1 / RESET=-1 / XCLK 20 MHz**.
+
+TFT luôn hiển thị trợ lý, không hiển thị camera; góc nhìn camera nằm trong app.
+SPI màn hình **40 MHz**, không chạy màn màu lúc khởi động. Nếu TFT trắng,
+xem `FIRMWARE ...`/`TFT CONFIG ...` trong Serial và [cách kiểm tra TFT](docs/CAMERA.md#tft-trắng-sau-khi-chuyển-dây).
+**SDO/MISO nay nối GPIO39**, tránh việc TFT_eSPI 2.5.43 tự ghép MISO vào MOSI
+khi cấu hình -1 trên S3. GPIO13 đã dành cho PCLK camera.
 
 ## Kết nối Bluetooth BLE
 
 ESP32-S3 hỗ trợ **Bluetooth Low Energy**, không hỗ trợ Bluetooth Classic/SPP
 (`BluetoothSerial`), theo [tài liệu Espressif](https://docs.espressif.com/projects/esp-idf/en/stable/esp32s3/api-guides/bt-architecture/overview.html).
 Firmware phát tên **VietOCR-Assistant**, dùng Nordic UART Service (NUS).
-Kết nối trong app bằng cách quét/chọn thiết bị; không cần nhập Wi-Fi hay IP.
+Kết nối điều khiển bằng cách quét/chọn BLE. Trong **Wi-Fi camera**, quét/chọn
+mạng 2.4 GHz và nhập mật khẩu để ESP32 vào mạng. Máy tính/điện thoại cần cùng
+LAN; IP/token camera được app lấy qua BLE, không cần nhập IP.
 
 ```mermaid
 flowchart LR
@@ -37,7 +145,9 @@ flowchart LR
    Trên Windows, app yêu cầu quyền khi cần và kiểm tra bộ thu đã bật; nếu Windows
    từ chối hoặc không tìm thấy bộ thu, app mở Cài đặt để bạn kiểm tra/bật thủ công.
    Máy tính cần Bluetooth hỗ trợ BLE; nút bật không hoạt động trên mọi hệ thống.
-4. Chụp/tải ảnh và nhận diện như thường. Thiết bị sẽ thức dậy, nhận ảnh,
+4. Mở góc nhìn camera trên TFT rồi **Chụp OV3660** trong app; Android còn có
+   camera/thư viện điện thoại. Ảnh tự vào hàng đợi OCR tuần tự không giới hạn 10 ảnh.
+   Thiết bị sẽ thức dậy, nhận ảnh,
    hiển thị tiến độ, mặt vui khi hoàn tất và ngủ khi đóng/ngắt app.
 5. Để thử bằng điện thoại ngay, dùng **nRF Connect for Mobile** theo
    [hướng dẫn điện thoại và giao thức BLE](docs/BLE_PROTOCOL.md).
@@ -59,8 +169,9 @@ nhận lệnh hoàn chỉnh trong **60 giây**, rồi phát quảng bá để k�
 Khi kết nối lại, app khôi phục trạng thái hiện tại; cập nhật tiến độ được gộp,
 các lần đổi trạng thái khi online được gửi theo thứ tự.
 
-BLE chỉ truyền lệnh nhỏ như `RECEIVED 3`, `PROCESS`, `DONE`; ảnh và model OCR
-vẫn nằm ở máy tính. TFT, còi và Serial dùng nguyên các chân đã đấu.
+BLE truyền lệnh nhỏ như `RECEIVED 3`, `PROCESS`, `DONE` và JPEG qua characteristic
+ảnh riêng. Model OCR nằm ở máy nhận. Profile camera đổi dây TFT/còi theo
+[bảng cấu hình mới](docs/CAMERA.md#board-và-dây-nối).
 
 Nếu chưa kết nối được:
 
@@ -76,7 +187,8 @@ Nếu chưa kết nối được:
 
 ## Đấu màn hình
 
-Các chân đã cấu hình trong `platformio.ini`, đúng sơ đồ của dự án:
+Các chân bên dưới dành cho **profile cũ `esp32-s3-devkitc-1`, camera tắt**.
+Với OV3660 dùng bảng trong [CAMERA.md](docs/CAMERA.md), không dùng dây cũ:
 
 | Chân TFT | ESP32-S3 |
 | --- | --- |
@@ -167,7 +279,7 @@ Không phân biệt chữ hoa/thường. Lệnh đổi trạng thái sẽ dừng
 | Lệnh | Hành vi |
 | --- | --- |
 | `WAKE` | Thức dậy, cue tăng dần; sau 1,6 giây chuyển sang chờ |
-| `RECEIVED` / `RECEIVED 3` | Đã nhận ảnh, cue ngắn; số ảnh từ 1 đến 10, mặc định 1 |
+| `RECEIVED` / `RECEIVED 3` | Đã nhận ảnh, cue ngắn; số ảnh từ 1 đến 2147483647, mặc định 1 |
 | `PROCESS` | Đọc chữ, cue xử lý, thanh chờ chuyển động |
 | `PROGRESS 45` | Cập nhật phần trăm 0–100; chỉ chấp nhận khi đang xử lý |
 | `DONE` | Mặt vui, cue hoàn tất; sau 3,5 giây chuyển sang chờ ảnh tiếp |
@@ -204,8 +316,9 @@ Gửi `WAKE` khi mở app; `RECEIVED n` sau khi app đã nhận ảnh;
 `PROCESS` khi bắt đầu OCR; `DONE` sau khi OCR thành công, hoặc `ERROR` khi thất bại;
 `SLEEP` khi đóng app. `PROGRESS` là tùy chọn: nếu model không cung cấp tiến độ,
 chỉ gửi `PROCESS` và để thanh chờ chuyển động. **100% không tự kích hoạt `DONE`.**
-Số ảnh chỉ là thông tin hiển thị, firmware không nhận ảnh hay kiểm tra upload;
-giới hạn upload 10 ảnh vẫn do app quản lý.
+Số ảnh trong `RECEIVED` là thông tin hiển thị. Firmware camera chụp và giữ một
+JPEG để app nhận qua characteristic ảnh; hàng đợi OCR nằm ở máy nhận và không
+còn giới hạn 10 ảnh. Chi tiết `CAM ...` và CRC32 nằm trong [CAMERA.md](docs/CAMERA.md).
 
 Mỗi lệnh hợp lệ trả `OK ...` (hoặc kết quả truy vấn), lệnh sai trả `ERR ...`.
 Riêng Serial, mỗi lần đổi trạng thái còn phát một dòng `STATE ...` để theo dõi;

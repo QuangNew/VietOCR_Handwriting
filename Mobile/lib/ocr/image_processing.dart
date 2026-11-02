@@ -80,8 +80,8 @@ List<GrayImage> prepareLines((Uint8List, bool, int) request) {
   if (quarterTurns % 4 != 0) {
     image = img.copyRotate(image, angle: (quarterTurns % 4) * 90);
   }
-  if (math.max(image.width, image.height) > 1600) {
-    final scale = 1600 / math.max(image.width, image.height);
+  if (math.max(image.width, image.height) > 3200) {
+    final scale = 3200 / math.max(image.width, image.height);
     image = img.copyResize(
       image,
       width: math.max(1, (image.width * scale).round()),

@@ -7,22 +7,60 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../domain/document.dart';
 import 'ble_protocol.dart';
 import 'app_log.dart';
+import 'camera_transfer.dart';
+import 'wifi_camera.dart';
+import 'mjpeg_stream.dart';
+import 'udp_camera.dart';
+import 'camera_settings.dart';
 
 class BleAssistant extends ChangeNotifier {
-  BleAssistant({FlutterReactiveBle? radioClient, this.permissionCheck})
-    : _ble = radioClient ?? FlutterReactiveBle();
+  BleAssistant({
+    FlutterReactiveBle? radioClient,
+    this.permissionCheck,
+    this.cameraStreamFactory,
+    this.cameraHealthCheck,
+    this.cameraSettingsRequest,
+  }) : _ble = radioClient ?? FlutterReactiveBle();
   final FlutterReactiveBle _ble;
   final Future<bool> Function(bool request)? permissionCheck;
+  final MjpegConnection Function(WifiEndpoint endpoint)? cameraStreamFactory;
+  final Future<void> Function(WifiEndpoint endpoint)? cameraHealthCheck;
+  final Future<CameraConfig> Function(
+    WifiEndpoint endpoint,
+    Map<String, int>? settings,
+    bool persist,
+  )?
+  cameraSettingsRequest;
+  CameraConfig? cameraConfiguration;
+  bool cameraConfigBusy = false;
   static final service = Uuid.parse('6e400001-b5a3-f393-e0a9-e50e24dcca9e');
   static final rx = Uuid.parse('6e400002-b5a3-f393-e0a9-e50e24dcca9e');
   static final tx = Uuid.parse('6e400003-b5a3-f393-e0a9-e50e24dcca9e');
+  static final image = Uuid.parse('6e400004-b5a3-f393-e0a9-e50e24dcca9e');
+  int _mtu = 23;
+  bool cameraBusy = false;
+  double? cameraProgress;
+  String cameraMessage = 'Xem và nhận ảnh gốc qua Wi-Fi camera.';
+  Uint8List? previewBytes;
+  bool previewing = false;
+  int _previewGeneration = 0, _setupEpoch = -1;
+  MjpegConnection? _previewConnection;
+  StreamSubscription<Uint8List>? _previewSubscription;
   static const _device = MethodChannel('vietocr/device');
   final Map<String, DiscoveredDevice> devices = {};
   StreamSubscription<DiscoveredDevice>? _scan;
   StreamSubscription<ConnectionStateUpdate>? _connection;
   StreamSubscription<List<int>>? _notifications;
   StreamSubscription<BleStatus>? _status;
-  Timer? _scanTimer, _heartbeat, _retry;
+  Timer? _scanTimer, _heartbeat, _retry, _wifiPoll;
+  WifiState? wifiState;
+  String wifiError = '';
+  Future<void>? _wifiRefresh;
+  String get wifiMessage => !connected
+      ? 'Wi-Fi · Kết nối Bluetooth để xem trạng thái'
+      : wifiError.isNotEmpty
+      ? 'Wi-Fi · Chưa đọc được trạng thái: $wifiError'
+      : (wifiState ?? const WifiState()).summary;
   CommandQueue? _commands;
   int _epoch = 0;
   int _connectAttempt = 0;
@@ -195,7 +233,7 @@ class BleAssistant extends ChangeNotifier {
             withServices: [service],
             prescanDuration: const Duration(seconds: 2),
             servicesWithCharacteristicsToDiscover: {
-              service: [rx, tx],
+              service: [rx, tx, image],
             },
             connectionTimeout: const Duration(seconds: 12),
           )
@@ -220,15 +258,12 @@ class BleAssistant extends ChangeNotifier {
   }
 
   Future<void> _setup(int epoch) async {
+    if (_setupEpoch == epoch) return;
+    _setupEpoch = epoch;
     try {
       final deviceId = selectedId;
       final framer = LineFramer();
       final queue = CommandQueue((bytes) {
-        AppLog.instance.add(
-          'BLE TX',
-          String.fromCharCodes(bytes).trim(),
-          level: 'DEBUG',
-        );
         return _ble.writeCharacteristicWithResponse(
           QualifiedCharacteristic(
             characteristicId: rx,
@@ -252,7 +287,13 @@ class BleAssistant extends ChangeNotifier {
               if (epoch != _epoch) return;
               try {
                 for (final line in framer.add(bytes)) {
-                  AppLog.instance.add('BLE RX', line, level: 'DEBUG');
+                  AppLog.instance.add(
+                    'BLE RX',
+                    line.startsWith('WIFI STATUS READY ')
+                        ? 'WIFI STATUS READY [session hidden]'
+                        : line,
+                    level: 'DEBUG',
+                  );
                   queue.receive(line);
                 }
               } catch (error) {
@@ -269,6 +310,12 @@ class BleAssistant extends ChangeNotifier {
       if (epoch != _epoch) return;
       await queue.send('WAKE');
       if (epoch != _epoch) return;
+      try {
+        _mtu = await _ble.requestMtu(deviceId: deviceId, mtu: 247);
+      } catch (_) {
+        _mtu = 23;
+      }
+      if (epoch != _epoch) return;
       connecting = false;
       connected = true;
       _themeSupported = true;
@@ -283,6 +330,11 @@ class BleAssistant extends ChangeNotifier {
         if (connected) unawaited(command('PING'));
       });
       unawaited(_sync());
+      unawaited(refreshWifiState());
+      _wifiPoll?.cancel();
+      _wifiPoll = Timer.periodic(const Duration(seconds: 5), (_) {
+        if (connected && !cameraBusy) unawaited(refreshWifiState());
+      });
     } catch (error) {
       _lost(epoch, 'Trợ lý chưa phản hồi: $error');
     }
@@ -313,6 +365,400 @@ class BleAssistant extends ChangeNotifier {
       await _commands!.send(command);
     } catch (error) {
       _lost(epoch, 'Mất kết nối trợ lý: $error');
+    }
+  }
+
+  Future<void> cameraPreview(bool show) async {
+    if (!connected) throw StateError('Kết nối trợ lý trước khi mở OV5640.');
+    if (show && previewing) return;
+    _stopPreview();
+    final generation = _previewGeneration, epoch = _epoch;
+    cameraMessage = show
+        ? 'Đang mở stream camera qua Wi-Fi…'
+        : 'Đã trở về trợ lý.';
+    _notify();
+    try {
+      final endpoint = show
+          ? WifiEndpoint.parse(
+              await _wifiSend(
+                _commands!,
+                'WIFI STATUS',
+                expectedPrefix: 'WIFI STATUS ',
+              ),
+            )
+          : null;
+      if (generation != _previewGeneration || epoch != _epoch || _disposed) {
+        return;
+      }
+      if (show) {
+        await (cameraHealthCheck ?? checkCameraHttp)(endpoint!);
+        if (generation != _previewGeneration || epoch != _epoch || _disposed) {
+          return;
+        }
+      }
+      await _commands!.send(show ? 'CAM OPEN' : 'CAM CLOSE');
+      if (!show ||
+          generation != _previewGeneration ||
+          epoch != _epoch ||
+          _disposed) {
+        return;
+      }
+      previewing = true;
+      final connection =
+          cameraStreamFactory?.call(endpoint!) ??
+          UdpCameraConnection(endpoint!);
+      _previewConnection = connection;
+      final watch = Stopwatch()..start();
+      var first = true;
+      bool current() =>
+          !_disposed &&
+          generation == _previewGeneration &&
+          epoch == _epoch &&
+          connected;
+      void failed(Object error) {
+        if (!current()) return;
+        _stopPreview();
+        cameraMessage = 'Không xem được camera: $error';
+        AppLog.instance.add('CAMERA', cameraMessage, level: 'ERROR');
+        _notify();
+      }
+
+      _previewSubscription = connection.frames().listen(
+        (bytes) {
+          if (!current()) return;
+          final size = cameraJpegSize(bytes);
+          if (size == null ||
+              size.$1 < 160 ||
+              size.$1 > 2592 ||
+              size.$1 * 3 != size.$2 * 4) {
+            failed(
+              StateError('Preview cần cùng tỷ lệ 4:3 với ảnh chụp OV5640.'),
+            );
+            return;
+          }
+          previewBytes = bytes;
+          cameraMessage =
+              'Preview ${size.$1} × ${size.$2} · Ảnh chụp gốc 2592 × 1944.';
+          if (first) {
+            AppLog.instance.add(
+              'CAMERA',
+              'Đã nhận khung hình stream đầu tiên',
+              error: 'ms=${watch.elapsedMilliseconds}, bytes=${bytes.length}',
+            );
+            first = false;
+          }
+          _notify();
+        },
+        onError: (Object error) => failed(error),
+        onDone: () {
+          if (current()) {
+            failed(
+              StateError('Camera đã dừng stream. Nhấn Xem camera để mở lại.'),
+            );
+          }
+        },
+      );
+    } catch (error) {
+      if (generation != _previewGeneration || epoch != _epoch || _disposed) {
+        return;
+      }
+      _stopPreview();
+      cameraMessage = 'Không mở được camera: $error';
+      AppLog.instance.add('CAMERA', cameraMessage, level: 'ERROR');
+      rethrow;
+    } finally {
+      _notify();
+    }
+  }
+
+  Future<CameraConfig> readCameraConfig() async {
+    if (!connected) throw StateError('Kết nối ESP32 trước khi chỉnh camera.');
+    final epoch = _epoch, queue = _commands!;
+    final endpoint = WifiEndpoint.parse(
+      await _wifiSend(queue, 'WIFI STATUS', expectedPrefix: 'WIFI STATUS '),
+    );
+    final config =
+        await (cameraSettingsRequest?.call(endpoint, null, false) ??
+            requestCameraConfig(endpoint));
+    if (epoch != _epoch || !connected || _disposed) {
+      throw StateError('Phiên camera đã thay đổi.');
+    }
+    cameraConfiguration = config;
+    return config;
+  }
+
+  Future<CameraConfig> configureCamera(
+    Map<String, int> settings, {
+    bool persist = true,
+  }) async {
+    validateCameraSettings(settings);
+    if (!connected || cameraBusy || cameraConfigBusy) {
+      throw StateError('Camera đang bận hoặc Bluetooth đã ngắt.');
+    }
+    final epoch = _epoch, queue = _commands!, resume = previewing;
+    void check() {
+      if (epoch != _epoch || !connected || _disposed) {
+        throw StateError('Phiên camera đã thay đổi.');
+      }
+    }
+
+    _stopPreview();
+    final previewGeneration = _previewGeneration;
+    cameraConfigBusy = true;
+    _notify();
+    try {
+      final endpoint = WifiEndpoint.parse(
+        await _wifiSend(queue, 'WIFI STATUS', expectedPrefix: 'WIFI STATUS '),
+      );
+      check();
+      await queue.send('CAM CLOSE');
+      check();
+      Future<CameraConfig> request(Map<String, int>? values) =>
+          cameraSettingsRequest?.call(endpoint, values, persist) ??
+          requestCameraConfig(endpoint, settings: values, persist: persist);
+      var config = await request(settings);
+      check();
+      final revision = config.revision, watch = Stopwatch()..start();
+      while (true) {
+        if (config.error.isNotEmpty) throw StateError(config.error);
+        if (config.revision != revision) {
+          throw StateError('Cấu hình đã đổi. Hãy tải lại.');
+        }
+        if (config.appliedRevision == revision && (!persist || config.saved)) {
+          break;
+        }
+        if (watch.elapsed > const Duration(seconds: 20)) {
+          throw StateError(
+            'Chưa xác nhận áp dụng cấu hình. Tải lại trước khi thử tiếp.',
+          );
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 150));
+        check();
+        config = await request(null);
+        check();
+      }
+      cameraConfiguration = config;
+      AppLog.instance.add(
+        'CAMERA',
+        'Đã áp dụng cấu hình${config.saved ? ' và lưu trên ESP32' : ''}',
+      );
+      // Closing the camera page while HTTP/NVS is pending revokes this resume.
+      if (resume && previewGeneration == _previewGeneration) {
+        check();
+        await cameraPreview(true);
+      }
+      return config;
+    } finally {
+      cameraConfigBusy = false;
+      _notify();
+    }
+  }
+
+  void _stopPreview() {
+    previewing = false;
+    ++_previewGeneration;
+    _previewConnection?.close();
+    _previewConnection = null;
+    final subscription = _previewSubscription;
+    _previewSubscription = null;
+    unawaited(_cancelSubscription(subscription));
+    previewBytes = null;
+  }
+
+  Future<String> _wifiSend(
+    CommandQueue queue,
+    String command, {
+    String? expectedPrefix,
+  }) async {
+    try {
+      return await queue.send(command, expectedPrefix: expectedPrefix);
+    } on CommandRejected catch (error) {
+      if (error.code == 'INVALID_COMMAND') {
+        throw StateError(
+          'ESP32 chưa hỗ trợ Wi-Fi camera. Nạp profile esp32-s3-cam-ov5640, firmware 3.0.0-ov5640 rồi kết nối BLE lại.',
+        );
+      }
+      if (error.code == 'WIFI_BUSY') {
+        throw StateError('ESP32 đang kết nối Wi-Fi. Đợi rồi kiểm tra lại.');
+      }
+      if (error.code == 'WIFI_SCAN_FAILED') {
+        throw StateError(
+          'ESP32 quét Wi-Fi chưa thành công. Nhấn Quét mạng để thử lại.',
+        );
+      }
+      rethrow;
+    }
+  }
+
+  Future<List<String>> scanWifi() async {
+    if (!connected) throw StateError('Kết nối trợ lý Bluetooth trước.');
+    final queue = _commands!;
+    await _wifiSend(queue, 'WIFI SCAN');
+    final deadline = DateTime.now().add(const Duration(seconds: 20));
+    late int count;
+    while (true) {
+      final line = await _wifiSend(
+        queue,
+        'WIFI COUNT',
+        expectedPrefix: 'WIFI COUNT ',
+      );
+      if (line != 'WIFI COUNT BUSY') {
+        count = int.parse(line.split(' ').last);
+        break;
+      }
+      if (DateTime.now().isAfter(deadline)) {
+        throw StateError('Quét Wi-Fi quá hạn.');
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 350));
+    }
+    if (count < 0 || count > 30) {
+      throw const FormatException('Sai số mạng Wi-Fi.');
+    }
+    final names = <String>{};
+    for (var i = 0; i < count; i++) {
+      final parts = (await _wifiSend(
+        queue,
+        'WIFI NET $i',
+        expectedPrefix: 'WIFI NET $i ',
+      )).split(' ');
+      if (parts.length != 6) {
+        throw const FormatException('Sai thông tin Wi-Fi.');
+      }
+      final name = wifiName(parts[5]);
+      if (name.isNotEmpty) names.add(name);
+    }
+    return names.toList();
+  }
+
+  Future<String> configureWifi(String ssid, String password) async {
+    if (!connected) throw StateError('Kết nối trợ lý Bluetooth trước.');
+    if (wifiState?.ready == true &&
+        wifiState?.ssid == ssid &&
+        password.isEmpty) {
+      return 'Mạng này đã kết nối. Không cần nhập lại mật khẩu hoặc kết nối lại.';
+    }
+    final commands = wifiCommands(ssid, password);
+    final queue = _commands!;
+    for (final line in commands) {
+      await _wifiSend(
+        queue,
+        line,
+        expectedPrefix: line.startsWith('WIFI SSID ')
+            ? 'OK WIFI SSID'
+            : line.startsWith('WIFI PASS ')
+            ? 'OK WIFI PASS'
+            : null,
+      );
+    }
+    unawaited(refreshWifiState());
+    return 'Đã gửi cấu hình. Trạng thái kết nối sẽ tự cập nhật.';
+  }
+
+  Future<void> refreshWifiState() {
+    if (!connected || _disposed) return Future<void>.value();
+    if (_wifiRefresh != null) return _wifiRefresh!;
+    late final Future<void> pending;
+    pending = _readWifiState().whenComplete(() {
+      if (identical(_wifiRefresh, pending)) _wifiRefresh = null;
+    });
+    return _wifiRefresh = pending;
+  }
+
+  Future<void> _readWifiState() async {
+    final epoch = _epoch, queue = _commands!;
+    try {
+      final response = await _wifiSend(
+        queue,
+        'WIFI STATUS',
+        expectedPrefix: 'WIFI STATUS ',
+      );
+      String saved;
+      try {
+        saved = await queue.send('WIFI SAVED', expectedPrefix: 'WIFI SAVED ');
+      } on CommandRejected catch (error) {
+        if (!['INVALID_COMMAND', 'WIFI_COMMAND'].contains(error.code)) rethrow;
+        saved = 'WIFI SAVED 0 -';
+      }
+      final state = WifiState.parse(response, saved);
+      if (epoch != _epoch || !connected || _disposed) return;
+      wifiState = state;
+      wifiError = '';
+    } catch (error) {
+      if (epoch != _epoch || !connected || _disposed) return;
+      wifiState = null;
+      wifiError = '$error';
+    }
+    _notify();
+  }
+
+  Future<String> wifiStatus() async {
+    if (!connected) throw StateError('Kết nối trợ lý Bluetooth trước.');
+    await refreshWifiState();
+    final line = await _wifiSend(
+      _commands!,
+      'WIFI STATUS',
+      expectedPrefix: 'WIFI STATUS ',
+    );
+    if (line.startsWith('WIFI STATUS READY ')) {
+      await checkCameraHttp(WifiEndpoint.parse(line));
+      return 'Đã kiểm tra LAN tới ${WifiEndpoint.parse(line).ip}:80. HTTP hoạt động; trạng thái cảm biến hiện ở trang camera.';
+    }
+    return wifiUnavailableMessage(line);
+  }
+
+  Future<CameraPhoto> captureCamera() async {
+    if (!connected || cameraBusy || cameraConfigBusy) {
+      throw StateError('Kết nối trợ lý và đợi ảnh trước nhận xong.');
+    }
+    cameraBusy = true;
+    _stopPreview();
+    cameraProgress = 0;
+    final epoch = _epoch;
+    final queue = _commands!;
+    cameraMessage = 'Đang chụp ảnh gốc qua Wi-Fi…';
+    _notify();
+    try {
+      final endpoint = WifiEndpoint.parse(
+        await _wifiSend(queue, 'WIFI STATUS', expectedPrefix: 'WIFI STATUS '),
+      );
+      final photo = await captureWifiPhoto(
+        id: DateTime.now().microsecondsSinceEpoch % 0xffffffff + 1,
+        endpoint: endpoint,
+        request: (command, prefix) =>
+            queue.send(command, expectedPrefix: prefix),
+        checkConnected: () {
+          if (epoch != _epoch || !connected || !_foreground) {
+            throw StateError('Đã hủy nhận ảnh.');
+          }
+        },
+        checksum: (bytes) => compute(cameraCrc32, bytes),
+        progress: (value) {
+          if (epoch != _epoch) return;
+          cameraProgress = value;
+          _notify();
+        },
+      );
+      cameraMessage =
+          'Đã nhận ${photo.metadata.width} × ${photo.metadata.height}, CRC32 hợp lệ.';
+      AppLog.instance.add(
+        'CAMERA',
+        cameraMessage,
+        error: 'bytes=${photo.bytes.length}, route=Wi-Fi, mtu=$_mtu',
+      );
+      return photo;
+    } catch (error, stack) {
+      cameraMessage = 'Không nhận được ảnh: $error';
+      AppLog.instance.add(
+        'CAMERA',
+        cameraMessage,
+        level: 'ERROR',
+        stack: stack,
+      );
+      rethrow;
+    } finally {
+      cameraBusy = false;
+      cameraProgress = null;
+      _notify();
     }
   }
 
@@ -369,7 +815,12 @@ class BleAssistant extends ChangeNotifier {
     if (cancelAttempt) ++_connectAttempt;
     _retry?.cancel();
     _heartbeat?.cancel();
+    _wifiPoll?.cancel();
+    _wifiRefresh = null;
+    wifiState = null;
+    wifiError = '';
     final wasConnected = connected;
+    _stopPreview();
     connected = connecting = false;
     if (sleep && wasConnected) {
       try {
@@ -420,11 +871,13 @@ class BleAssistant extends ChangeNotifier {
 
   @override
   void dispose() {
+    _stopPreview();
     _disposed = true;
     _foreground = false;
     _retry?.cancel();
     _heartbeat?.cancel();
     _scanTimer?.cancel();
+    _wifiPoll?.cancel();
     _commands?.close();
     unawaited(_cancelSubscription(_scan));
     unawaited(_cancelSubscription(_status));

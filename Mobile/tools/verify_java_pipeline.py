@@ -54,7 +54,7 @@ def main():
                             check=True, capture_output=True, text=True, encoding='utf-8')
     print(result.stdout, flush=True)
     assert result.stdout.count('PASS ') == len(rows) + 1
-    report = {'date': '2026-10-21', 'runtime': 'ONNX Runtime Java/JNI 1.23.2, Windows x64',
+    report = {'date': '2026-10-27', 'runtime': 'ONNX Runtime Java/JNI 1.23.2, Windows x64',
               'production_core': str(core.relative_to(mobile)).replace('\\', '/'),
               'core_sha256': hashlib.sha256(core.read_bytes()).hexdigest(),
               'same_text_as_python_ort': True, 'tensors_checked': len(rows),

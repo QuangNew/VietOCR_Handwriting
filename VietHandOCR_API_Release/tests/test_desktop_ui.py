@@ -1,6 +1,7 @@
 """Tk integration tests. Run on a desktop session (no real webcam required)."""
 
 import gc
+import io
 import signal
 import tempfile
 import threading
@@ -17,6 +18,7 @@ from PIL import Image
 from desktop.application import Application
 from desktop.camera import CameraWindow
 from desktop.domain import AssistantState
+from desktop.preferences import read_preferences
 from desktop.bluetooth_radio import RadioResult
 from desktop.ocr_process import OCRProcessService
 from desktop.ocr_service import OCRSettings, RecognitionCancelled
@@ -42,7 +44,55 @@ def descendants(widget):
         yield from descendants(child)
 
 
+class UiCameraStream:
+    def __init__(self, fixture, jpeg):
+        self.fixture, self.jpeg = fixture, jpeg
+        self.stopped, self.delivered = False, False
+
+    def start(self):
+        return self
+
+    def stop(self):
+        self.stopped = True
+
+    def latest(self):
+        if self.stopped or self.delivered or self.fixture.hold_camera_frames:
+            return None
+        self.delivered = True
+        return self.jpeg
+
+    def error(self):
+        return self.fixture.camera_stream_error
+
+
 class DesktopWorkflowTests(unittest.TestCase):
+    def test_wifi_status_arrives_on_connect_without_opening_settings_or_scan(self):
+        with FakeBLE() as radio:
+            self.app.connect_robot(radio.address)
+            self.pump_until(lambda: self.app._wifi_state is not None)
+            self.assertEqual(self.app._wifi_state.state, 'ready')
+            self.assertIn('127.0.0.1', self.app.wifi_connection_var.get())
+            self.assertFalse(any(cmd == 'WIFI SCAN' for _, cmd in radio.commands))
+            self.app.open_wifi_settings()
+            self.assertEqual(self.app._wifi_widgets['ssid'].get(), 'a')
+            next(button for button in self.app._wifi_widgets['buttons'] if button.cget('text') == 'Kết nối').invoke()
+            self.assertIn('Mạng này đã kết nối', self.app._wifi_widgets['message'].get())
+            self.assertFalse(any(cmd.startswith('WIFI SSID') for _, cmd in radio.commands))
+            self.app._wifi_widgets['ssid'].set('different network')
+            self.app._wifi_event('wifi_state', self.app._wifi_state, '')
+            self.assertEqual(self.app._wifi_widgets['ssid'].get(), 'different network')
+            self.app.disconnect_robot()
+            self.assertNotIn('đã kết nối', self.app.wifi_connection_var.get())
+
+    def test_footer_status_is_inside_window_at_small_height(self):
+        self.root.deiconify()
+        self.root.geometry('1180x700')
+        self.app.operation_var.set('Đã cập nhật cài đặt · Model sẽ được nạp ở lượt nhận diện tiếp theo')
+        self.root.update()
+        for widget in (self.app.operation_label, self.app.model_label, self.app.recognize_button):
+            self.assertTrue(widget.winfo_ismapped())
+            self.assertLessEqual(widget.winfo_rooty() + widget.winfo_height(), self.root.winfo_rooty() + self.root.winfo_height())
+
     def test_repeated_connect_keeps_same_attempt_and_opening_dialog_does_not_scan(self):
         with FakeBLE(find_delay=0.3) as radio:
             self.app.connect_robot(radio.address)
@@ -142,6 +192,19 @@ class DesktopWorkflowTests(unittest.TestCase):
                                isolate_bluetooth=False)
         self.app.service = StubService()
         self.image = Image.new("RGB", (120, 90), "white")
+        self.camera_streams = []
+        self.hold_camera_frames = False
+        self.camera_stream_error = None
+        output = io.BytesIO(); Image.new('RGB', (640, 480), 'white').save(output, format='JPEG')
+        def make_stream(endpoint):
+            self.assertEqual(endpoint.ip, '127.0.0.1')
+            stream = UiCameraStream(self, output.getvalue())
+            self.camera_streams.append(stream)
+            return stream
+        self.stream_patcher = patch('desktop.application.CameraStream', side_effect=make_stream)
+        self.stream_patcher.start()
+        self.http_patcher = patch('desktop.wifi_camera.check_http', return_value={'http': True})
+        self.http_patcher.start()
         self.root.update()
         self.warnings = patch("desktop.application.messagebox.showwarning")
         self.warning = self.warnings.start()
@@ -151,6 +214,8 @@ class DesktopWorkflowTests(unittest.TestCase):
             self.app.close()
             self.pump_until(lambda: not self.root.winfo_exists(), destroyed=True)
             self.warnings.stop()
+            self.stream_patcher.stop()
+            self.http_patcher.stop()
             # Dispose Tk objects on the UI thread before the next test's workers.
             del self.app
             del self.root
@@ -236,11 +301,14 @@ class DesktopWorkflowTests(unittest.TestCase):
         self.assertEqual(len(self.app.batch.items), 1)
         self.warning.assert_called_once()
 
-    def test_over_limit_selection_is_rejected_before_import(self):
-        self.app.import_files([f"file-{i}.png" for i in range(11)])
-        self.assertFalse(self.app.importing)
-        self.assertEqual(len(self.app.batch.items), 0)
-        self.warning.assert_called_once()
+    def test_more_than_ten_images_can_be_imported_for_ocr_verification(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'valid.png'
+            self.image.save(path)
+            self.app.import_files([str(path)] * 12)
+            self.pump_until(lambda: not self.app.importing)
+        self.assertEqual(len(self.app.batch.items), 12)
+        self.warning.assert_not_called()
 
     def test_primary_controls_fit_inside_a_small_desktop_window(self):
         self.root.deiconify()
@@ -421,71 +489,284 @@ class DesktopWorkflowTests(unittest.TestCase):
             begin_access.assert_not_called()
             self.assertTrue(self.root.winfo_exists())
 
-    def test_camera_reopen_waits_for_previous_capture_release(self):
-        entered, release_gate, released = threading.Event(), threading.Event(), threading.Event()
-
-        class SlowCapture:
-            def __init__(self, *args):
-                pass
-
-            def isOpened(self):
-                return True
-
-            def set(self, *args):
-                pass
-
-            def read(self):
-                entered.set()
-                release_gate.wait(2)
-                time.sleep(0.01)
-                return True, np.full((64, 80, 3), 200, dtype=np.uint8)
-
-            def release(self):
-                released.set()
-
-        with patch("desktop.camera.cv2.VideoCapture", SlowCapture):
+    def test_desktop_camera_requires_ble_and_does_not_open_webcam(self):
+        with patch('desktop.application.CameraWindow') as webcam:
             self.app.open_camera()
-            self.pump_until(entered.is_set)
-            self.app.camera.close()
+            self.assertIn('Kết nối', self.app.operation_var.get())
+            with FakeBLE() as radio:
+                self.app.connect_robot(radio.address)
+                self.pump_until(self.app.robot_link.connected.is_set)
+                self.app.open_camera()
+                self.pump_until(lambda: any(command == 'CAM OPEN' for _, command in radio.commands))
+                self.assertIsNotNone(self.app._ov_dialog)
+                self.assertIsNone(self.app.camera)
+                self.assertFalse(self.app.upload_button.winfo_ismapped())
+            webcam.assert_not_called()
+
+    def test_shutter_first_opens_preview_and_only_enables_after_ready(self):
+        self.hold_camera_frames = True
+        with FakeBLE(camera_status='OPENING') as radio:
+            self.app.connect_robot(radio.address)
+            self.pump_until(self.app.robot_link.connected.is_set)
+            self.app.capture_ov()
+            self.assertIsNotNone(self.app._ov_dialog)
+            self.pump_until(lambda: bool(self.camera_streams))
+            self.assertTrue(self.app._ov_widgets['capture'].instate(['disabled']))
+            self.assertFalse(any(c.startswith('CAM SHOT') for _, c in radio.commands))
+            self.hold_camera_frames = False
+            self.pump_until(lambda: self.app._ov_preview_ready)
+            self.assertFalse(self.app._ov_widgets['capture'].instate(['disabled']))
+            self.assertFalse(any(c == 'CAM STATUS' for _, c in radio.commands))
+
+    def test_vga_preview_and_orientation_changes_reopen_stream_and_save_preferences(self):
+        with FakeBLE() as radio:
+            self.app.connect_robot(radio.address)
+            self.pump_until(self.app.robot_link.connected.is_set)
             self.app.open_camera()
-            self.assertIsNone(self.app.camera)
-            self.assertTrue(self.app.camera_button.instate(["disabled"]))
-            release_gate.set()
-            self.pump_until(lambda: released.is_set() and not self.app.camera_button.instate(["disabled"]))
+            self.pump_until(lambda: self.app._ov_preview_ready)
+            self.assertEqual(self.app._ov_live_image.size, (640, 480))
+            previous = self.camera_streams[-1]
+            self.app._ov_widgets['mirror'].invoke()
+            self.assertTrue(previous.stopped)
+            self.assertTrue(self.app._ov_widgets['capture'].instate(['disabled']))
+            self.pump_until(lambda: self.app._ov_preview_ready and len(self.camera_streams) == 2)
+            self.assertIn((1, 'CAM ORIENT 1 0'), radio.commands)
+            self.app._ov_widgets['flip'].invoke()
+            self.pump_until(lambda: self.app._ov_preview_ready and len(self.camera_streams) == 3)
+            self.assertIn((1, 'CAM ORIENT 1 1'), radio.commands)
+            saved = read_preferences(self.app.preferences_path)
+            self.assertTrue(saved['camera_mirror'])
+            self.assertTrue(saved['camera_flip'])
+            self.assertEqual(len(self.app.batch.items), 0)
+
+    def test_camera_config_apply_preserves_capture_size_and_restarts_preview(self):
+        from desktop.camera_settings import DEFAULTS
+        from test_camera_settings import config
+        profile=config()
+        def transport(endpoint,settings=None,*,persist=False):
+            nonlocal profile
+            if settings is not None:
+                profile=config(settings=settings,revision=2,applied_revision=2,saved=persist)
+            return profile
+        with FakeBLE() as radio,patch('desktop.camera_settings.request_config',side_effect=transport) as network:
+            self.app.connect_robot(radio.address)
+            self.pump_until(self.app.robot_link.connected.is_set)
+            self.app.open_camera();self.pump_until(lambda:self.app._ov_preview_ready)
+            previous=self.camera_streams[-1]
+            self.app.open_camera_settings()
+            self.pump_until(lambda:self.app._camera_config_window.loaded and not self.app._camera_config_busy)
+            window=self.app._camera_config_window
+            self.assertEqual(str(window.inputs['aec_value'].cget('state')),'disabled')
+            window.set_values({**DEFAULTS,'aec':0,'hmirror':1,'brightness':2})
+            self.assertEqual(str(window.inputs['aec_value'].cget('state')),'normal')
+            window.preset('Mượt')
+            window.apply.invoke()
+            self.assertTrue(previous.stopped)
+            self.pump_until(lambda:not self.app._camera_config_busy and self.app._ov_preview_ready and len(self.camera_streams)==2)
+            self.assertEqual(profile['settings']['preview_width'],640)
+            self.assertEqual(profile['settings']['still_quality'],8)
+            self.assertTrue(profile['saved'])
+            self.assertTrue(self.app._ov_mirror.get())
+            self.assertEqual(len(self.app.batch.items),0)
+            self.assertTrue(any(call.args[1] is not None for call in network.call_args_list if len(call.args)>1))
+
+    def test_camera_config_invalid_edit_is_not_sent(self):
+        from test_camera_settings import config
+        with FakeBLE() as radio,patch('desktop.camera_settings.request_config',return_value=config()) as network:
+            self.app.connect_robot(radio.address);self.pump_until(self.app.robot_link.connected.is_set)
+            self.app.open_camera_settings();self.pump_until(lambda:self.app._camera_config_window.loaded)
+            window=self.app._camera_config_window; count=network.call_count
+            window.values['still_quality'].set(0)
+            window.apply.invoke();self.root.update()
+            self.assertEqual(network.call_count,count)
+            self.assertIn('không hợp lệ',window.message.get())
+
+    def test_camera_error_is_shown_and_does_not_enable_capture(self):
+        self.camera_stream_error = 'Camera HTTP 503: sensor failed'
+        with FakeBLE(camera_status='ERROR CAMERA_INIT: sensor failed') as radio:
+            self.app.connect_robot(radio.address)
+            self.pump_until(self.app.robot_link.connected.is_set)
             self.app.open_camera()
-            self.assertIsNotNone(self.app.camera)
-            self.app.camera.close()
+            self.pump_until(lambda: self.app._ov_state == 'failed')
+            self.assertIn('sensor failed', self.app._ov_widgets['message'].get())
+            self.assertTrue(self.app._ov_widgets['capture'].instate(['disabled']))
+            self.assertTrue(self.app.robot_link.connected.is_set())
 
-    def test_camera_captures_to_shared_queue_and_releases_on_close(self):
-        released = threading.Event()
-
-        class FakeCapture:
-            def __init__(self, *args):
-                pass
-
-            def isOpened(self):
-                return True
-
-            def set(self, *args):
-                pass
-
-            def read(self):
-                time.sleep(0.01)
-                return True, np.full((64, 80, 3), 200, dtype=np.uint8)
-
-            def release(self):
-                released.set()
-
-        with patch("desktop.camera.cv2.VideoCapture", FakeCapture):
+    def test_legacy_camera_without_mjpeg_requests_firmware_upgrade(self):
+        self.camera_stream_error = 'Nạp firmware 2.2.0-stream để xem camera liên tục.'
+        with FakeBLE(camera_status=None) as radio:
+            self.app.connect_robot(radio.address)
+            self.pump_until(self.app.robot_link.connected.is_set)
             self.app.open_camera()
-            camera = self.app.camera
-            self.pump_until(lambda: camera.latest is not None)
-            camera.capture()
-            self.assertEqual(len(self.app.batch.items), 1)
-            self.assertEqual(self.app.batch.items[0].source, "Camera")
-            camera.close()
-            self.pump_until(released.is_set)
-        self.assertIsNone(self.app.camera)
+            self.pump_until(lambda: self.app._ov_state == 'failed')
+            self.assertIn('2.2.0-stream', self.app._ov_widgets['message'].get())
+            self.assertFalse(self.app._ov_preview_ready)
+            self.assertTrue(self.app.robot_link.connected.is_set())
+
+    def test_closing_or_disconnect_stops_stream_and_no_snapshot_polling(self):
+        from desktop.wifi_camera import WifiEndpoint
+        with FakeBLE() as radio:
+            self.app.connect_robot(radio.address)
+            self.pump_until(self.app.robot_link.connected.is_set)
+            self.app.open_camera()
+            self.pump_until(lambda: self.app._ov_preview_ready)
+            first = self.camera_streams[-1]
+            old_token = self.app._ov_generation
+            self.app._close_ov_camera()
+            self.assertTrue(first.stopped)
+            self.assertIsNone(self.app._ov_stream)
+            self.app.open_camera()
+            # An old endpoint response must not start HTTP while CAM CLOSE /
+            # the new CAM OPEN are still queued in the BLE worker.
+            self.app.events.put(('robot_camera', self.app.robot_link, 'open',
+                                 (old_token, WifiEndpoint('127.0.0.1', 'a' * 32)), ''))
+            self.assertEqual(len(self.camera_streams), 1)
+            self.pump_until(lambda: self.app._ov_preview_ready)
+            self.assertEqual(len(self.camera_streams), 2)
+            second = self.camera_streams[-1]
+            self.app.events.put(('robot_connection', self.app.robot_link, 'offline', 'disconnected'))
+            self.pump_until(lambda: second.stopped)
+            self.assertFalse(self.app._ov_preview_ready)
+            self.assertFalse(any(c == 'CAM STATUS' for _, c in radio.commands))
+
+    def test_wifi_failure_never_starts_sensor_and_does_not_close_app_or_ble(self):
+        with FakeBLE() as radio:
+            radio.wifi_response = 'WIFI STATUS OFFLINE 1 201'
+            self.app.connect_robot(radio.address)
+            self.pump_until(self.app.robot_link.connected.is_set)
+            self.app.open_camera()
+            self.pump_until(lambda: self.app._ov_state == 'failed')
+            self.assertIn('Wi-Fi', self.app._ov_widgets['message'].get())
+            self.assertFalse(any(c == 'CAM OPEN' for _, c in radio.commands))
+            self.assertEqual(self.camera_streams, [])
+            self.assertTrue(self.app.robot_link.connected.is_set())
+            self.assertFalse(self.app.closing)
+            radio.wifi_response = 'WIFI STATUS READY 127.0.0.1 ' + 'a' * 32 + ' 61'
+            self.app._request_ov_preview()
+            self.pump_until(lambda: self.app._ov_preview_ready)
+            self.assertEqual(sum(c == 'CAM OPEN' for _, c in radio.commands), 1)
+
+    def test_camera_window_keeps_shutter_visible_at_large_font_scaling(self):
+        scaling = self.root.tk.call('tk', 'scaling')
+        try:
+            self.root.tk.call('tk', 'scaling', 2.5)
+            self.root.deiconify()
+            with FakeBLE() as radio:
+                self.app.connect_robot(radio.address)
+                self.pump_until(self.app.robot_link.connected.is_set)
+                self.app.open_camera()
+                self.pump_until(lambda: self.app._ov_preview_ready)
+                button = self.app._ov_widgets['capture']
+                window = self.app._ov_dialog
+                self.assertTrue(button.winfo_ismapped())
+                self.assertGreaterEqual(button.winfo_rooty(), window.winfo_rooty())
+                self.assertLessEqual(button.winfo_rooty() + button.winfo_height(),
+                                     window.winfo_rooty() + window.winfo_height())
+        finally:
+            self.root.tk.call('tk', 'scaling', scaling)
+
+    def test_camera_review_skip_queues_once_and_automatically_resumes_same_window(self):
+        import io
+        import zlib
+        from desktop.camera_transfer import CameraMetadata
+        stream = io.BytesIO()
+        self.image.save(stream, format='JPEG')
+        jpeg = stream.getvalue()
+        async def capture(protocol, on_progress=None):
+            await protocol.request('CAM SHOT 42')
+            if on_progress:
+                on_progress(len(jpeg), len(jpeg))
+            return CameraMetadata(42, len(jpeg), zlib.crc32(jpeg), *self.image.size), jpeg
+        with FakeBLE() as radio, patch('desktop.wifi_camera.capture_fast', capture):
+            self.app.connect_robot(radio.address)
+            self.pump_until(self.app.robot_link.connected.is_set)
+            self.app.open_camera()
+            self.pump_until(lambda: self.app._ov_preview_ready)
+            window = self.app._ov_dialog
+            self.app._ov_widgets['capture'].invoke()
+            self.assertTrue(self.camera_streams[-1].stopped)
+            self.pump_until(lambda: self.app._ov_state == 'reviewing')
+            self.assertEqual(len(self.app.batch.items), 0)
+            self.assertGreater(self.app._ov_review_deadline, time.monotonic())
+            self.app.open_camera()  # Lifting a review must not prematurely skip it.
+            self.assertEqual(self.app._ov_state, 'reviewing')
+            self.app._ov_widgets['skip'].invoke()
+            self.app._finish_ov_review()  # A delayed second click/timer is harmless.
+            self.pump_until(lambda: self.app._ov_preview_ready and len(self.app.batch.items) == 1 and not self.app.running)
+            self.assertIs(self.app._ov_dialog, window)
+            self.assertEqual(sum(c == 'CAM OPEN' for _, c in radio.commands), 2)
+            self.assertTrue(any(c == 'CAM SHOT 42' for _, c in radio.commands))
+
+    def test_camera_images_arriving_during_ocr_are_queued_and_auto_drained(self):
+        import io
+        import zlib
+        from desktop.camera_transfer import CameraMetadata
+        stream = io.BytesIO(); self.image.save(stream, format='JPEG')
+        jpeg = stream.getvalue()
+        with FakeBLE() as radio:
+            self.app.connect_robot(radio.address)
+            self.pump_until(self.app.robot_link.connected.is_set)
+            link = self.app.robot_link
+            for frame in range(1, 14):
+                metadata = CameraMetadata(frame, len(jpeg), zlib.crc32(jpeg), *self.image.size)
+                self.app.events.put(('robot_camera', link, 'capture', (metadata, jpeg), ''))
+            self.pump_until(lambda: len(self.app.batch.items) == 13 and
+                            all(item.status == 'done' for item in self.app.batch.items))
+            self.assertTrue(all(item.image_path.is_file() for item in self.app.batch.items))
+            self.assertTrue(all(item.source == 'OV5640 Wi-Fi' for item in self.app.batch.items))
+            self.assertTrue(self.root.winfo_exists())
+
+    def test_review_timeout_and_close_commit_the_original_without_closing_camera_early(self):
+        from desktop.camera_transfer import CameraMetadata
+        import zlib
+        stream = io.BytesIO()
+        Image.new('RGB', (2048, 1536), 'white').save(stream, 'JPEG')
+        jpeg = stream.getvalue()
+        value = (CameraMetadata(42, len(jpeg), zlib.crc32(jpeg), 2048, 1536), jpeg)
+        self.app._auto_queue_halted = True
+        with FakeBLE() as radio:
+            self.app.connect_robot(radio.address)
+            self.pump_until(self.app.robot_link.connected.is_set)
+            self.app.open_camera()
+            self.pump_until(lambda: self.app._ov_preview_ready)
+            window = self.app._ov_dialog
+            self.app._stop_ov_stream()
+            self.app._start_ov_review(value)
+            self.assertEqual(len(self.app.batch.items), 0)
+            self.root.update()
+            self.assertEqual(self.app._ov_live_image.size, (2048, 1536))
+            self.app._ov_review_deadline = time.monotonic()-1
+            # Keep only the real scheduled callback, but move its deadline forward.
+            self.pump_until(lambda: len(self.app.batch.items) == 1 and self.app._ov_preview_ready)
+            self.assertIs(self.app._ov_dialog, window)
+            self.assertTrue(self.app._queue_panels[-1].visible)
+            self.app._stop_ov_stream()
+            self.app._start_ov_review(value)
+            self.app._close_ov_camera()  # Close during review must preserve this photo.
+            self.assertEqual(len(self.app.batch.items), 2)
+            self.assertIsNone(self.app._ov_pending_photo)
+            self.assertIsNone(self.app._ov_review_timer)
+            self.assertIsNone(self.app._ov_dialog)
+
+    def test_original_preview_reports_native_pixels_and_viewer_crops_native_image(self):
+        item = self.app.batch.add(Image.new('RGB', (2048, 1536), 'white'), 'full.png')
+        self.app.select_item(item.id)
+        self.root.update()
+        self.app._draw_preview()
+        self.assertTrue(self.app.image_info.cget('text').startswith('2048 × 1536 px'))
+        self.app.open_image_viewer()
+        viewer = self.app._image_viewer
+        self.root.update()
+        viewer.actual_size()
+        viewer.zoom(2)
+        viewer.selection = ((200, 100), (1800, 1400))
+        viewer.apply_crop()
+        self.assertEqual(item.image.size, (1600, 1300))
+        with Image.open(item.original_path) as image:
+            self.assertEqual(image.size, (2048, 1536))
+        self.assertTrue(self.app.image_info.cget('text').startswith('1600 × 1300 px'))
+        viewer.close()
+        self.assertIsNone(self.app._image_viewer)
 
     def test_camera_failure_is_visible_and_capture_stays_disabled(self):
         class UnavailableCapture:

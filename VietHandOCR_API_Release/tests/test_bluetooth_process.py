@@ -1,5 +1,6 @@
 import asyncio
 import os
+import signal
 import tempfile
 import time
 from pathlib import Path
@@ -23,6 +24,9 @@ def echo_worker(pipe):
             if command == "reject":
                 pipe.send({"id": request_id, "ok": False, "error": "ERR INVALID_COMMAND: send HELP", "rejected": True})
             else:
+                if command == 'progress':
+                    pipe.send({"id": request_id, "progress": (10, 100)})
+                    pipe.send({"id": request_id, "progress": (100, 100)})
                 if command == "stale":
                     pipe.send({"id": request_id - 1, "ok": True, "value": "stale"})
                 pipe.send({"id": request_id, "ok": True, "value": data})
@@ -41,6 +45,42 @@ class SlowNativeProtocol:
         self.marker.with_suffix(".closed").touch()
 
 
+class OfflineWifiProtocol:
+    def __init__(self, address, timeout): pass
+    async def connect(self): pass
+    async def disconnect(self): pass
+    async def request(self, command, *args, **kwargs):
+        if command == 'PING': return 'PONG'
+        if command == 'WIFI SCAN': raise RobotCommandRejected('ERR WIFI_SCAN_FAILED: cannot start scan; retry')
+        if command == 'WIFI STATUS': return 'WIFI STATUS OFFLINE 1 201'
+        raise AssertionError('Sensor should not start before LAN is ready')
+
+
+def offline_wifi_worker(pipe):
+    import desktop.bluetooth_process as backend
+    backend.BLEProtocol = OfflineWifiProtocol
+    asyncio.run(backend._serve(pipe))
+    pipe.close()
+
+
+def orientation_worker(pipe):
+    import desktop.bluetooth_process as backend
+    from unittest.mock import patch
+    class Protocol:
+        def __init__(self, *args): self.commands = []
+        async def connect(self): pass
+        async def disconnect(self): pass
+        async def request(self, command, *args, **kwargs):
+            if command == 'COMMANDS': return self.commands
+            self.commands.append(command)
+            if command == 'WIFI STATUS': return 'WIFI STATUS READY 127.0.0.1 ' + 'a' * 32 + ' 61'
+            return 'OK ' + command
+    backend.BLEProtocol = Protocol
+    with patch('desktop.wifi_camera.check_http'):
+        asyncio.run(backend._serve(pipe))
+    pipe.close()
+
+
 def slow_native_worker(pipe):
     import desktop.bluetooth_process as backend
     backend.BLEProtocol = SlowNativeProtocol
@@ -48,7 +88,71 @@ def slow_native_worker(pipe):
     pipe.close()
 
 
+def interrupt_worker(pipe):
+    import desktop.bluetooth_process as backend
+    from unittest.mock import patch
+
+    original = backend._serve
+
+    async def serve(connection):
+        # Exercise the real worker's handler and IPC loop, without a BLE radio.
+        signal.raise_signal(signal.SIGINT)
+        await original(connection)
+
+    with patch.object(backend, "_serve", serve):
+        backend._worker(pipe)
+
+
 class BluetoothProcessTests(unittest.TestCase):
+    def test_camera_orientation_crosses_real_worker_ipc_before_stream_opens(self):
+        async def run():
+            session = _Session(target=orientation_worker)
+            try:
+                await session.call('connect', {'address': 'test', 'timeout': 1}, 5)
+                endpoint = await session.call('network', {'action': 'camera_open', 'mirror': True, 'flip': False}, 5)
+                self.assertEqual(endpoint.ip, '127.0.0.1')
+                commands = await session.call('request', {'command': 'COMMANDS', 'timeout': 1}, 5)
+                self.assertEqual(commands, ['WIFI STATUS', 'CAM ORIENT 1 0', 'CAM OPEN'])
+            finally:
+                await session.close()
+        asyncio.run(run())
+
+    def test_reported_wifi_errors_leave_the_real_worker_loop_alive_and_ping_usable(self):
+        async def run():
+            session = _Session(target=offline_wifi_worker)
+            try:
+                await session.call('connect', {'address': 'test', 'timeout': 1}, 5)
+                for action in ('wifi_scan', 'wifi_status', 'stream_info', 'camera_open'):
+                    with self.assertRaises(ValueError):
+                        await session.call('network', {'action': action}, 5)
+                    self.assertTrue(session.process.is_alive())
+                    self.assertEqual(await session.call('request', {'command': 'PING', 'timeout': 1}, 5), 'PONG')
+            finally:
+                await session.close()
+        asyncio.run(run())
+    def test_capture_progress_is_forwarded_without_consuming_final_reply(self):
+        async def run():
+            progress = []
+            session = _Session(target=echo_worker)
+            try:
+                value = await session.call('progress', {'complete': True}, 5,
+                                           on_progress=lambda *values: progress.append(values))
+                self.assertEqual(value, {'complete': True})
+                self.assertEqual(progress, [(10, 100), (100, 100)])
+            finally:
+                await session.close()
+        asyncio.run(run())
+    def test_console_interrupt_does_not_kill_worker_or_prevent_close(self):
+        async def run():
+            session = _Session(target=interrupt_worker)
+            try:
+                with self.assertRaisesRegex(RobotProtocolError, "Invalid Bluetooth worker operation"):
+                    await session.call("invalid", {}, 5)
+                self.assertTrue(session.process.is_alive())
+            finally:
+                await session.close()
+        asyncio.run(run())
+
     def test_close_cancels_active_native_operation_and_allows_graceful_cleanup(self):
         async def run(marker):
             session = _Session(target=slow_native_worker)

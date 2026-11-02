@@ -1,10 +1,10 @@
 {
-  "date": "2026-10-21",
+  "date": "2026-10-27",
   "runtime": "ONNX Runtime Java/JNI 1.23.2, Windows x64",
   "production_core": "android/app/src/main/java/vn/pbl4/vietocr_mobile/OnnxRecognizer.java",
-  "core_sha256": "1903b98d1d1f3749c90932fef52a3da46712ab00db9cb0e02e7e32b1bffdff98",
+  "core_sha256": "767507ab0a63422faf3f81d892d6862e0fae710c3095e91115c918b84c2354cf",
   "same_text_as_python_ort": true,
-  "tensors_checked": 8,
+  "tensors_checked": 20,
   "includes_import_normalization": true,
   "invalid_tensor_rejected": true,
   "android_device_test": "Not performed; host Java/JNI does not verify Android drivers, ABI or RAM."

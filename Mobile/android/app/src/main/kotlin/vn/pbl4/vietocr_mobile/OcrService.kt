@@ -109,6 +109,7 @@ class OcrService : Service() {
         if (recognizer != null) return
         record("load_manifest")
         manifest = assets.open("flutter_assets/assets/models/manifest.json").bufferedReader().use { JSONObject(it.readText()) }
+        record("model_precision", manifest.optString("precision", manifest.optString("compression", "FP32")))
         val vocab = manifest.getJSONArray("vocabulary")
         vocabulary = (0 until vocab.length()).map { vocab.getString(it) }
         val encoderPath = modelPath("encoder")

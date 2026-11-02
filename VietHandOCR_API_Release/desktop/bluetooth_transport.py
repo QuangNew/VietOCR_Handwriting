@@ -46,6 +46,17 @@ class RobotProtocolError(Exception):
     pass
 
 
+class RobotLinkLost(RobotProtocolError):
+    """A transport failure requiring a new GATT session, not an app crash."""
+
+
+def cancelled_gatt_write(error):
+    values = [getattr(error, name, None) for name in ('winerror', 'hresult', 'errno')]
+    if error.args: values.append(error.args[0])
+    return any(isinstance(code, int) and code & 0xffffffff in (1223, 995, 0x800704c7, 0x800703e3)
+               for code in values)
+
+
 class RobotCommandRejected(RobotProtocolError):
     def __init__(self, response: str):
         super().__init__(response)
@@ -87,6 +98,7 @@ class BLEProtocol:
     def __init__(self, address: str, timeout: float = 2.0):
         self.address, self.timeout = validate_address(address), timeout
         self.client = None
+        self.supports_long_reads = sys.platform == 'win32'
         self._buffer = bytearray()
         self._lines = asyncio.Queue(maxsize=16)
         self._error = None
@@ -113,7 +125,7 @@ class BLEProtocol:
             raise RobotProtocolError("GATT đã mở nhưng bật Notify TX quá 5 giây. Kiểm tra firmware NUS.") from None
         # Windows can complete CCCD registration before the peer sees it.
         await asyncio.sleep(0.25)
-        LOGGER.info("TX notifications ready: %s", self.address)
+        LOGGER.info("TX notifications ready: %s mtu=%s", self.address, getattr(self.client, 'mtu_size', 23))
 
     def _fail(self, error: Exception) -> None:
         if self._error is None:
@@ -135,7 +147,7 @@ class BLEProtocol:
                     raise RobotProtocolError("Phản hồi ESP32 quá dài.")
                 self._buffer = remainder
                 decoded = line.rstrip(b"\r").decode("ascii")
-                LOGGER.debug("RX %s", decoded)
+                LOGGER.debug("RX %s", 'WIFI STATUS READY [session hidden]' if decoded.startswith('WIFI STATUS READY ') else decoded)
                 self._lines.put_nowait(decoded)
             if len(self._buffer) > 1024:
                 raise RobotProtocolError("Phản hồi ESP32 quá dài.")
@@ -144,7 +156,7 @@ class BLEProtocol:
         except RobotProtocolError as exc:
             self._fail(exc)
 
-    async def request(self, command: str, timeout: float | None = None) -> None:
+    async def request(self, command: str, timeout: float | None = None, *, expected_prefix=None):
         if self._error is not None:
             raise self._error
         if not self.client or not self.client.is_connected:
@@ -152,25 +164,45 @@ class BLEProtocol:
         if "\n" in command or "\r" in command:
             raise ValueError("One command per request")
         data = (command + "\n").encode("ascii")
-        LOGGER.debug("TX %s", command)
+        LOGGER.debug("TX %s", 'WIFI credentials [hidden]' if command.startswith(('WIFI SSID ', 'WIFI PASS ')) else command)
 
         async def exchange():
-            # Do not depend on a negotiated MTU; even default MTU 23 works.
-            for offset in range(0, len(data), 20):
-                await self.client.write_gatt_char(RX_UUID, data[offset:offset + 20], response=True)
-            reply = await self._lines.get()
+            chunk = min(512, max(20, getattr(self.client, 'mtu_size', 23) - 3))
+            reply = None
+            for offset in range(0, len(data), chunk):
+                try:
+                    await self.client.write_gatt_char(RX_UUID, data[offset:offset + chunk], response=True)
+                except OSError as error:
+                    if not cancelled_gatt_write(error): raise
+                    # WinRT may cancel its completion after the peer has already
+                    # acknowledged the command. Accept that ACK; never resend
+                    # PASS/JOIN/SHOT, whose completion might be ambiguous.
+                    if offset + chunk >= len(data) and self.client.is_connected:
+                        try:
+                            reply = await asyncio.wait_for(self._lines.get(), .25)
+                        except TimeoutError:
+                            pass
+                    if reply is None:
+                        failure = RobotLinkLost('Windows hủy thao tác ghi BLE (0x800704C7/995), chưa nhận ACK từ ESP32. Đang tạo lại kết nối.')
+                        self._fail(failure)
+                        raise failure from None
+                    LOGGER.warning('WinRT canceled write completion; received ESP32 ACK; command was not resent')
+                    break
+            if reply is None:
+                reply = await self._lines.get()
             if self._error is not None:
                 raise self._error
             if isinstance(reply, Exception):
                 raise reply
             expected = "PONG" if command == "PING" else "OK " + command
-            if reply != expected:
+            if reply != expected and not (expected_prefix and reply.startswith(expected_prefix)):
                 if reply.startswith("ERR "):
                     raise RobotCommandRejected(reply)
                 raise RobotProtocolError(reply if reply.startswith("ERR ") else "Sai giao thức VietOCR BLE.")
+            return reply
 
         try:
-            await asyncio.wait_for(exchange(), self.timeout if timeout is None else timeout)
+            return await asyncio.wait_for(exchange(), self.timeout if timeout is None else timeout)
         except TimeoutError:
             raise RobotProtocolError("ESP32 không phản hồi. Kiểm tra firmware và Bluetooth.") from None
 

@@ -21,20 +21,22 @@ class ImageBatchTests(unittest.TestCase):
         self.image = Image.new("RGB", (120, 80), "white")
         self.batch = ImageBatch()
 
-    def test_upload_and_camera_share_the_ten_image_limit(self):
-        for index in range(10):
+    def test_queue_accepts_more_than_ten_and_keeps_full_images_on_disk(self):
+        for index in range(25):
             self.batch.add(self.image, f"{index}.jpg", "Camera" if index % 2 else "upload.jpg")
-        with self.assertRaises(BatchFullError):
-            self.batch.add(self.image, "eleventh.jpg")
-        self.assertEqual(len(self.batch.items), 10)
+        self.assertEqual(len(self.batch.items), 25)
+        self.assertTrue(all(item.image_path.is_file() for item in self.batch.items))
+        self.assertNotIn('image', vars(self.batch.items[0]))
+        self.assertEqual(self.batch.items[0].image.size, self.image.size)
+        path = self.batch.items[0].image_path
         self.batch.remove(self.batch.items[0].id)
+        self.assertFalse(path.exists())
         self.batch.add(self.image, "replacement.jpg")
-        self.assertEqual(self.batch.remaining, 0)
+        self.assertEqual(len(self.batch.items), 25)
 
-    def test_preflight_rejects_an_oversized_selection_without_mutating_queue(self):
+    def test_preflight_has_no_arbitrary_image_count_cap(self):
         self.batch.add(self.image, "first.jpg")
-        with self.assertRaises(BatchFullError):
-            self.batch.check_capacity(10)
+        self.batch.check_capacity(1000)
         self.assertEqual(len(self.batch.items), 1)
 
     def test_phone_exif_orientation_is_applied(self):

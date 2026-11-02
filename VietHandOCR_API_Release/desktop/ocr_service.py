@@ -6,14 +6,18 @@ import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
+from types import SimpleNamespace
 
-import cv2
 import numpy as np
 from PIL import Image
 
 
 class RecognitionError(RuntimeError):
     pass
+
+
+class DeviceExecutionError(RecognitionError):
+    """A failed accelerator can be retried on another device."""
 
 
 class RecognitionCancelled(Exception):
@@ -25,6 +29,7 @@ class OCRSettings:
     weights: str
     device: str = "cpu"
     layout: str = "auto"
+    adapter_luid: str | None = None
 
 
 def split_text_lines(gray: np.ndarray) -> list[np.ndarray]:
@@ -33,6 +38,7 @@ def split_text_lines(gray: np.ndarray) -> list[np.ndarray]:
     Small components are kept so Vietnamese accents survive. This is deliberately
     a line splitter, not a general document-layout or scene-text detector.
     """
+    import cv2
     height, width = gray.shape
     scale = min(1.0, 1600 / width)
     small = cv2.resize(gray, None, fx=scale, fy=scale) if scale < 1 else gray
@@ -83,7 +89,8 @@ def split_text_lines(gray: np.ndarray) -> list[np.ndarray]:
 class OCRService:
     def __init__(self) -> None:
         self._engine = None
-        self._model_key: tuple[str, str] | None = None
+        self._model_key: tuple[str, str, str | None] | None = None
+        self.device_id = None
 
     def load(self, settings: OCRSettings) -> None:
         path = Path(settings.weights).expanduser().resolve()
@@ -92,7 +99,7 @@ class OCRService:
                 "Không tìm thấy file trọng số .pth. Mở 'Cài đặt model' để chọn "
                 f"vgg_transformer_final.pth.\n{path}"
             )
-        key = (str(path), settings.device)
+        key = (str(path), settings.device, settings.adapter_luid)
         if self._engine is not None and self._model_key == key:
             return
         try:
@@ -102,7 +109,15 @@ class OCRService:
                 if not torch.cuda.is_available():
                     raise RecognitionError("CUDA chưa khả dụng. Hãy chọn CPU trong Cài đặt model.")
             with warnings.catch_warnings(record=True) as caught:
-                engine = api.VietHandOCR(weight_path=str(path), device=settings.device)
+                if settings.device.startswith("directml:"):
+                    from .onnx_directml import DirectMLPredictor
+                    predictor = DirectMLPredictor(path, int(settings.device.split(":")[1]),
+                                                  adapter_luid=settings.adapter_luid)
+                    dip = api.VietOCR_DIP_Pipeline()
+                    engine = SimpleNamespace(predictor=predictor, dip=dip,
+                                             predict=lambda image: predictor.predict(Image.fromarray(dip.process_image(image))))
+                else:
+                    engine = api.VietHandOCR(weight_path=str(path), device=settings.device)
             if engine.predictor is None:
                 error = getattr(engine, "load_error", None)
                 if error is not None:
@@ -110,6 +125,8 @@ class OCRService:
                 details = str(caught[-1].message) if caught else "Predictor chưa được khởi tạo."
                 raise RecognitionError(f"Không thể nạp model.\n{details}")
             self._engine, self._model_key = engine, key
+            self.device_id = (f"directml:{engine.predictor.device_index}"
+                              if settings.device.startswith("directml:") else settings.device)
         except RecognitionError:
             raise
         except ImportError as exc:
@@ -127,6 +144,7 @@ class OCRService:
         cancel: threading.Event,
         on_progress: Callable[[int, int], None] | None = None,
     ) -> str:
+        import cv2
         if cancel.is_set():
             raise RecognitionCancelled()
         self.load(settings)
@@ -155,11 +173,21 @@ class OCRService:
                     else:
                         value = self._engine.predict(line)
             except Exception as exc:
+                if settings.device != "cpu":
+                    raise DeviceExecutionError(f"{settings.device}: {type(exc).__name__}: {exc}") from exc
                 raise RecognitionError(f"Không nhận diện được dòng {index}/{len(lines)}: {exc}") from exc
             if not value or not value.strip():
+                accelerator_warning = next((str(w.message) for w in caught if
+                    "Quá trình model nhận diện thất bại" in str(w.message)), None)
+                if accelerator_warning and settings.device != "cpu":
+                    raise DeviceExecutionError(f"{settings.device}: {accelerator_warning}")
+                if settings.layout == 'auto':
+                    continue  # An empty border/noise crop must not discard valid lines.
                 details = str(caught[-1].message) if caught else "Model không trả về văn bản."
                 raise RecognitionError(f"Không nhận diện được dòng {index}/{len(lines)}. {details}")
             results.append(value.strip())
+        if not results:
+            raise RecognitionError('AI không đọc được chữ trong ảnh. Thử cắt sát vùng chữ hoặc chế độ Một dòng.')
         if cancel.is_set():
             raise RecognitionCancelled()
         return "\n".join(results)

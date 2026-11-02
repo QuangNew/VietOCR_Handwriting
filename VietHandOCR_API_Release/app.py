@@ -23,7 +23,7 @@ def run_mainloop(root, app):
     def check_interrupt():
         nonlocal timer
         if requested.is_set():
-            app.close()
+            app.close(reason='terminal_SIGINT')
         elif not app.closing:
             timer = root.after(100, check_interrupt)
 
@@ -31,7 +31,7 @@ def run_mainloop(root, app):
     try:
         root.mainloop()
     except KeyboardInterrupt:
-        app.close()
+        app.close(reason='terminal_KeyboardInterrupt')
         root.mainloop()
     finally:
         signal.signal(signal.SIGINT, previous)
@@ -43,14 +43,14 @@ def run_mainloop(root, app):
 
 def main() -> int:
     base = Path(__file__).resolve().parent
-    parser = argparse.ArgumentParser(description="VietOCR Handwriting desktop · Tối đa 10 ảnh mỗi lượt")
-    parser.add_argument("images", nargs="*", help="Ảnh mở sẵn khi khởi động (tối đa 10)")
+    parser = argparse.ArgumentParser(description="VietOCR Handwriting desktop · Camera OV5640 và hàng đợi OCR")
+    parser.add_argument("images", nargs="*", help=argparse.SUPPRESS)
     parser.add_argument("--weights", default=str(default_weights(base)), help="File trọng số .pth")
-    parser.add_argument("--device", choices=("cpu", "cuda:0"), default="cpu")
+    from desktop.compute_devices import validate_device
+    parser.add_argument("--device", type=validate_device, default="auto",
+                        help="auto: GPU rời → GPU tích hợp → CPU; hoặc cpu, integrated, cuda[:N], directml[:N]")
     parser.add_argument("--camera", type=int, default=0, help="Chỉ số webcam, mặc định 0")
     args = parser.parse_args()
-    if len(args.images) > 10:
-        parser.error("Chỉ được mở tối đa 10 ảnh mỗi lượt.")
     if not 0 <= args.camera <= 9:
         parser.error("Chỉ số camera phải từ 0 đến 9.")
     from desktop.diagnostics import LOG_DIRECTORY, configure_logging

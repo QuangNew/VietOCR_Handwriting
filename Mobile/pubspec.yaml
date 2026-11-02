@@ -1,7 +1,7 @@
 name: vietocr_mobile
 description: VietOCR Handwriting offline, with a Bluetooth desk assistant.
 publish_to: none
-version: 1.2.1+4
+version: 1.9.0+14
 
 environment:
   sdk: ^3.11.1

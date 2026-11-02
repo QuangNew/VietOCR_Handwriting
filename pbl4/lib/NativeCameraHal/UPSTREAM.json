@@ -1,0 +1,27 @@
+{
+  "cam_hal.c": {
+    "url": "https://raw.githubusercontent.com/espressif/esp32-camera/v2.0.4/driver/cam_hal.c",
+    "upstream_sha256": "a20c2dd60da9b4f83ec02fe7ca751459caf546d95b21c3d3a02a5a0aae47c1e4",
+    "bytes": 19308
+  },
+  "cam_hal.h": {
+    "url": "https://raw.githubusercontent.com/espressif/esp32-camera/v2.0.4/driver/private_include/cam_hal.h",
+    "upstream_sha256": "79db4c02c1f7752829f5aa26bd08e44c1c7cba3101f8ce5af7f141c59f591c45",
+    "bytes": 1537
+  },
+  "ll_cam.h": {
+    "url": "https://raw.githubusercontent.com/espressif/esp32-camera/v2.0.4/target/private_include/ll_cam.h",
+    "upstream_sha256": "8882b66eca2c4158fc9c925a82836bcafd776b8cc1a96157113efaefa41f575f",
+    "bytes": 4266
+  },
+  "ll_cam.c": {
+    "url": "https://raw.githubusercontent.com/espressif/esp32-camera/v2.0.4/target/esp32s3/ll_cam.c",
+    "upstream_sha256": "d6bf00b6953cc8bf63c5a5ed28ee0ae7971f2d69cec141bd292356689d05b49b",
+    "bytes": 19261
+  },
+  "xclk.h": {
+    "url": "https://raw.githubusercontent.com/espressif/esp32-camera/v2.0.4/driver/private_include/xclk.h",
+    "upstream_sha256": "069255bd8c0fdd35258177dbc43b9861c9c1c74c937d2099c89de0cfef02da49",
+    "bytes": 229
+  }
+}

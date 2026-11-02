@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -18,7 +19,7 @@ class AppController extends ChangeNotifier {
   final OcrEngine engine;
   final _picker = ImagePicker();
   final List<Document> _documents = [];
-  List<Document> get documents => List.unmodifiable(_documents);
+  List<Document> get documents => UnmodifiableListView(_documents);
   Document? get selected => _documents.isEmpty
       ? null
       : _documents[selectedIndex.clamp(0, _documents.length - 1)];
@@ -29,6 +30,7 @@ class AppController extends ChangeNotifier {
       importing = false,
       initialized = false;
   bool _disposed = false, _picking = false, _background = false;
+  bool _queueHalted = false;
   bool get picking => _picking;
   String message = 'Chụp rõ nét, đủ sáng để đọc chữ tốt hơn.',
       progressLabel = '';
@@ -105,17 +107,12 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> pick({required bool camera}) async {
-    if (busy || importing || _picking || !initialized) return;
-    if (_documents.length >= 10) {
-      message = 'Mỗi lượt tối đa 10 ảnh. Xóa ảnh trước khi thêm.';
-      _notify();
-      return;
-    }
+    if (importing || _picking || !initialized) return;
     _picking = true;
     _notify();
     try {
       final List<XFile> files;
-      if (camera || 10 - _documents.length == 1) {
+      if (camera) {
         final file = await _picker.pickImage(
           source: camera ? ImageSource.camera : ImageSource.gallery,
           maxWidth: 2200,
@@ -129,11 +126,13 @@ class AppController extends ChangeNotifier {
           maxWidth: 2200,
           maxHeight: 2200,
           imageQuality: 95,
-          limit: 10 - _documents.length,
           requestFullMetadata: false,
         );
       }
-      if (!_disposed) await _importFiles(files);
+      if (!_disposed) {
+        await _importFiles(files);
+        _startQueue();
+      }
     } catch (error) {
       message = 'Không lấy được ảnh: ${readableError(error)}';
       _notify();
@@ -145,11 +144,6 @@ class AppController extends ChangeNotifier {
 
   Future<void> _importFiles(List<XFile> files) async {
     if (files.isEmpty || _disposed) return;
-    if (files.length + _documents.length > 10) {
-      message = 'Chỉ có thể thêm ${10 - _documents.length} ảnh nữa.';
-      _notify();
-      return;
-    }
     final rows = <(Uint8List, String)>[];
     // Keep only one original file in memory at a time during the import below.
     importing = true;
@@ -189,21 +183,18 @@ class AppController extends ChangeNotifier {
       _documents.add(document);
       added++;
       selectedIndex = _documents.length - 1;
-      assistant = AssistantState.received;
+      if (!busy) assistant = AssistantState.received;
       _notify();
     }
     return added;
   }
 
   // Also used by the bundled offline samples and domain tests.
-  Future<void> importImages(List<(Uint8List, String)> rows) async {
-    if (busy || importing || _disposed || rows.isEmpty) return;
-    if (_documents.length + rows.length > 10) {
-      message =
-          'Mỗi lượt tối đa 10 ảnh. Chỉ có thể thêm ${10 - _documents.length} ảnh nữa.';
-      _notify();
-      return;
-    }
+  Future<void> importImages(
+    List<(Uint8List, String)> rows, {
+    bool enqueue = false,
+  }) async {
+    if ((busy && !enqueue) || importing || _disposed || rows.isEmpty) return;
     importing = true;
     _notify();
     try {
@@ -215,6 +206,18 @@ class AppController extends ChangeNotifier {
       importing = false;
       await flush();
       _notify();
+    }
+    if (enqueue) _startQueue();
+  }
+
+  void _startQueue() {
+    if (!_queueHalted &&
+        !_background &&
+        !busy &&
+        !importing &&
+        !_disposed &&
+        _documents.any((item) => item.status == DocumentStatus.ready)) {
+      unawaited(recognize(retryErrors: false));
     }
   }
 
@@ -235,11 +238,113 @@ class AppController extends ChangeNotifier {
     }
   }
 
+  Future<void> checkModel() {
+    if (busy || importing || _disposed) return Future.value();
+    final cancel = CancellationToken();
+    _cancel = cancel;
+    busy = true;
+    assistant = AssistantState.processing;
+    _notify();
+    final operation = _checkModel(cancel);
+    _running = operation;
+    return operation.whenComplete(() {
+      _running = null;
+      _startQueue();
+    });
+  }
+
+  Future<void> _checkModel(CancellationToken cancel) async {
+    File? file;
+    try {
+      AppLog.instance.add(
+        'AI CHECK',
+        'Bắt đầu kiểm tra model bằng ảnh mẫu đóng gói',
+      );
+      final bytes = await rootBundle.load('assets/samples/test.jpg');
+      final directory = await store.directory;
+      await directory.create(recursive: true);
+      file = File('${directory.path}/model-health-check.jpg');
+      await file.writeAsBytes(
+        bytes.buffer.asUint8List(bytes.offsetInBytes, bytes.lengthInBytes),
+      );
+      final text = await engine.recognize(
+        file.path,
+        split: false,
+        rotation: 0,
+        cancel: cancel,
+        progress: (label, value) {
+          if (_disposed || cancel.isCancelled) return;
+          progressLabel = 'Kiểm tra AI · $label';
+          progress = value;
+          _notify();
+        },
+      );
+      cancel.check();
+      const expected = 'KHÁI QUÁT VỀ BIỂN ĐẢO VIỆT NAM';
+      final normalized = text
+          .trim()
+          .replaceAll(RegExp(r'\s+'), ' ')
+          .toUpperCase();
+      if (normalized != expected) {
+        throw StateError(
+          'Model đọc sai ảnh chuẩn (mong đợi tiêu đề tiếng Việt). Chưa thể xác nhận AI hoạt động đúng. Xem Log và phiên bản model.',
+        );
+      }
+      _queueHalted = false;
+      assistant = AssistantState.awake;
+      message =
+          'Kiểm tra AI đạt: nội dung ảnh chuẩn khớp hoàn toàn trên máy này.';
+      AppLog.instance.add(
+        'AI CHECK',
+        message,
+        error: 'characters=${text.length}',
+      );
+    } catch (error, stack) {
+      _queueHalted = true;
+      assistant = cancel.isCancelled
+          ? AssistantState.awake
+          : AssistantState.error;
+      message = 'Kiểm tra AI chưa đạt: ${readableError(error)}';
+      AppLog.instance.add(
+        'AI CHECK',
+        message,
+        level: 'ERROR',
+        error: error,
+        stack: stack,
+      );
+      try {
+        AppLog.instance.add(
+          'AI CHECK',
+          'Chẩn đoán',
+          error: await OfflineEngine.diagnostics(),
+        );
+      } catch (_) {}
+    } finally {
+      busy = false;
+      _cancel = null;
+      progress = null;
+      progressLabel = '';
+      try {
+        if (file != null && await file.exists()) await file.delete();
+      } catch (_) {}
+      await AppLog.instance.captureNative();
+      if (_background && engine is OfflineEngine) {
+        try {
+          await (engine as OfflineEngine).releaseMemory();
+        } catch (_) {}
+      }
+      _notify();
+    }
+  }
+
   Future<void> removeSelected() async {
     if (busy || importing || selected == null) return;
     final item = selected!;
     _documents.remove(item);
-    selectedIndex = selectedIndex.clamp(0, (_documents.length - 1).clamp(0, 9));
+    selectedIndex = selectedIndex.clamp(
+      0,
+      (_documents.length - 1).clamp(0, _documents.length),
+    );
     assistant = _documents.isEmpty
         ? AssistantState.awake
         : AssistantState.received;
@@ -272,24 +377,26 @@ class AppController extends ChangeNotifier {
     _notify();
   }
 
-  Future<void> recognize() {
+  Future<void> recognize({bool retryErrors = true}) {
     if (_disposed || busy || importing || _documents.isEmpty) {
       return Future.value();
     }
     final cancel = CancellationToken();
+    _queueHalted = false;
     _cancel = cancel;
     busy = true;
     assistant = AssistantState.processing;
     progress = 0;
     _notify();
-    final operation = _recognize(cancel);
+    final operation = _recognize(cancel, retryErrors);
     _running = operation;
     return operation.whenComplete(() {
       _running = null;
+      _startQueue();
     });
   }
 
-  Future<void> _recognize(CancellationToken cancel) async {
+  Future<void> _recognize(CancellationToken cancel, bool retryErrors) async {
     var completed = 0, failed = 0;
     var workerStopped = false;
     Document? active;
@@ -297,6 +404,8 @@ class AppController extends ChangeNotifier {
       for (var i = 0; i < _documents.length; i++) {
         cancel.check();
         active = _documents[i];
+        if (active.status == DocumentStatus.done) continue;
+        if (!retryErrors && active.status != DocumentStatus.ready) continue;
         selectedIndex = i;
         active.status = DocumentStatus.processing;
         active.error = '';
@@ -351,6 +460,7 @@ class AppController extends ChangeNotifier {
                 'OCR_NATIVE',
               ].contains(error.code)) {
             workerStopped = true;
+            _queueHalted = true;
             break; // Do not repeatedly reload a crashed worker for every queued image.
           }
         }
@@ -359,17 +469,19 @@ class AppController extends ChangeNotifier {
       }
       assistant = failed == 0 ? AssistantState.done : AssistantState.error;
       message = workerStopped
-          ? 'Đã dừng do AI gặp lỗi. Kết quả đã đọc được giữ lại; thử lại với từng ảnh nhỏ hơn.'
+          ? 'Hàng đợi đã dừng do AI gặp lỗi. Kết quả được giữ lại; mở Log để xem lỗi gốc rồi nhấn nhận diện để thử lại.'
           : failed == 0
           ? 'Đã đọc xong $completed ảnh. Bạn có thể sửa và sao chép văn bản.'
           : 'Đã đọc $completed ảnh; $failed ảnh cần thử lại.';
     } on OcrCancelled {
+      _queueHalted = true;
       if (active?.status == DocumentStatus.processing) {
         active!.status = DocumentStatus.cancelled;
       }
       assistant = AssistantState.awake;
       message = 'Đã dừng. Kết quả của $completed ảnh đã đọc được giữ lại.';
     } catch (error, stack) {
+      _queueHalted = true;
       AppLog.instance.add(
         'OCR',
         'Lượt nhận diện thất bại',

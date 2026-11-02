@@ -7,11 +7,12 @@ connection and its asyncio loop stay together in one disposable process.
 import asyncio
 import logging
 import multiprocessing
+import signal
 import threading
 import time
 from types import SimpleNamespace
 
-from .bluetooth_transport import BLEProtocol, RobotCommandRejected, RobotProtocolError, validate_address
+from .bluetooth_transport import BLEProtocol, RobotCommandRejected, RobotProtocolError, RobotLinkLost, validate_address
 
 logger = logging.getLogger("vietocr_desktop.ble_process")
 
@@ -44,7 +45,7 @@ async def _serve(pipe):
             if message[1] == "close":
                 return
 
-    async def perform(command, data):
+    async def perform(command, data, progress):
         nonlocal protocol
         if command == "scan":
             return await scan_robots(data["timeout"])
@@ -53,8 +54,23 @@ async def _serve(pipe):
             await protocol.connect()
             return None
         if command == "request" and protocol is not None:
-            await protocol.request(data["command"], data["timeout"])
-            return None
+            return await protocol.request(data["command"], data["timeout"], expected_prefix=data.get("expected_prefix"))
+        if command == "capture" and protocol is not None:
+            from .wifi_camera import capture_fast
+            return await capture_fast(protocol, on_progress=progress)
+        if command == 'network' and protocol is not None:
+            if data['action'] in ('settings_get','settings_set'):
+                from .camera_settings import get_config, apply_config
+                return await get_config(protocol) if data['action'] == 'settings_get' else await apply_config(protocol,data['settings'],data.get('persist',True))
+            from .wifi_camera import preview, stream_info, open_preview, wifi_scan, wifi_configure, wifi_check, wifi_state
+            if data['action'] == 'camera_open':
+                return await open_preview(protocol, mirror=data.get('mirror'), flip=data.get('flip'))
+            if data['action'] == 'preview': return await preview(protocol)
+            if data['action'] == 'stream_info': return await stream_info(protocol)
+            if data['action'] == 'wifi_scan': return await wifi_scan(protocol)
+            if data['action'] == 'wifi_status': return await wifi_check(protocol)
+            if data['action'] == 'wifi_state': return await wifi_state(protocol)
+            if data['action'] == 'wifi_join': return await wifi_configure(protocol, data['ssid'], data['password'])
         raise RobotProtocolError("Invalid Bluetooth worker operation")
 
     threading.Thread(target=read_control, name="BLE-control", daemon=True).start()
@@ -68,7 +84,8 @@ async def _serve(pipe):
             if stopping.is_set():
                 break
             request_id, command, data = await incoming
-            active = asyncio.create_task(perform(command, data))
+            active = asyncio.create_task(perform(command, data, lambda received, total:
+                pipe.send({"id": request_id, "progress": (received, total)})))
             await asyncio.wait([active, stop_task], return_when=asyncio.FIRST_COMPLETED)
             if stopping.is_set():
                 break
@@ -76,8 +93,11 @@ async def _serve(pipe):
                 value = await active
                 pipe.send({"id": request_id, "ok": True, "value": value})
             except Exception as error:
-                logger.exception("Bluetooth worker %s failed", command)
-                pipe.send({"id": request_id, "ok": False, "error": str(error), "rejected": isinstance(error, RobotCommandRejected)})
+                if isinstance(error, (ValueError, RobotCommandRejected, RobotLinkLost, ConnectionError)):
+                    logger.warning("Operation %s rejected: %s", command, error)
+                else:
+                    logger.exception("Bluetooth worker %s failed", command)
+                pipe.send({"id": request_id, "ok": False, "error": str(error), "rejected": isinstance(error, RobotCommandRejected), "recoverable": isinstance(error, ValueError)})
     except (EOFError, OSError):
         pass
     finally:
@@ -91,6 +111,10 @@ async def _serve(pipe):
 
 
 def _worker(pipe):
+    # Windows broadcasts Ctrl+C to every process attached to the console.
+    # The GUI owns shutdown and sends CLOSE; interrupting asyncio here can
+    # otherwise cancel GATT cleanup and print an unrelated KeyboardInterrupt.
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
     from .diagnostics import configure_logging
     configure_logging(role="bluetooth")
     logger.info("Bluetooth worker started")
@@ -117,7 +141,7 @@ class _Session:
         self.interrupted = False
         self.sequence = 0
 
-    async def call(self, command, data, timeout, cancel=None):
+    async def call(self, command, data, timeout, cancel=None, on_progress=None):
         if self.closed or self.interrupted:
             raise RobotProtocolError("Tiến trình Bluetooth đã đóng.")
         try:
@@ -133,8 +157,12 @@ class _Session:
                     if response.get("id") != request_id:
                         logger.debug("Ignoring stale Bluetooth response id=%s, expected=%s", response.get("id"), request_id)
                         continue
+                    if "progress" in response:
+                        if on_progress:
+                            on_progress(*response["progress"])
+                        continue
                     if not response["ok"]:
-                        error_type = RobotCommandRejected if response["rejected"] else RobotProtocolError
+                        error_type = RobotCommandRejected if response["rejected"] else ValueError if response.get('recoverable') else RobotProtocolError
                         raise error_type(response["error"])
                     return response["value"]
                 if not self.process.is_alive():
@@ -195,11 +223,18 @@ class ProcessBLEProtocol:
         await self._session.call("connect", {"address": self.address, "timeout": self.timeout}, 35)
         self.client = SimpleNamespace(is_connected=True)
 
-    async def request(self, command, timeout=None):
+    async def request(self, command, timeout=None, *, expected_prefix=None):
         if self._session is None:
             raise RobotProtocolError("Bluetooth chưa kết nối.")
         duration = self.timeout if timeout is None else timeout
-        await self._session.call("request", {"command": command, "timeout": duration}, duration + 5)
+        return await self._session.call("request", {"command": command, "timeout": duration,
+                                                  "expected_prefix": expected_prefix}, duration + 5)
+
+    async def capture(self, on_progress=None):
+        return await self._session.call("capture", {}, 250, on_progress=on_progress)
+
+    async def network(self, action, **arguments):
+        return await self._session.call('network', {'action': action, **arguments}, 35)
 
     async def disconnect(self):
         if self.client is not None:

@@ -12,6 +12,8 @@ from PIL import Image
 from desktop.ocr_process import OCRProcessService
 from desktop.ocr_service import OCRSettings, RecognitionCancelled, RecognitionError
 from ocr_fixtures import ProcessEngine
+from ocr_fixtures import AcceleratorEngine
+from desktop.compute_devices import CPU, ComputeDevice
 
 
 class OCRProcessTests(unittest.TestCase):
@@ -208,6 +210,40 @@ class OCRProcessTests(unittest.TestCase):
         with self.assertRaises(RecognitionCancelled):
             self.service.load(self.settings(), cancel)
         self.assertIsNone(self.service._process)
+
+    def accelerator_settings(self, name):
+        self.service._engine_factory = AcceleratorEngine
+        self.service._discover_devices = lambda _: [
+            ComputeDevice("directml:0", "iGPU", "integrated"), CPU,
+            ComputeDevice("cuda:0", "dGPU", "discrete")]
+        settings = self.settings(name)
+        return OCRSettings(settings.weights, "auto", "line")
+
+    def test_gpu_load_error_and_native_crash_fall_back_to_integrated(self):
+        for name in ("gpu-load", "gpu-native-load"):
+            with self.subTest(name=name):
+                settings = self.accelerator_settings(name)
+                result = self.service.recognize(self.image, settings, threading.Event())
+                self.assertIn("directml:0", result)
+                self.assertEqual(self.service.device_info["kind"], "integrated")
+
+    def test_gpu_inference_error_and_native_crash_retry_same_image_on_cpu(self):
+        for name in ("gpu-inference", "gpu-native-inference"):
+            with self.subTest(name=name):
+                settings = self.accelerator_settings(name)
+                result = self.service.recognize(self.image, settings, threading.Event())
+                self.assertIn("cpu", result)
+                self.assertIn("(255, 0, 0)", result)
+                self.assertEqual(self.service.device_info["id"], "cpu")
+                pid = self.service._process.pid
+                self.service.recognize(self.image, settings, threading.Event())
+                self.assertEqual(self.service._process.pid, pid)
+
+    def test_bad_image_does_not_trigger_device_fallback(self):
+        settings = self.accelerator_settings("bad-image")
+        with self.assertRaisesRegex(RecognitionError, "dòng chữ"):
+            self.service.recognize(self.image, settings, threading.Event())
+        self.assertEqual(self.service._candidate_index, 0)
 
 
 if __name__ == "__main__":

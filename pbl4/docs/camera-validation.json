@@ -1,0 +1,1202 @@
+{
+  "date": "2026-10-26",
+  "assistant_build_date": "2026-10-28",
+  "default_environment": "esp32-s3-cam-ov3660",
+  "default_camera_enabled": true,
+  "camera_environment": "esp32-s3-cam-ov3660",
+  "camera_profile": "S3-WROOM/GOOUUU data/SCCB pins verified by user diagnostic; select PWDN=-1, RESET=-1, XCLK=20MHz",
+  "user_board": "ESP32-S3-N16R8 with OV3660, sensor PID 0x3660 read in user-provided Serial log",
+  "physical_camera_probe_tested": true,
+  "probe_evidence": {
+    "date": "2026-10-26",
+    "source": "user-provided Serial log, pbl4/docs/camera-probe-2026-10-26.txt",
+    "sensor_pid_hex": "0x3660",
+    "resolution": [
+      320,
+      240
+    ],
+    "xclk_hz": 20000000,
+    "pwdn_minus1_jpeg_bytes": [
+      4194,
+      4664,
+      4658
+    ],
+    "pwdn38_jpeg_bytes": [
+      4235,
+      4654,
+      4666
+    ],
+    "jpeg_decodes_passed": 6,
+    "selected_pwdn": -1,
+    "selected_reset": -1,
+    "physical_pwdn_connection_determined": false
+  },
+  "user_wiring": "2026-10-26: user confirms TFT CS42/RST40/DC41/MOSI21/SCK47/MISO39, buzzer14, VCC and LED on 3V3; screen remains white with assistant and direct-GPIO diagnostic",
+  "tft_diagnostics": {
+    "user_serial_reaches_ready_and_ble": true,
+    "spi_write_hz": 40000000,
+    "spi_read_hz": 1000000,
+    "previous_effective_miso": 21,
+    "previous_effective_mosi": 21,
+    "library_remaps_minus1_miso_to_mosi_confirmed": true,
+    "separate_miso_gpio": 39,
+    "compile_time_miso_mosi_alias_guard": true,
+    "boot_color_test": false,
+    "library_pin_setup_logged": true,
+    "hardware_spi_id_hex": "0xffff",
+    "user_confirmed_header_pins_soldered": false,
+    "user_confirmed_microsd_card_inserted": false,
+    "confirmed_assembly_fault": "Ordinary header strips inserted through PCB holes without soldering, as confirmed by user",
+    "post_solder_display_tested": false,
+    "display_works_when_user_presses_header_connections": true,
+    "display_pressure_test_source": "User confirmed display works after pressing the unsoldered header/wire connections, 2026-10-26",
+    "direct_gpio_probe": {
+      "tested_by_user": true,
+      "source": "user-provided Serial log and visual observation on 2026-10-26",
+      "id_d3_hex": "ff ff ff ff",
+      "bars_sent_log_present": true,
+      "visible_color_bars": false,
+      "screen_observation": "white",
+      "camera_ble_hardware_spi_initialized": false,
+      "root_cause_determined": false
+    },
+    "white_screen_fix_physically_verified": false,
+    "panel_nominal_refresh_hz": 61,
+    "animation_target_fps": 60,
+    "fps_physically_measured": false
+  },
+  "rewire": {
+    "tft_cs": 42,
+    "tft_reset": 40,
+    "tft_dc": 41,
+    "tft_mosi": 21,
+    "tft_sck": 47,
+    "tft_miso": 39,
+    "buzzer": 14
+  },
+  "host_checks_passed": 591,
+  "artifacts": {
+    "esp32-s3-cam-ov3660": {
+      "file": "pbl4/dist/VietOCR-OV3660.bin",
+      "bytes": 1063872,
+      "sha256": "46d567554e8feabfb6ecc7b2d345957f2d2386008702f27253e20870f221ed9f"
+    },
+    "esp32-s3-devkitc-1": {
+      "file": "pbl4/dist/VietOCR-legacy.bin",
+      "bytes": 1001120,
+      "sha256": "96614a0c4457c199e0cdcdb437f3bad8a33b1a56c32e3c6e162db72ebce1a040"
+    }
+  },
+  "camera_sensor_preview_jpeg": [
+    320,
+    240
+  ],
+  "camera_capture_jpeg": [
+    1600,
+    1200
+  ],
+  "physical_camera_ble_tested": false,
+  "firmware_flashed": true,
+  "firmware_flashed_by_agent": false,
+  "new_tft_diagnostic_build_flashed": true,
+  "diagnostic_firmware_flashed_by_user": true,
+  "physical_note": "User confirmed header strips are not soldered, no microSD is inserted, and display works when pressing header/wire connections. This supports an external contact fault; permanent post-solder display operation is not yet verified. TFT probe firmware intentionally has no BLE, so restore assistant camera firmware before testing desktop connection. Agent did not flash; full camera/BLE pipeline remains unverified.",
+  "preview_capture_update": {
+    "date": "2026-10-26",
+    "desktop_full_suite_passed": 125,
+    "final_transfer_and_ipc_suite_passed": 15,
+    "additional_unique_cases_in_final_suite": 2,
+    "firmware_builds_passed": [
+      "esp32-s3-cam-ov3660",
+      "esp32-s3-devkitc-1"
+    ],
+    "firmware_host_checks_passed": 591,
+    "user_log_confirmed_gatt_connected": true,
+    "user_log_confirmed_snapshot": {
+      "width": 1600,
+      "height": 1200,
+      "bytes": 61928
+    },
+    "user_log_missing_image_transfer_completion": true,
+    "preview_status_requires_successful_jpeg_decode": true,
+    "desktop_shutter_location": "desktop camera dialog, footer sized for Windows font scaling",
+    "desktop_progress_and_transfer_byte_logging": true,
+    "windows_long_read_bytes": 480,
+    "windows_long_read_fallback_to_mtu": true,
+    "ble_requested_mtu": 517,
+    "ble_requested_interval_ms": [
+      15,
+      30
+    ],
+    "boot_color_test_removed": true,
+    "updated_firmware_flashed_by_agent": false,
+    "end_to_end_hardware_capture_verified_after_update": false,
+    "limits": "Unit/GUI/CRC/IPC checks and both firmware builds pass. Actual camera preview, Bluetooth transfer throughput and measured TFT FPS still require the updated firmware on the board."
+  },
+  "wifi_update": {
+    "date": "2026-10-27",
+    "sensor_resolution": [
+      2048,
+      1536
+    ],
+    "jpeg_quality": 6,
+    "preview": "app over authenticated HTTP LAN; TFT displays assistant",
+    "provisioning": "Wi-Fi selection/password over BLE",
+    "credentials_storage": "ESP32 NVS vietocr-wifi only, not app logs",
+    "wifi_crash_on_device_tested": false,
+    "desktop_tests": 134,
+    "flutter_tests": 44,
+    "firmware_host_checks": 591,
+    "firmware_profiles_built": [
+      "esp32-s3-cam-ov3660",
+      "esp32-s3-devkitc-1"
+    ],
+    "flashed_by_agent": false,
+    "physical_wifi_transfer_tested": false,
+    "artifacts": {
+      "esp32-s3-cam-ov3660": {
+        "path": "pbl4/dist/VietOCR-OV3660.bin",
+        "bytes": 1458336,
+        "sha256": "537b6defea39dd70ca80aa4e72cbc2003e4423d17fee5378277549b407604e33"
+      },
+      "esp32-s3-devkitc-1": {
+        "path": "pbl4/dist/VietOCR-legacy.bin",
+        "bytes": 1395248,
+        "sha256": "c48b5c0a871b428058fefbe0c1a77818ff38cc785a33d1e2f402ec70efc7788d"
+      }
+    }
+  },
+  "current_firmware_version": "2.0.1-wifi",
+  "wifi_scan_fix": {
+    "date": "2026-10-27",
+    "root_cause": "Connected board ran older firmware without WIFI commands; HELP and WIFI STATUS verified on COM8 before flashing",
+    "flashed_by_agent": true,
+    "port": "COM8",
+    "chip": "ESP32-S3 revision v0.2",
+    "base_mac": "84:c7:bb:53:08:60",
+    "flash_hash_verified": true,
+    "erased_whole_flash": false,
+    "firmware_version": "2.0.1-wifi",
+    "serial_access_points": 14,
+    "desktop_ble_scan_named_networks_after_dedup": 7,
+    "theme_commands_verified_by_status": true,
+    "theme_restored_after_test": true,
+    "wifi_join_tested": false,
+    "password_entered_by_agent": false,
+    "http_camera_transfer_tested": false,
+    "desktop_scan_regression_tests": 9,
+    "flutter_tests": 45,
+    "artifacts": {
+      "VietOCR-OV3660.bin": {
+        "bytes": 1458688,
+        "sha256": "9c9ab3f7151b522e249fc1f58c0a0e5407e3b877ff2fef834fc8349862ddca7a"
+      },
+      "VietOCR-legacy.bin": {
+        "bytes": 1395600,
+        "sha256": "a278930946c1c853f4f2159bb5ce592591a499c2c10079b92d2d4f9b618fd7a6"
+      }
+    },
+    "logs": [
+      ".toolchain/firmware-wifi-scan-upload.log",
+      ".toolchain/firmware-wifi-scan-serial.log",
+      ".toolchain/firmware-wifi-scan-ble.log",
+      ".toolchain/desktop-wifi-scan-tests.log",
+      ".toolchain/mobile-wifi-scan-tests.log",
+      ".toolchain/android-wifi-scan-release-verification.log"
+    ]
+  },
+  "latest_built_firmware_version": "2.4.3-camera",
+  "http_performance_update": {
+    "date": "2026-10-27",
+    "firmware_version": "2.1.0-wifi",
+    "built_only": true,
+    "flashed_by_agent": false,
+    "user_requested_self_flash": true,
+    "camera_native_resolution": [
+      2048,
+      1536
+    ],
+    "http_listener": "start after usable station IP; restart on IP loss/change",
+    "http_health": "/health, authenticated JSON",
+    "wifi_required_for_app_capture": true,
+    "physical_http_or_capture_tested": false,
+    "original_http_root_cause_proven": false,
+    "diagnostics": "socket reason and target IP in app; capture_ms/send_ms/rc on ESP32 Serial",
+    "firmware_profiles_built": [
+      "esp32-s3-cam-ov3660",
+      "esp32-s3-devkitc-1"
+    ],
+    "artifacts": {
+      "VietOCR-OV3660.bin": {
+        "bytes": 1460240,
+        "sha256": "e459067e3ac7320328ec25ffa7ae87611d6a133abf1e34f27ccf44f32cd7ebfb"
+      },
+      "VietOCR-legacy.bin": {
+        "bytes": 1398032,
+        "sha256": "a71e634f828af8ff6b41a91f88732cafed9d6f0d72a7610e491f13ba522256a9"
+      }
+    },
+    "desktop_tests": 140,
+    "flutter_tests": 45,
+    "model_performance_report": "VietHandOCR_API_Release/docs/performance-validation.json"
+  },
+  "stream_update": {
+    "date": "2026-10-27",
+    "firmware_version": "2.2.0-stream",
+    "android_version": "1.6.0+9",
+    "built_only": true,
+    "flashed_by_agent": false,
+    "installed_on_phone": false,
+    "user_requested_self_flash": true,
+    "baseline_evidence": "desktop bluetooth.log 2026-10-27 13:14: /preview ~200KB per request took 6-14 seconds",
+    "preview_resolution": [
+      320,
+      240
+    ],
+    "preview_jpeg_quality": 20,
+    "preview_fps_limit": 10,
+    "still_resolution": [
+      2048,
+      1536
+    ],
+    "still_jpeg_quality": 6,
+    "stream": "persistent authenticated multipart MJPEG on TCP 81, separate HTTP server/task",
+    "still_and_health": "TCP 80 /image and /health",
+    "camera_buffers": 2,
+    "camera_grab_mode": "CAMERA_GRAB_LATEST, discard stale mode buffers; verify actual JPEG SOF dimensions",
+    "desktop": "dedicated cancellable HTTP thread outside BLE worker/IPC; latest-frame queue bounded to 1",
+    "android": "single cancellable HTTP stream; epoch/generation rejects old session frames; close before capture/background/disconnect",
+    "tests": {
+      "desktop": 149,
+      "flutter": 54,
+      "cpp_host_checks": 615,
+      "flutter_analyzer": "No issues found",
+      "firmware_profiles_built": [
+        "esp32-s3-cam-ov3660",
+        "esp32-s3-devkitc-1"
+      ],
+      "streaming": "real local chunked HTTP: fragmented headers/bodies, multiple live frames before EOF, bounded frames, cancel/reopen, idle timeout, separate control requests"
+    },
+    "physical_camera_stream_tested": false,
+    "hardware_fps_measured": false,
+    "physical_open_latency_measured": false,
+    "ocr_weights_or_optimizations_changed": false,
+    "newly_installed_packages": [],
+    "artifacts": {
+      "VietOCR-OV3660.bin": {
+        "path": "pbl4/dist/VietOCR-OV3660.bin",
+        "bytes": 1462592,
+        "sha256": "2c50a6a83934e1518803abb6191c5e577e29de866e89cec8ad81d2db97bfb0f2"
+      },
+      "VietOCR-legacy.bin": {
+        "path": "pbl4/dist/VietOCR-legacy.bin",
+        "bytes": 1399680,
+        "sha256": "4f5ed429021bc741bb793d4fbbac2cd7a244df6b8a772ae43d1c36b64a70d37e"
+      }
+    },
+    "apk": {
+      "path": "Mobile/dist/VietOCR-arm64.apk",
+      "bytes": 182388218,
+      "sha256": "ccd206c1f78fee34a282bc0df53bdc0401d710c9f770986ff067a5889f117ec6"
+    },
+    "logs": [
+      ".toolchain/stream-firmware-build.log",
+      ".toolchain/stream-host-tests.log",
+      ".toolchain/stream-desktop-tests.log",
+      ".toolchain/stream-mobile-tests.log",
+      ".toolchain/stream-mobile-analyze.log",
+      ".toolchain/stream-android-build.log",
+      ".toolchain/stream-android-verification.log"
+    ]
+  },
+  "wifi_recovery_update": {
+    "date": "2026-10-27",
+    "firmware_version": "2.2.1-recovery",
+    "android_version": "1.6.1+10",
+    "built_only": true,
+    "flashed_by_agent": false,
+    "installed_on_phone": false,
+    "user_confirmation": "TFT assistant continues running; camera image missing in app; not an ESP32 reset",
+    "evidence": [
+      "VietHandOCR_API_Release/.logs/console-20261027-222805-565813.log",
+      "VietHandOCR_API_Release/.logs/console-20261027-223143-846298.log"
+    ],
+    "findings": [
+      "WIFI STATUS OFFLINE 1; repeated WIFI_SCAN_FAILED; BLE PING/PONG continues",
+      "CAM OPEN preceded failed WiFi readiness check",
+      "First GUI exit follows terminal SIGINT; second follows window close; both exit 0; no native crash proved by supplied logs",
+      "Reconnect was still enabled after joining_ timed out; SDK disallows scanning during connection attempts; physical driver error code was hidden by Arduino wrapper"
+    ],
+    "fixes": [
+      "SCAN cancels offline connect, waits 250ms, retries at most 3 times with 500ms gaps; retains a working LAN connection",
+      "Stop connect at 25s timeout; cancel late Arduino first-connect retry; retain saved credentials",
+      "Emit disconnect reason and scan attempt result in Serial; add optional reason to OFFLINE/JOINING",
+      "Desktop and Android check LAN HTTP before CAM OPEN; stale desktop open results carry request tokens",
+      "Windows GUI child has CREATE_NEW_PROCESS_GROUP and DEVNULL stdin; normal close reason logged without stack",
+      "Recoverable network rejection logs warning; old crash trace not reprinted for unrelated new exit"
+    ],
+    "tests": {
+      "desktop": 154,
+      "flutter": 55,
+      "cpp_host_checks": 638,
+      "flutter_analyzer": "No issues found",
+      "scope": "Fake offline/failed scans in real spawned BLE worker, Tk UI and HTTP preflight; firmware scan scheduling/retry/timeout tests; two firmware builds"
+    },
+    "physical_scan_or_stream_retested": false,
+    "native_crash_reproduced": false,
+    "actual_console_ctrl_event_sent": false,
+    "full_still_resolution": [
+      2048,
+      1536
+    ],
+    "preview_resolution": [
+      320,
+      240
+    ],
+    "model_weights_changed": false,
+    "newly_installed_packages": [],
+    "artifacts": {
+      "VietOCR-OV3660.bin": {
+        "path": "pbl4/dist/VietOCR-OV3660.bin",
+        "bytes": 1464224,
+        "sha256": "cd33f4f09b84659a013e154ca2121b762359defcd6cbd86293ce0ad73b3cff00"
+      },
+      "VietOCR-legacy.bin": {
+        "path": "pbl4/dist/VietOCR-legacy.bin",
+        "bytes": 1401376,
+        "sha256": "2f394bc038d52927f274005b92b4ef43d71bbdd08f5ec38fd2d09d8ccb6c1df4"
+      }
+    },
+    "apk": {
+      "path": "Mobile/dist/VietOCR-arm64.apk",
+      "bytes": 182388218,
+      "sha256": "01ffc4c63b06d0331726308b2b0392bda4528557bfbd9eedc49978211c437662"
+    },
+    "logs": [
+      ".toolchain/recovery-desktop-tests.log",
+      ".toolchain/recovery-mobile-tests.log",
+      ".toolchain/recovery-mobile-analyze.log",
+      ".toolchain/recovery-host-tests.log",
+      ".toolchain/recovery-firmware-build.log",
+      ".toolchain/recovery-android-build.log",
+      ".toolchain/recovery-android-verification.log"
+    ]
+  },
+  "auto_wifi_update": {
+    "date": "2026-10-27",
+    "version": "2.3.1-blewifi",
+    "flashed": false,
+    "user_requested_self_flash": true,
+    "user_evidence": "console-20261027-233508-347371.log: heartbeat write cancelled by WinRT after Wi-Fi JOIN; repeated short reconnects; no native GUI crash proven",
+    "native_error": {
+      "hresult": "0x800704C7",
+      "win32_code": 1223,
+      "source": "https://learn.microsoft.com/en-us/windows/win32/debug/system-error-codes--1000-1299-"
+    },
+    "network_blocking_mainloop": "Previous WiFi.begin, HTTP start/stop and NVS executed in Arduino loop; now run on a dedicated FreeRTOS task/core 0",
+    "transport_fixes": [
+      "WinRT cancellation with a matching peer ACK is accepted without resending",
+      "No ACK: invalidate GATT session and reconnect; never replay credential chunks/JOIN/SHOT blindly",
+      "Repeated short-lived handshakes keep increasing backoff; reset only after 30s stable connection"
+    ],
+    "wifi_cache": {
+      "namespace": "vietocr-wifi",
+      "key": "profile",
+      "record_bytes": 104,
+      "version": 1,
+      "crc32": true,
+      "save": "after successful DHCP/IP; single NVS blob, verified readback, only when credentials change",
+      "migration": "read legacy ssid/pass keys, migrate after first successful connection",
+      "credentials_logged": false,
+      "survives_restart_by_design": true,
+      "reconnect_backoff_ms": [
+        3000,
+        6000,
+        12000,
+        24000,
+        60000
+      ],
+      "connect_timeout_ms": 25000,
+      "scan_priority": true,
+      "scan_pause_ms": 30000,
+      "configure_pause_ms": 60000,
+      "ble_connect_trigger": "BLE session connect callback signals network task; bypass backoff, driver searches cached SSID and joins without user input; existing LAN/inflight join preserved",
+      "query": "WIFI SAVED",
+      "clear": "WIFI FORGET",
+      "app_required_for_reconnect": false
+    },
+    "rpc": {
+      "bounded_queues": 4,
+      "replies": "main loop only; epoch rejects previous BLE session replies"
+    },
+    "tests": {
+      "desktop_passed": 158,
+      "cpp_checks": 904,
+      "credentials_store_checks": 246,
+      "reconnect_policy_checks": 10,
+      "ble_wake_checks": 10,
+      "firmware_profiles_built": 2,
+      "physical_power_cycle_tested": false,
+      "physical_nvs_tested": false,
+      "physical_wifi_ble_coexistence_tested": false,
+      "real_windows_driver_error_reproduced": false
+    },
+    "artifacts": {
+      "VietOCR-OV3660.bin": {
+        "path": "pbl4/dist/VietOCR-OV3660.bin",
+        "bytes": 1468832,
+        "sha256": "27c26e40744775cf14ebdc53f9829b2dcc6b492d09bb74bb57b9d8028c2b519f"
+      },
+      "VietOCR-legacy.bin": {
+        "path": "pbl4/dist/VietOCR-legacy.bin",
+        "bytes": 1405840,
+        "sha256": "12a8cc3a25ce58634f93bdb0baa268768fb6ebc170938959643e1a8d74653771"
+      }
+    },
+    "android": "Existing Mobile/dist/VietOCR-arm64.apk 1.6.1+10 unchanged; no new APK needed",
+    "new_packages_installed": [],
+    "model_or_camera_quality_changed": false,
+    "logs": [
+      ".toolchain/autowifi-desktop-tests.log",
+      ".toolchain/blewifi-host-tests.log",
+      ".toolchain/blewifi-firmware-build.log"
+    ]
+  },
+  "auto_wifi_230_update": {
+    "date": "2026-10-27",
+    "version": "2.3.0-autowifi",
+    "flashed": false,
+    "user_requested_self_flash": true,
+    "user_evidence": "console-20261027-233508-347371.log: heartbeat write cancelled by WinRT after Wi-Fi JOIN; repeated short reconnects; no native GUI crash proven",
+    "native_error": {
+      "hresult": "0x800704C7",
+      "win32_code": 1223,
+      "source": "https://learn.microsoft.com/en-us/windows/win32/debug/system-error-codes--1000-1299-"
+    },
+    "network_blocking_mainloop": "Previous WiFi.begin, HTTP start/stop and NVS executed in Arduino loop; now run on a dedicated FreeRTOS task/core 0",
+    "transport_fixes": [
+      "WinRT cancellation with a matching peer ACK is accepted without resending",
+      "No ACK: invalidate GATT session and reconnect; never replay credential chunks/JOIN/SHOT blindly",
+      "Repeated short-lived handshakes keep increasing backoff; reset only after 30s stable connection"
+    ],
+    "wifi_cache": {
+      "namespace": "vietocr-wifi",
+      "key": "profile",
+      "record_bytes": 104,
+      "version": 1,
+      "crc32": true,
+      "save": "after successful DHCP/IP; single NVS blob, verified readback, only when credentials change",
+      "migration": "read legacy ssid/pass keys, migrate after first successful connection",
+      "credentials_logged": false,
+      "survives_restart_by_design": true,
+      "reconnect_backoff_ms": [
+        3000,
+        6000,
+        12000,
+        24000,
+        60000
+      ],
+      "connect_timeout_ms": 25000,
+      "scan_priority": true,
+      "scan_pause_ms": 30000,
+      "configure_pause_ms": 60000,
+      "query": "WIFI SAVED",
+      "clear": "WIFI FORGET",
+      "app_required_for_reconnect": false
+    },
+    "rpc": {
+      "bounded_queues": 4,
+      "replies": "main loop only; epoch rejects previous BLE session replies"
+    },
+    "tests": {
+      "desktop_passed": 158,
+      "cpp_checks": 894,
+      "credentials_store_checks": 246,
+      "reconnect_policy_checks": 10,
+      "firmware_profiles_built": 2,
+      "physical_power_cycle_tested": false,
+      "physical_nvs_tested": false,
+      "physical_wifi_ble_coexistence_tested": false,
+      "real_windows_driver_error_reproduced": false
+    },
+    "artifacts": {
+      "VietOCR-OV3660.bin": {
+        "path": "pbl4/dist/VietOCR-OV3660.bin",
+        "bytes": 1468304,
+        "sha256": "f02a4c9c53e0f67e71e7cf862830fc624079555762ac3a70821bd0930740f074"
+      },
+      "VietOCR-legacy.bin": {
+        "path": "pbl4/dist/VietOCR-legacy.bin",
+        "bytes": 1405232,
+        "sha256": "fb7951742b03664d79c49a644bacde456910d94f4bc0556b5576d8a346388a27"
+      }
+    },
+    "android": "Existing Mobile/dist/VietOCR-arm64.apk 1.6.1+10 unchanged; no new APK needed",
+    "new_packages_installed": [],
+    "model_or_camera_quality_changed": false,
+    "logs": [
+      ".toolchain/autowifi-desktop-tests.log",
+      ".toolchain/autowifi-host-tests.log",
+      ".toolchain/autowifi-firmware-build.log"
+    ]
+  },
+  "coexistence_reset_fix": {
+    "date": "2026-10-28",
+    "firmware_version": "2.3.2-coexfix",
+    "root_cause_proven_by_user_serial_and_matching_elf": true,
+    "user_firmware_version": "2.3.1-blewifi",
+    "original_elf_sha256": "1227e01d80332bf2dd5835d795dd0ce23ca0c8f920d41705f3c416431d30e7c3",
+    "offending_call": "WiFi.setSleep(false) after obtaining IP; Arduino 2.0.14 maps to WIFI_PS_NONE",
+    "decoded_abort": [
+      "panic_abort",
+      "esp_system_abort",
+      "abort",
+      "pm_set_sleep_type",
+      "wifi_set_ps_process",
+      "ieee80211_ioctl_process",
+      "ppTask"
+    ],
+    "fix": "Set Arduino policy to WIFI_PS_MIN_MODEM before STA start, explicitly set driver to MIN_MODEM, remove sleep disable after join",
+    "new_serial": "WIFI COEX power_save=MIN_MODEM rc=ESP_OK",
+    "nvs_missing_key_fix": "Check isKey(profile/ssid) before reading absent new-format key; legacy credentials retained",
+    "nvs_erased": false,
+    "saved_wifi_and_ble_trigger_preserved": true,
+    "quality_or_model_changed": false,
+    "cpp_host_checks": 905,
+    "unsafe_power_policy_source_check_passed": true,
+    "firmware_profiles_built": 2,
+    "physically_flashed_by_agent": false,
+    "fixed_version_physically_retested": false,
+    "native_bootloop_reproduced_on_host": false,
+    "new_packages_installed": [],
+    "new_apk_built": false,
+    "artifacts": {
+      "VietOCR-OV3660.bin": {
+        "path": "pbl4/dist/VietOCR-OV3660.bin",
+        "bytes": 1469456,
+        "sha256": "bb5cec42d65d667c9b276256bd38cbf9b7241814f96cc8b953045c9da69aa480"
+      },
+      "VietOCR-legacy.bin": {
+        "path": "pbl4/dist/VietOCR-legacy.bin",
+        "bytes": 1406544,
+        "sha256": "9784a05788b9312f73201715e1b7f0c0ed17a77689ea4c6a7ca03838dc4bcebe"
+      }
+    },
+    "source_sha256": {
+      "assistant_wifi.cpp": "f1eff0bb260f140a895035edb0c9d4682428c3a9fa86202a23027713824219a9",
+      "wifi_credentials.h": "feb222e6de8ae8c8c9ad35bf2bf1c9caa5c7a60e9bb95a23f90224aa8b7ba04b"
+    },
+    "logs": [
+      ".toolchain/coex-firmware-build.log",
+      ".toolchain/coex-host-tests.log",
+      ".toolchain/coex-original-backtrace.log"
+    ],
+    "reference": "https://docs.espressif.com/projects/esp-idf/en/v4.4.6/esp32s3/api-guides/wifi.html#station-sleep"
+  },
+  "native_camera_update": {
+    "date": "2026-10-28",
+    "firmware": "2.4.1-native",
+    "artifacts": {
+      "VietOCR-OV3660": {
+        "path": "pbl4/dist/VietOCR-OV3660.bin",
+        "bytes": 1471104,
+        "sha256": "142f4dcde4d612a0d48521a93743349187b56c5b874c5fdd61116d9e32a43654"
+      },
+      "VietOCR-legacy": {
+        "path": "pbl4/dist/VietOCR-legacy.bin",
+        "bytes": 1408192,
+        "sha256": "0e2df1b8aecee3c38c5aa87f1714ba9da6f40940244fd77d34c6a60d81a9c65d"
+      }
+    },
+    "desktop_tests": 165,
+    "firmware_host_checks": 913,
+    "preview": [
+      2048,
+      1536
+    ],
+    "still": [
+      2048,
+      1536
+    ],
+    "jpeg_quality": 0,
+    "jpeg_capacity_bytes": 2097152,
+    "sensor_buffers": 1,
+    "hal_source": "pbl4/lib/NativeCameraHal",
+    "hal_upstream": "Espressif esp32-camera v2.0.4, Apache-2.0",
+    "hal_patched_sha256": "e983231e1b93dc4160393287ccb44b27ab269af2ac26559c2d70a41e6f104024",
+    "hal_link_proof": ".toolchain/native-hal-link-proof.log",
+    "capture_review_seconds": 3,
+    "skip_and_timeout_commit_once": true,
+    "capture_window_stays_open": true,
+    "progress_panel": "bottom right, collapsible, in main and camera windows",
+    "original_jpeg_export": "byte-for-byte",
+    "detail_view": "native coordinate zoom/pan/crop, original preserved",
+    "coexistence_modem_sleep_preserved": true,
+    "tested": "local HTTP including delayed 8.5s first JPEG, >128 KiB multipart, native image persistence/export/crop and UI lifecycle",
+    "flashed_by_agent": false,
+    "physical_camera_stream_tested": false,
+    "physical_fps_measured": false,
+    "known_limit": "QS0 JPEGs larger than 2 MiB are rejected without downscaling or truncation; throughput depends on LAN"
+  },
+  "wifi_status_camera_update": {
+    "date": "2026-10-28",
+    "firmware": "2.4.2-status",
+    "artifacts": {
+      "VietOCR-OV3660": {
+        "path": "pbl4/dist/VietOCR-OV3660.bin",
+        "bytes": 1472448,
+        "sha256": "6e1204ed626833ed11de87e4b5559d72e978fa75d76812175e790624f9dc7e1f"
+      },
+      "VietOCR-legacy": {
+        "path": "pbl4/dist/VietOCR-legacy.bin",
+        "bytes": 1408192,
+        "sha256": "8371ad4f03bd30bb1afb5a0816034843270746d829873721815f20df4d783467"
+      }
+    },
+    "desktop_tests": 169,
+    "firmware_host_checks": 930,
+    "preview": [
+      2048,
+      1536
+    ],
+    "still": [
+      2048,
+      1536
+    ],
+    "jpeg_quality": 0,
+    "jpeg_capacity_bytes": 2097152,
+    "sensor_buffers": 1,
+    "sram_dma_ring_bytes": 32768,
+    "dma_event_bytes": 4096,
+    "camera_drain_core": 1,
+    "fixed_timeout_budget": true,
+    "recursive_retry_removed": true,
+    "overflowed_frames_rejected": true,
+    "diagnostics": "VSYNC, EOF, queue/buffer overflow, SOI/EOI, good JPEGs, last size",
+    "wifi_ui": "Automatic after BLE connect and every 5 seconds; saved SSID and IP; no automatic scan or HTTP dependency",
+    "hal_patches": {
+      "cam_hal.c": "57753ee6ae98352a7cb5ecddcbba4805692d1503f24d1ef7ef993a37c71fc198",
+      "ll_cam.c": "fc884e23725a820074b4a4fbc299d1bf5f68e46e19e97ba359dd5a83ef400d85",
+      "native_jpeg.h": "d8398e74c5f2d1e1ba02f66d98144e5f748134f3afb3f29a2bee4c31d44aae4d"
+    },
+    "hal_link_proof": ".toolchain/status-hal-link-proof.log",
+    "flashed_by_agent": false,
+    "physical_camera_verified": false,
+    "latest_user_log": {
+      "firmware": "2.4.1-native",
+      "saved_wifi_auto_connected": true,
+      "ip": "192.168.100.173",
+      "http_listening": true,
+      "mjpeg_frames": 0,
+      "camera_missing_jpeg_after_recovery": true
+    },
+    "installation": "No new SDK, toolchain or dependencies installed; existing local NativeCameraHal modified"
+  },
+  "camera_dma_ownership_fix": {
+    "firmware": "2.4.3-camera",
+    "date": "2026-10-28",
+    "artifact": "pbl4/dist/VietOCR-OV3660.bin",
+    "bytes": 1473024,
+    "sha256": "76ebc80efdc0e402c4e09a0ac975504f1ed2465b314e6fda2376b25849dd292f",
+    "native_camera_tests_passed": 287,
+    "tests": {
+      "dma_ownership": 229,
+      "jpeg_bounds": 17,
+      "camera_transfer": 41,
+      "simulated_open_close_cycles": 100
+    },
+    "build_log": ".toolchain/camera-dma-build.log",
+    "tests_log": ".toolchain/camera-dma-tests.log",
+    "link_proof": ".toolchain/camera-dma-link-proof.log",
+    "changes": [
+      "Managed GDMA RX allocation and CAM peripheral connection",
+      "Clock reference retained during camera lifetime",
+      "Restore RX configuration at frame boundaries",
+      "Unregister ISR handlers before deleting queues",
+      "Bounded per-channel cleanup on init failure",
+      "Report GDMA registers and sensor JPEG length on failure"
+    ],
+    "sources": {
+      "native_dma.h": "c3a930453dd4b9155d87ace3c43e5fc3ec048f1beac061c16c7b65a2e4374825",
+      "cam_hal.c": "2ec5bac4ecc1cdba27389748ffd07ae43e4de21f4af354855defb07097213d13",
+      "ll_cam.c": "7e12648e50cbe183764d937b15d1f4d1f0b6e527a19de4dafef125b05be57bbc",
+      "ll_cam.h": "2760a33511774752fa9949e1983ce734edc82fde442b6217155d8e1ed56e3783"
+    },
+    "preview": [
+      2048,
+      1536
+    ],
+    "still": [
+      2048,
+      1536
+    ],
+    "jpeg_quality": 0,
+    "physical_stream_verified": false,
+    "flashed_by_agent": false,
+    "android_built": false,
+    "new_dependencies_installed": false,
+    "user_evidence": {
+      "firmware": "2.4.2-status",
+      "wifi_connected": true,
+      "first_attempt": {
+        "vsync": 24,
+        "eof": 1,
+        "no_soi": 1,
+        "buffer_overflow": 0,
+        "sensor_jfifo": 0
+      },
+      "after_reinitialize": {
+        "vsync": 23,
+        "eof": 0,
+        "no_soi": 0,
+        "buffer_overflow": 0
+      },
+      "jpeg_frames": 0
+    },
+    "limitation": "GDMA ownership defect confirmed in source. Host tests model IDF allocation and clock lifetime; not proof this is the only cause on physical camera."
+  },
+  "camera_hardware_verified_2026_10_29": {
+    "date": "2026-10-29",
+    "firmware": "2.4.4-stream",
+    "port": "COM8",
+    "flashed_by_agent": true,
+    "flash_verified_by_esptool": true,
+    "artifact": "pbl4/dist/VietOCR-OV3660-2.4.4-stream.bin",
+    "bytes": 1473056,
+    "sha256": "2db484782a4b75a206260ea626cb97247ba49d195949f437e4f2def1403c3bbd",
+    "resolution_decoded_on_pc": [
+      2048,
+      1536
+    ],
+    "jpeg_qs": 4,
+    "preview_still_same_jpeg_quantization": true,
+    "final_firmware_desktop_path": {
+      "control": "desktop.bluetooth_transport.BLEProtocol",
+      "stream": "desktop.camera_stream.CameraStream",
+      "capture": "desktop.wifi_camera.capture_fast",
+      "cycles": [
+        {
+          "frames": 17,
+          "cycle": 1,
+          "first_frame_seconds": 2.172,
+          "seconds": 40.016,
+          "still": {
+            "bytes": 363329,
+            "width": 2048,
+            "height": 1536,
+            "crc32_verified": true
+          }
+        },
+        {
+          "frames": 15,
+          "cycle": 2,
+          "first_frame_seconds": 2.063,
+          "seconds": 40.0,
+          "still": {
+            "bytes": 369891,
+            "width": 2048,
+            "height": 1536,
+            "crc32_verified": true
+          }
+        },
+        {
+          "frames": 16,
+          "cycle": 3,
+          "first_frame_seconds": 2.484,
+          "seconds": 40.0,
+          "still": {
+            "bytes": 377338,
+            "width": 2048,
+            "height": 1536,
+            "crc32_verified": true
+          }
+        }
+      ],
+      "decoded_stream_frames": 48,
+      "crc_verified_stills": 3,
+      "errors": [],
+      "ping_during_stream": true
+    },
+    "quality_ab_trials": [
+      {
+        "qs": 0,
+        "frames": 0,
+        "errors": [
+          "IncompleteRead: IncompleteRead(0 bytes read)"
+        ]
+      },
+      {
+        "qs": 1,
+        "frames": 0,
+        "errors": [
+          "IncompleteRead: IncompleteRead(0 bytes read)"
+        ]
+      },
+      {
+        "qs": 2,
+        "frames": 3,
+        "errors": [
+          "IncompleteRead: IncompleteRead(0 bytes read)"
+        ]
+      },
+      {
+        "qs": 12,
+        "frames": 15,
+        "errors": []
+      }
+    ],
+    "qs4_sustained_trial": {
+      "frames": 28,
+      "errors": [],
+      "dimensions": [
+        [
+          2048,
+          1536
+        ]
+      ],
+      "first_frame_seconds": 3.4220000000000255,
+      "seconds": 125.0150000000001
+    },
+    "host_checks": {
+      "camera_transfer": 41,
+      "jpeg_bounds": 17,
+      "dma_ownership": 229
+    },
+    "new_dependencies_installed": false,
+    "mobile_built": false,
+    "nvs_erased": false,
+    "limitation": "Observed on this board and LAN. Full 3 MP stream is about 0.22-0.4 FPS in these scenes; no 60 FPS claim. QS3 was not qualified. No claim that QS4 is the lowest working setting on every OV3660.",
+    "evidence": [
+      ".toolchain/camera-live-final-build.log",
+      ".toolchain/camera-live-final-upload.log",
+      ".toolchain/camera-ble-stream.log",
+      ".toolchain/camera-ble-stream.json",
+      ".toolchain/camera-qs4-long.json"
+    ]
+  },
+  "latest_firmware": "3.0.0-ov5640",
+  "camera_preview_build_2026_10_29": {
+    "date": "2026-10-29",
+    "firmware": "2.5.0-preview",
+    "artifact": "pbl4/dist/VietOCR-OV3660.bin",
+    "versioned_artifact": "pbl4/dist/VietOCR-OV3660-2.5.0-preview.bin",
+    "sha256": "584fe59f2ff43048f04f529c5ef794ece8944de365ccdc86a49709a43f4c38bf",
+    "bytes": 1475456,
+    "preview": [
+      640,
+      480
+    ],
+    "preview_jpeg_qs": 16,
+    "still": [
+      2048,
+      1536
+    ],
+    "still_jpeg_qs": 4,
+    "frame_buffers": 2,
+    "bytes_per_frame_buffer": 2097152,
+    "sensor_window": "same OV3660 4:3 ratio-table window; preview uses binning/scaling",
+    "fps": {
+      "measured": null,
+      "target": "15-30",
+      "old_10fps_ceiling_removed": true,
+      "desktop_poll_ms": 20,
+      "telemetry": [
+        "CAMERA CAPTURE fps",
+        "WIFI MJPEG fps/avg_send_ms",
+        "desktop displayed FPS"
+      ]
+    },
+    "orientation": {
+      "command": "CAM ORIENT h v",
+      "scope": [
+        "preview",
+        "still JPEG"
+      ],
+      "persistent_on_esp32": "NVS vietocr-camera/orientation",
+      "desktop_preferences": [
+        "camera_mirror",
+        "camera_flip"
+      ]
+    },
+    "mode_transition": {
+      "settling_frames_discarded": 2,
+      "verify_jpeg_sof": true,
+      "verify_fresh_timestamp": true,
+      "capture_budget_ms": 20000
+    },
+    "build_succeeded": true,
+    "flashed": false,
+    "physical_preview_verified": false,
+    "physical_orientation_verified": false,
+    "physical_fps_measured": false,
+    "reason_not_flashed": "User requested continue without flashing while the board is unavailable.",
+    "previous_verified_firmware": "pbl4/dist/VietOCR-OV3660-2.4.4-stream.bin",
+    "host_checks": {
+      "camera_transfer": 41,
+      "jpeg_bounds": 17,
+      "dma_ownership": 229
+    },
+    "desktop_checks": {
+      "ui": 36,
+      "ble_connection": 27,
+      "ipc": 8,
+      "wifi_workflow": 17
+    },
+    "additional_final_ui_checks": 3,
+    "mobile_source_checks": 8,
+    "build_log": ".toolchain/camera-preview-final-build.log",
+    "tests": {
+      "desktop_ui": ".toolchain/camera-preview-ui-tests.log",
+      "ble_connection": ".toolchain/camera-preview-ble-tests.log",
+      "isolated_ble_worker": ".toolchain/camera-preview-ipc-tests.log",
+      "mobile_source_compatibility": ".toolchain/camera-preview-mobile-source-tests.log",
+      "final_ui": ".toolchain/camera-preview-final-ui-check.log"
+    },
+    "new_dependencies_installed": false,
+    "apk_built": false,
+    "limitation": "Build/host tests validate UI/protocol only. Actual VGA FPS, mode switching and sensor orientation need a later physical check; no 15-30 FPS claim."
+  },
+  "camera_config_build_2026_10_29": {
+    "date": "2026-10-29",
+    "firmware": "2.6.0-config",
+    "artifact": "pbl4/dist/VietOCR-OV3660.bin",
+    "versioned_artifact": "pbl4/dist/VietOCR-OV3660-2.6.0-config.bin",
+    "bytes": 1485360,
+    "sha256": "fa413032af024db84546c5a4f31827bf7cdb7c5c1130ab3bf65d250d3247e5f8",
+    "preview_default": [
+      640,
+      480
+    ],
+    "preview_width_choices": [
+      320,
+      640,
+      800,
+      1024,
+      1600,
+      2048
+    ],
+    "preview_jpeg_qs_default": 16,
+    "still": [
+      2048,
+      1536
+    ],
+    "still_jpeg_qs_default": 4,
+    "frame_buffers": 2,
+    "bytes_per_frame_buffer": 2097152,
+    "settings": {
+      "schema": 1,
+      "fields": 19,
+      "http": "authenticated GET/POST /camera/config",
+      "presets": [
+        "Mượt",
+        "Cân bằng",
+        "Chi tiết"
+      ],
+      "validate_before_mutating": true,
+      "apply_on_camera_task": true,
+      "settling_frames_discarded": 2,
+      "nvs": "vietocr-camera/profile",
+      "nvs_record_bytes": 88,
+      "version_and_crc32": true,
+      "read_back_verified": true,
+      "legacy_orientation_migration": true,
+      "apps_wait_for_applied_revision_and_persisted_confirmation": true
+    },
+    "desktop": {
+      "tests_passed": 177,
+      "includes_real_HTTP_and_Tk_controls": true,
+      "opening_camera_preserves_ESP32_orientation": true
+    },
+    "android": {
+      "version": "1.8.0+13",
+      "tests_passed": 72,
+      "apk": "Mobile/dist/VietOCR-arm64.apk",
+      "bytes": 182781578,
+      "sha256": "17ba73de1eab3558a60c0992e47edd59d3cc7900cf33eb1fdaaf3727f0dccf3b",
+      "signature_v2_verified": true,
+      "alignment_16kb_verified": true,
+      "model_hashes_verified": true,
+      "config_close_does_not_reopen_departed_preview": true
+    },
+    "build_succeeded": true,
+    "legacy_build_succeeded": true,
+    "flashed": false,
+    "android_installed_or_run_on_phone": false,
+    "physical_sensor_controls_verified": false,
+    "physical_fps_measured": false,
+    "model_changed": false,
+    "new_dependencies_installed": false,
+    "reason_not_flashed": "User requested continuing without flashing while hardware is inconvenient.",
+    "reference": {
+      "repository": "https://github.com/easytarget/esp32-cam-webserver",
+      "commit": "19eec9c143a6181f8970842bb8f1e50cfbf8191e",
+      "code_copied": false
+    },
+    "logs": {
+      "firmware-build": ".toolchain/camera-config-firmware-build.log",
+      "legacy-build": ".toolchain/camera-config-legacy-build.log",
+      "host-tests": ".toolchain/camera-config-host-tests.log",
+      "desktop-tests": ".toolchain/camera-config-desktop-tests.log",
+      "mobile-tests": ".toolchain/camera-config-mobile-tests.log",
+      "android-analyze": ".toolchain/camera-config-android-analyze.log",
+      "android-build": ".toolchain/camera-config-android-build.log",
+      "android-validation": ".toolchain/camera-config-android-validation.log"
+    },
+    "limitations": "Host tests/build do not prove sensor register output, FPS or absence of device-specific crashes. No new firmware flashed or APK installed."
+  },
+  "ov5640_physical_2026_11_02": {
+    "date": "2026-11-02",
+    "firmware": "3.0.0-ov5640",
+    "environment": "esp32-s3-cam-ov5640",
+    "artifact": "pbl4/dist/VietOCR-OV5640.bin",
+    "bytes": 1495328,
+    "sha256": "aebfd7d3a0550c08587af03e9f3cd2b037fd849326a39932bde47ef9bcb33e9f",
+    "flashed": true,
+    "port": "COM8",
+    "esptool_flash_hash_verified": true,
+    "sensor": "OV5640",
+    "preview": [
+      640,
+      480
+    ],
+    "preview_jpeg_qs": 18,
+    "preview_fps_ceiling": 30,
+    "preview_transport": "UDP VOJ1; authenticated HTTP setup; frame CRC32; drop stale/incomplete frames",
+    "preview_frames_received_and_decoded": 2818,
+    "received_fps_by_cycle": [
+      19.86,
+      20.277,
+      18.505,
+      21.476,
+      21.813,
+      21.714
+    ],
+    "received_fps_min": 18.505,
+    "received_fps_max": 21.813,
+    "still": [
+      2592,
+      1944
+    ],
+    "still_jpeg_qs": 8,
+    "still_transport": "HTTP LAN with byte length and CRC32",
+    "verified_photos": [
+      {
+        "dimensions": [
+          2592,
+          1944
+        ],
+        "bytes": 235935,
+        "crc32_verified": true,
+        "capture_and_download_seconds": 3.891,
+        "mean_luminance": 155.11
+      },
+      {
+        "dimensions": [
+          2592,
+          1944
+        ],
+        "bytes": 242723,
+        "crc32_verified": true,
+        "capture_and_download_seconds": 4.422,
+        "mean_luminance": 167.15
+      },
+      {
+        "dimensions": [
+          2592,
+          1944
+        ],
+        "bytes": 311755,
+        "crc32_verified": true,
+        "capture_and_download_seconds": 6.172,
+        "mean_luminance": 145.21
+      },
+      {
+        "dimensions": [
+          2592,
+          1944
+        ],
+        "bytes": 500125,
+        "crc32_verified": true,
+        "capture_and_download_seconds": 11.687,
+        "mean_luminance": 165.25
+      },
+      {
+        "dimensions": [
+          2592,
+          1944
+        ],
+        "bytes": 491077,
+        "crc32_verified": true,
+        "capture_and_download_seconds": 5.359,
+        "mean_luminance": 164.28
+      },
+      {
+        "dimensions": [
+          2592,
+          1944
+        ],
+        "bytes": 558778,
+        "crc32_verified": true,
+        "capture_and_download_seconds": 5.422,
+        "mean_luminance": 156.2
+      }
+    ],
+    "photo_count": 6,
+    "autofocus": {
+      "firmware_loaded": true,
+      "single_lock_reported": true,
+      "continuous_preview": true,
+      "optical_resolution_chart_measured": false,
+      "first_AF_load_seconds_approx": 5
+    },
+    "ble_and_udp": {
+      "heartbeats_sent": 28,
+      "pongs": 28,
+      "errors": [],
+      "camera_exit_code": 0,
+      "ble_stayed_connected": true,
+      "seconds": 59.579,
+      "windows_radio_restored": true
+    },
+    "nvs_camera_persistence_after_hard_reset_verified": true,
+    "nvs_camera_key": "vietocr-camera/profile5640",
+    "nvs_record_bytes": 92,
+    "wifi_profile": "QuangNew",
+    "wifi_reconnect_after_hard_reset_verified": true,
+    "wifi_power_save": "MAX_MODEM with listen_interval=1; modem sleep stays enabled for BLE",
+    "tcp_mjpeg_compatibility": {
+      "port": 81,
+      "prior_VGA_received_fps": [
+        9.202,
+        10.11,
+        10.124
+      ],
+      "note": "UDP is the measured fast preview. Old apps still need UDP/schema integration."
+    },
+    "physical_logs": [
+      ".toolchain/ov5640-hotspot-udp/result.json",
+      ".toolchain/ov5640-ble-udp/result.json",
+      ".toolchain/ov5640-after-reset/result.json"
+    ],
+    "upload_log": ".toolchain/ov5640-final-upload.log",
+    "host_tests_log": ".toolchain/ov5640-host-tests.log",
+    "receiver_tests_passed": 2,
+    "cleanup_freed_bytes": 229770033,
+    "source_sha256": {
+      "platformio.ini": "e2e81fd382415d08b38e92764b8cc37015bf72915ff8a2926c665f4065f398b6",
+      "src/assistant_camera.cpp": "c08d25716b6339e90362e68628b2d346d0b67696bb1d595d71336470f6f7665d",
+      "src/assistant_wifi.cpp": "bf1f0714391d41321be6bfa22bc82d0dbf2b1ed84c9592d985bbe4a7c9613a01",
+      "src/main.cpp": "032639ea4178814020aad49c52b8a5ed9c7250f902d420b041ab19b8802235f8",
+      "include/camera_settings.h": "d769e7c580770c3e9adbf93dc50dea14ccfd7b4eec38f329cf7107c3e144ef1c",
+      "include/camera_transfer.h": "72795b53e69b7ed76981b81f564c33c93a2508549541aab5aa45fc4a48df1a8e",
+      "include/camera_udp.h": "0f7cb6e7a31f5a724da604dea993b32fd7311a3e541dcdaa5d4b086ecb3062af",
+      "lib/Ov5640Autofocus/src/autofocus_control.h": "9d524709c3f1e73e4295a164c6eba6a194f2eedf4b25eb93dda8d67729fbf931",
+      "lib/NativeCameraHal/src/native_jpeg.h": "7ee47d9634b8f95fe287b420dbd8337c6893d5f783325b3ca2bf65c0329981ec"
+    },
+    "apps_modified_or_built_this_turn": false,
+    "new_SDK_or_AI_model_downloaded": false,
+    "hotspot_testing_uses_LAN_only": true,
+    "notes": "Measured on this physical board/hotspot/scene. AF status does not certify optical sharpness. UDP may discard incomplete frames. Camera was closed after testing; Wi-Fi settings retained."
+  },
+  "legacy_and_ov3660_builds_removed_2026_11_02": "See ov5640-cleanup.json; historical artifact paths are no longer present."
+}

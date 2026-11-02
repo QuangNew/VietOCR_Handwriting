@@ -3,7 +3,6 @@ from copy import deepcopy
 import cv2
 import numpy as np
 from PIL import Image
-from vietocr.tool.predictor import Predictor
 import warnings
 
 # =========================================================================
@@ -95,6 +94,12 @@ class VietOCR_DIP_Pipeline:
 
     def determine_skew(self, image):
         """Dùng thuật toán Projection Profile để tìm góc nghiêng"""
+        # Angle estimation needs the page structure, not millions of pixels
+        # rotated 60 times. Apply the chosen angle to the original image below.
+        height, width = image.shape[:2]
+        scale = min(1.0, 600 / width, 400 / height)
+        if scale < 1:
+            image = cv2.resize(image, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
         _, thresh = cv2.threshold(image, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
         angles = np.arange(-15.0, 15.0, 0.5)
         scores = []
@@ -104,7 +109,9 @@ class VietOCR_DIP_Pipeline:
             proj = np.sum(rotated, axis=1)
             score = np.sum((proj[1:] - proj[:-1]) ** 2)
             scores.append(score)
-        return angles[np.argmax(scores)]
+        best = max(scores)
+        # Uniform/blank pages have tied scores; do not arbitrarily rotate -15°.
+        return min((angle for angle, score in zip(angles, scores) if score == best), key=abs)
 
     def deskew(self, image):
         best_angle = self.determine_skew(image)
@@ -169,7 +176,8 @@ class VietHandOCR:
         
         # Khởi tạo mô hình vietocr
         try:
-            self.predictor = Predictor(self.config)
+            from desktop.torch_predictor import TorchPredictor
+            self.predictor = TorchPredictor(self.config)
         except Exception as e:
             self.load_error = e
             warnings.warn(f"VietHandOCR: Không thể khởi tạo mô hình Predictor. Chi tiết lỗi: {str(e)}")

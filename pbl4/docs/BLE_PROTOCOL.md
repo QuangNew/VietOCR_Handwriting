@@ -1,5 +1,27 @@
 # VietOCR Assistant: điện thoại và giao thức BLE
 
+**02/11/2026, OV5640 AF:** UUID/BLE, cấu hình Wi-Fi và lệnh chụp giữ như cũ;
+JPEG ảnh chụp nay đủ **2592×1944**. Preview mặc định **640×480**, trần gửi 30 FPS;
+mục tiêu ít nhất 15 FPS phụ thuộc LAN và cảnh chụp.
+`CAM FOCUS` yêu cầu lấy nét trong task camera; `CAM AF STATUS` đọc trạng thái,
+không đọc I²C trong callback. `CAM CONFIG` trả schema 2 / sensor OV5640;
+`CAM SET <key> <integer>` áp dụng RAM, `CAM SAVE` ghi profile OV5640 vào NVS.
+Xem [OV5640.md](OV5640.md). Chưa cập nhật app trong lượt làm IoT này.
+Preview nhanh: POST HTTP :80 `/stream/udp` với token BLE và cổng nhận UDP;
+bo gửi các fragment `VOJ1` từ UDP :82, mỗi JPEG có CRC32. Không gửi JPEG qua
+BLE và không dùng UDP cho ảnh chụp OCR. Chi tiết header/lease trong OV5640.md.
+
+Từ 27/10/2026: BLE còn dùng cho cấu hình Wi-Fi và điều khiển camera. Xem trước
+và ảnh chụp gốc 2048×1536 đi qua HTTP LAN; TFT chỉ hiển thị trợ lý. Danh sách
+lệnh `WIFI ...`, token phiên và endpoint ở [CAMERA.md](CAMERA.md#wi-fi-cấu-hình-qua-ble).
+
+Từ **2.3.1-blewifi**, ESP32 tự nhớ mạng đã kết nối thành công trong flash/NVS và
+tìm/kết nối ngay mỗi lần BLE kết nối, đồng thời thử lại khi bật nguồn/mất mạng.
+`WIFI SAVED` đọc trạng thái mạng nhớ;
+`WIFI FORGET` xóa. Luồng NUS/UUID cũ giữ nguyên, app Android 1.6.1 dùng được.
+Wi-Fi/NVS/HTTP dùng task riêng; trả lệnh NUS từ vòng BLE chính, bỏ reply
+thuộc phiên đã ngắt. Không gửi SSID/password qua HTTP hoặc ghi password vào log.
+
 Firmware ESP32-S3 đã hỗ trợ BLE. App Python hiện là bản desktop, có quét và kết
 nối BLE bằng Bleak. Bản [Flutter mobile](../../Mobile/README.md) chạy OCR offline trên
 Android và dùng cùng giao thức. Có thể thử riêng phần cứng bằng
@@ -48,6 +70,12 @@ Chiều RX/TX được đặt theo ESP32 (peripheral), điện thoại/máy tín
 | Service | `6e400001-b5a3-f393-e0a9-e50e24dcca9e` | NUS |
 | RX | `6e400002-b5a3-f393-e0a9-e50e24dcca9e` | Write, Write Without Response: app → ESP32 |
 | TX | `6e400003-b5a3-f393-e0a9-e50e24dcca9e` | Notify: ESP32 → app |
+| Image (mở rộng VietOCR) | `6e400004-b5a3-f393-e0a9-e50e24dcca9e` | Read + Write: chọn ID/offset rồi đọc chunk JPEG |
+
+Giao thức camera `CAM OPEN/SHOT/META/RELEASE`, CRC32, MTU và cấu hình dây mới
+được mô tả trong [CAMERA.md](CAMERA.md). `RECEIVED` chấp nhận số ảnh
+**1..2147483647**, không còn giới hạn 10 ảnh. RX/TX cho các lệnh trạng thái giữ
+nguyên để app còn làm việc với firmware cũ; các lệnh camera chưa hỗ trợ trả ERR.
 
 Tên quảng bá mặc định là `VietOCR-Assistant`, đổi tại
 `include/assistant_config.h`. Tên nằm trong scan response, UUID dịch vụ nằm trong
@@ -116,9 +144,29 @@ Android 12+ cần khai báo và xin quyền runtime `BLUETOOTH_SCAN` /
 Tham khảo [quyền Bluetooth Android](https://developer.android.com/develop/connectivity/bluetooth/bt-permissions).
 App Flutter Android dùng cùng luồng trạng thái và UUID với bản desktop.
 
-BLE ở đây truyền trạng thái, không chuyển ảnh/model sang ESP32. Flutter mobile
-chạy encoder/decoder ONNX trực tiếp trên điện thoại; bản desktop chạy `AI.py`
-và PyTorch trên máy tính. Không cần Wi-Fi cho kết nối trợ lý hoặc OCR mobile.
+BLE truyền trạng thái và cấu hình Wi-Fi; stream/ảnh JPEG dùng Wi-Fi LAN.
+Từ **2.6.0-config**, bảng **Cấu hình camera** của desktop/Android dùng
+`GET/POST /camera/config` trên HTTP :80 với token lấy từ phiên BLE. Các giá
+trị được kiểm tra trước khi đổi, áp dụng trong task camera và có tùy chọn
+lưu NVS qua mất điện. `revision` / `applied_revision` / `saved` phân biệt đã
+nhận yêu cầu, đã áp dụng và đã lưu flash. Xem [API và giới hạn](CAMERA.md#cấu-hình-camera-trong-app).
+Từ 2.5.0: `CAM ORIENT <mirror:0/1> <flip:0/1>` chọn lật ngang/dọc cho cả
+preview và ảnh chụp; `CAM ORIENT` đọc lựa chọn hiện tại. Thay đổi cảm biến và
+ghi NVS thuộc task camera, không chạy trong callback BLE. `OK CAM ORIENT`
+xác nhận yêu cầu đã được nhận; chỉ frame mới sau khi áp dụng được phát ra.
+Preview VGA 640×480/QS16 giữ cửa sổ 4:3; ảnh chụp QXGA 2048×1536/QS4.
+Không giới hạn stream ở 10 FPS nữa; tốc độ thực xem trên desktop hoặc log
+`CAMERA CAPTURE fps=...` / `WIFI MJPEG fps=...`.
+Model chạy offline trên điện thoại/máy tính. Các lệnh `CAM OPEN`, `CAM STATUS`,
+`CAM CLOSE`, `CAM SHOT`, `CAM META`, `CAM RELEASE` và characteristic ảnh được
+mô tả trong [CAMERA.md](CAMERA.md). `CAM STATUS READY` xác nhận camera đã có
+JPEG preview; app chỉ báo sẵn sàng xem khi thực sự nhận/hiển thị được khung.
+Firmware 2.2.0 stream qua HTTP :81, ảnh chụp qua :80; TFT vẫn hiển thị trợ lý.
+
+Firmware đề nghị MTU 517, interval 15–30 ms; central quyết định thông số thực.
+Công cụ BLE ảnh cũ hỗ trợ long read 480 byte/lượt với fallback theo MTU.
+Giao diện desktop/Android hiện tại yêu cầu Wi-Fi cho ảnh; không âm thầm chuyển
+sang BLE chậm khi Wi-Fi lỗi. Chỉ một app giữ kết nối BLE tại một thời điểm.
 
 ## Nhạc và âm báo
 

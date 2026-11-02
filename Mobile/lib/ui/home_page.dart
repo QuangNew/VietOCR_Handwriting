@@ -9,6 +9,9 @@ import '../services/ble_assistant.dart';
 import '../ocr/offline_engine.dart';
 import 'assistant_face.dart';
 import 'log_page.dart';
+import 'wifi_dialog.dart';
+import 'camera_page.dart';
+import 'image_detail_page.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key, required this.app, this.ble});
@@ -20,6 +23,7 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   int tab = 0;
+  bool _cameraRoute = false;
   AppController get app => widget.app;
   String get stateLabel => switch (app.assistant) {
     AssistantState.awake => 'Mình sẵn sàng rồi!',
@@ -35,6 +39,33 @@ class _HomePageState extends State<HomePage> {
         context,
       ).showSnackBar(SnackBar(content: Text(message)));
     }
+  }
+
+  Future<void> _ovPreview(bool show) async {
+    if (show) {
+      if (_cameraRoute || widget.ble == null) return;
+      _cameraRoute = true;
+      try {
+        await Navigator.push<void>(
+          context,
+          MaterialPageRoute(
+            builder: (_) => CameraPage(app: app, ble: widget.ble!),
+          ),
+        );
+      } finally {
+        _cameraRoute = false;
+      }
+      return;
+    }
+    try {
+      await widget.ble?.cameraPreview(show);
+    } catch (error) {
+      _notice(AppController.readableError(error));
+    }
+  }
+
+  Future<void> _ovCapture() async {
+    await _ovPreview(true);
   }
 
   @override
@@ -208,29 +239,37 @@ class _HomePageState extends State<HomePage> {
             ),
           ),
           Text(
-            '${app.documents.length}/10',
+            '${app.documents.length} ảnh',
             style: Theme.of(context).textTheme.titleMedium,
           ),
         ],
       ),
       const SizedBox(height: 8),
       Text(app.message),
+      Align(
+        alignment: Alignment.centerLeft,
+        child: TextButton.icon(
+          onPressed: app.busy || app.importing ? null : app.checkModel,
+          icon: const Icon(Icons.fact_check_outlined),
+          label: const Text('Kiểm tra AI trên máy này'),
+        ),
+      ),
       const SizedBox(height: 18),
       Row(
         children: [
           Expanded(
             child: FilledButton.icon(
-              onPressed: app.busy || app.importing || app.picking
+              onPressed: app.importing || app.picking
                   ? null
                   : () => app.pick(camera: true),
               icon: const Icon(Icons.camera_alt_outlined),
-              label: const Text('Chụp ảnh'),
+              label: const Text('Chụp điện thoại'),
             ),
           ),
           const SizedBox(width: 12),
           Expanded(
             child: OutlinedButton.icon(
-              onPressed: app.busy || app.importing || app.picking
+              onPressed: app.importing || app.picking
                   ? null
                   : () => app.pick(camera: false),
               icon: const Icon(Icons.add_photo_alternate_outlined),
@@ -238,6 +277,96 @@ class _HomePageState extends State<HomePage> {
             ),
           ),
         ],
+      ),
+      const SizedBox(height: 12),
+      Card(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Camera OV5640 trên trợ lý',
+                style: TextStyle(fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                widget.ble?.wifiMessage ??
+                    'Wi-Fi · Kết nối Bluetooth để xem trạng thái',
+              ),
+              const SizedBox(height: 8),
+              Text(
+                widget.ble?.cameraMessage ??
+                    'Kết nối trợ lý Bluetooth để chụp OV5640.',
+              ),
+              if (widget.ble?.previewBytes != null) ...[
+                const SizedBox(height: 12),
+                AspectRatio(
+                  aspectRatio: 4 / 3,
+                  child: Image.memory(
+                    widget.ble!.previewBytes!,
+                    fit: BoxFit.contain,
+                    gaplessPlayback: true,
+                    errorBuilder: (_, _, _) => const Center(
+                      child: Text('Chưa giải mã được góc nhìn camera.'),
+                    ),
+                  ),
+                ),
+              ],
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  OutlinedButton.icon(
+                    onPressed:
+                        widget.ble?.connected == true &&
+                            widget.ble?.cameraBusy == false &&
+                            widget.ble?.previewing == false
+                        ? () => _ovPreview(true)
+                        : null,
+                    icon: const Icon(Icons.visibility_outlined),
+                    label: const Text('Xem camera'),
+                  ),
+                  FilledButton.icon(
+                    onPressed:
+                        widget.ble?.connected == true &&
+                            widget.ble?.cameraBusy == false &&
+                            !app.importing
+                        ? _ovCapture
+                        : null,
+                    icon: const Icon(Icons.camera),
+                    label: const Text('Chụp OV5640'),
+                  ),
+                  TextButton(
+                    onPressed:
+                        widget.ble?.connected == true &&
+                            widget.ble?.cameraBusy == false
+                        ? () => _ovPreview(false)
+                        : null,
+                    child: const Text('Về trợ lý'),
+                  ),
+                ],
+              ),
+              if (widget.ble?.cameraBusy == true) ...[
+                const SizedBox(height: 8),
+                LinearProgressIndicator(value: widget.ble?.cameraProgress),
+              ],
+              TextButton.icon(
+                onPressed:
+                    widget.ble?.connected == true &&
+                        widget.ble?.cameraBusy == false
+                    ? () => showDialog<void>(
+                        context: context,
+                        builder: (_) => WifiDialog(assistant: widget.ble!),
+                      )
+                    : null,
+                icon: const Icon(Icons.wifi),
+                label: const Text('Wi-Fi camera'),
+              ),
+            ],
+          ),
+        ),
       ),
       if (app.importing)
         const Padding(
@@ -282,7 +411,7 @@ class _HomePageState extends State<HomePage> {
                 ),
                 const SizedBox(height: 8),
                 const Text(
-                  'Chụp thẳng trang giấy, tránh bóng và đặt chữ đúng chiều. Mỗi lượt tối đa 10 ảnh.',
+                  'Chụp thẳng trang giấy, tránh bóng và đặt chữ đúng chiều. Ảnh được lưu trên máy và xử lý lần lượt, không giới hạn 10 ảnh.',
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 16),
@@ -390,37 +519,10 @@ class _HomePageState extends State<HomePage> {
         height: 300,
         width: double.infinity,
         child: GestureDetector(
-          onTap: () => showDialog<void>(
-            context: context,
-            builder: (context) => Dialog.fullscreen(
-              child: SafeArea(
-                child: Stack(
-                  children: [
-                    Positioned.fill(
-                      child: InteractiveViewer(
-                        maxScale: 8,
-                        child: RotatedBox(
-                          quarterTurns: item.rotation,
-                          child: Image.file(
-                            File(item.path),
-                            fit: BoxFit.contain,
-                            errorBuilder: (_, _, _) =>
-                                const Center(child: Text('Không mở được ảnh.')),
-                          ),
-                        ),
-                      ),
-                    ),
-                    Align(
-                      alignment: Alignment.topRight,
-                      child: IconButton.filledTonal(
-                        tooltip: 'Đóng ảnh',
-                        onPressed: () => Navigator.pop(context),
-                        icon: const Icon(Icons.close),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+          onTap: () => Navigator.push<void>(
+            context,
+            MaterialPageRoute(
+              builder: (_) => ImageDetailPage(app: app, item: item),
             ),
           ),
           child: RotatedBox(

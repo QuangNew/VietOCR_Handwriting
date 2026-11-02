@@ -9,6 +9,10 @@ import 'ui/home_page.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  // Leave RAM for the isolated OCR process; live preview must not retain
+  // dozens of decoded 3 MP frames in Flutter's default 100 MB image cache.
+  PaintingBinding.instance.imageCache.maximumSizeBytes = 24 * 1024 * 1024;
+  PaintingBinding.instance.imageCache.maximumSize = 48;
   final log = AppLog.instance;
   FlutterError.onError = (details) {
     FlutterError.presentError(details);

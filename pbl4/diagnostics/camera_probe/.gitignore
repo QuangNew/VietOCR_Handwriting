@@ -1,0 +1,5 @@
+.pio/
+.vscode/
+dist/
+monitor*.log
+logs/

@@ -6,6 +6,8 @@ import ai.onnxruntime.OrtException;
 import ai.onnxruntime.OrtSession;
 import java.nio.ByteBuffer;
 import java.nio.LongBuffer;
+import java.nio.FloatBuffer;
+import java.nio.ByteOrder;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -63,6 +65,22 @@ public final class OnnxRecognizer implements AutoCloseable {
             throw new IllegalArgumentException("Invalid OCR tensor shape/length");
         }
         trace.record("input_tensor", "width=" + width);
+        input.order(ByteOrder.LITTLE_ENDIAN);
+        FloatBuffer values = input.asFloatBuffer();
+        double sum = 0, squares = 0;
+        float min = 1, max = 0;
+        for (int i = 0; i < values.remaining(); i++) {
+            float value = values.get(i);
+            if (!Float.isFinite(value) || value < 0 || value > 1) {
+                throw new IllegalArgumentException("Tensor ảnh sai miền [0,1] hoặc sai byte order; hãy xem Log.");
+            }
+            min = Math.min(min, value); max = Math.max(max, value);
+            sum += value; squares += value * value;
+        }
+        double mean = sum / values.remaining();
+        double deviation = Math.sqrt(Math.max(0, squares / values.remaining() - mean * mean));
+        trace.record("input_summary", "width=" + width + ", min=" + min + ", max=" + max + ", std=" + deviation + ", order=LE");
+        if (max - min < 0.01f) throw new IllegalArgumentException("Ảnh đầu vào không có nét chữ tương phản. Hãy cắt sát vùng chữ.");
         try (OnnxTensor image = OnnxTensor.createTensor(environment, input.asFloatBuffer(), new long[]{1, 3, 32, width})) {
             trace.record("encoder_run", "width=" + width);
             try (OrtSession.Result encoded = encoder.run(Collections.singletonMap("image", image), Collections.singleton("memory"))) {

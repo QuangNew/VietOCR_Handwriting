@@ -9,7 +9,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from desktop.bluetooth_transport import (BLEProtocol, RobotProtocolError, SERVICE_UUID, RX_UUID, TX_UUID,
+from desktop.bluetooth_transport import (BLEProtocol, RobotProtocolError, RobotLinkLost, SERVICE_UUID, RX_UUID, TX_UUID,
                                          scan_robots, validate_address)
 from desktop.domain import AssistantState as State
 from desktop.preferences import read_preferences, update_preferences
@@ -20,7 +20,8 @@ from desktop.theme import load_theme, save_theme
 class FakeBLE:
     address = "AA:BB:CC:DD:EE:01"
 
-    def __init__(self, *, drop_on=None, wrong_first=False, no_reply=(), find_delay=0, scan_delay=0, legacy_theme=False, disconnect_delay=0):
+    def __init__(self, *, drop_on=None, wrong_first=False, no_reply=(), find_delay=0, scan_delay=0, legacy_theme=False, disconnect_delay=0,
+                 camera_status='READY'):
         self.condition = threading.Condition()
         self.commands, self.clients, self.sessions = [], [], 0
         self.drop_on, self.dropped, self.wrong_first = drop_on, False, wrong_first
@@ -28,6 +29,8 @@ class FakeBLE:
         self.find_started, self.scan_cancelled = threading.Event(), threading.Event()
         self.reply_override = None
         self.legacy_theme = legacy_theme
+        self.camera_status = camera_status
+        self.wifi_response = 'WIFI STATUS READY 127.0.0.1 ' + 'a' * 32 + ' 61'
         self.scan_error = None
         self.disconnect_delay = disconnect_delay
         self.disconnect_started = threading.Event()
@@ -105,6 +108,13 @@ class FakeBLE:
                         reply = b"ERR INVALID_COMMAND: send HELP\r\n"
                     elif peripheral.wrong_first and self.session == 1:
                         reply = b"OTHER DEVICE\r\n"
+                    elif command == 'CAM STATUS':
+                        reply = (('CAM STATUS ' + peripheral.camera_status if peripheral.camera_status is not None
+                                  else 'ERR CAMERA_REQUEST: invalid command') + '\r\n').encode('ascii')
+                    elif command == 'WIFI STATUS':
+                        reply = (peripheral.wifi_response + '\r\n').encode('ascii')
+                    elif command == 'WIFI SAVED':
+                        reply = b'WIFI SAVED 1 61\r\n'
                     else:
                         reply = (("PONG" if command == "PING" else "OK " + command) + "\r\n").encode("ascii")
                     if peripheral.reply_override is not None:
@@ -146,6 +156,30 @@ class FakeBLE:
 
 
 class RobotProtocolTests(unittest.TestCase):
+    def test_handshake_followed_by_immediate_loss_keeps_backoff_increasing(self):
+        failed = threading.Event()
+        class Unstable:
+            client = None
+            def __init__(self, *args): self.woken = False
+            async def connect(self): pass
+            async def disconnect(self): pass
+            async def request(self, command, *args, **kwargs):
+                if command == 'WAKE': self.woken = True; return 'OK WAKE'
+                if self.woken: raise RobotLinkLost('temporary driver cancellation')
+                return 'PONG'
+        failures = []
+        def status(phase, detail):
+            if phase == 'offline':
+                failures.append(detail)
+                if len(failures) == 3: failed.set()
+        client = RobotClient(FakeBLE.address, status, protocol_factory=Unstable, heartbeat=.01, retry_delay=.05)
+        client.start()
+        try:
+            self.assertTrue(failed.wait(3))
+            self.assertEqual(client._failures, 3)
+            self.assertAlmostEqual(client.retry_seconds, .2)
+        finally:
+            client.stop(); self.assertTrue(client.closed.wait(2))
     def test_replacement_waits_until_previous_native_disconnect_finishes(self):
         lock = threading.Lock()
         with FakeBLE(disconnect_delay=0.35) as radio:
@@ -378,6 +412,52 @@ class RobotProtocolTests(unittest.TestCase):
 
 
 class BLETransportTests(unittest.IsolatedAsyncioTestCase):
+    async def test_winrt_cancel_after_peer_ack_does_not_resend_credentials_or_drop_link(self):
+        with FakeBLE() as radio:
+            original = radio.client_type.write_gatt_char
+            async def cancelled_completion(client, uuid, data, *, response):
+                await original(client, uuid, data, response=response)
+                if b'\n' in data:
+                    raise OSError(-2147023673, 'The operation was canceled by the user.')
+            with patch.object(radio.client_type, 'write_gatt_char', cancelled_completion):
+                protocol = BLEProtocol(radio.address, timeout=1)
+                try:
+                    await protocol.connect()
+                    self.assertEqual(await protocol.request('PING'), 'PONG')
+                    command = 'WIFI PASS ' + '61' * 24
+                    await protocol.request(command, expected_prefix='OK WIFI PASS')
+                    self.assertEqual(await protocol.request('WAKE'), 'OK WAKE')
+                    self.assertEqual(sum(line == command for _, line in radio.commands), 1)
+                    self.assertIsNone(protocol._error)
+                finally:
+                    await protocol.disconnect()
+
+    async def test_winrt_cancel_without_peer_ack_requires_new_session_and_never_replays(self):
+        with FakeBLE() as radio:
+            async def cancelled(client, uuid, data, *, response):
+                raise OSError(-2147023673, 'The operation was canceled by the user.')
+            with patch.object(radio.client_type, 'write_gatt_char', cancelled) as write:
+                protocol = BLEProtocol(radio.address, timeout=1)
+                try:
+                    await protocol.connect()
+                    with self.assertRaisesRegex(RobotLinkLost, 'chưa nhận ACK'):
+                        await protocol.request('PING')
+                    with self.assertRaises(RobotLinkLost):
+                        await protocol.request('WAKE')
+                    self.assertEqual(radio.commands, [])
+                finally:
+                    await protocol.disconnect()
+
+    async def test_other_driver_errors_are_not_treated_as_a_canceled_write(self):
+        with FakeBLE() as radio:
+            async def failed(client, uuid, data, *, response): raise OSError(123, 'different failure')
+            with patch.object(radio.client_type, 'write_gatt_char', failed):
+                protocol = BLEProtocol(radio.address)
+                try:
+                    await protocol.connect()
+                    with self.assertRaises(OSError): await protocol.request('PING')
+                finally:
+                    await protocol.disconnect()
     async def test_scan_accepts_named_assistant_with_missing_service_advertisement(self):
         with FakeBLE() as radio:
             device, advertisement = radio.advertisement(radio.address, "VietOCR-Assistant", -45)

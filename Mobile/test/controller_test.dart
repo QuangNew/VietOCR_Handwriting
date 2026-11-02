@@ -15,6 +15,7 @@ import 'package:vietocr_mobile/services/session_store.dart';
 class FakeEngine implements OcrEngine {
   int calls = 0;
   bool failFirst = false;
+  String? result;
   bool workerDies = false;
   Completer<void>? gate;
   @override
@@ -35,7 +36,7 @@ class FakeEngine implements OcrEngine {
       throw PlatformException(code: 'OCR_PROCESS_DIED', message: 'AI đã dừng');
     }
     if (failFirst && calls == 1) throw StateError('Thử lại ảnh');
-    return 'Tiếng Việt $calls';
+    return result ?? 'Tiếng Việt $calls';
   }
 
   @override
@@ -71,16 +72,55 @@ void main() {
     }
   });
   test(
-    '10 images accepted, an eleventh rejected without changing the batch',
+    'more than ten images accepted and restored from disk without truncation',
     () async {
       await app.importImages(
         List.generate(10, (index) => (bytes, '$index.png')),
       );
       await app.importImages([(bytes, 'eleventh.png')]);
-      expect(app.documents, hasLength(10));
-      expect(app.message, contains('tối đa 10'));
+      expect(app.documents, hasLength(11));
+      expect(await store.load(), hasLength(11));
       await app.removeSelected();
-      expect((await store.load()), hasLength(9));
+      expect((await store.load()), hasLength(10));
+    },
+  );
+  test(
+    'OV3660 arrival during OCR is processed serially without repeating completed images',
+    () async {
+      await app.importImages([(bytes, 'first.png')]);
+      engine.gate = Completer<void>();
+      final running = app.recognize();
+      await Future<void>.delayed(Duration.zero);
+      expect(engine.calls, 1);
+      await app.importImages([(bytes, 'OV3660.jpg')], enqueue: true);
+      expect(engine.calls, 1);
+      expect(app.documents, hasLength(2));
+      engine.gate!.complete();
+      await running;
+      expect(engine.calls, 2);
+      expect(
+        app.documents.every((row) => row.status == DocumentStatus.done),
+        isTrue,
+      );
+      await app.recognize();
+      expect(engine.calls, 2);
+    },
+  );
+
+  test(
+    'native OV3660 JPEG stays full resolution and byte-for-byte on disk',
+    () async {
+      final jpeg = img.encodeJpg(
+        img.Image(width: 2048, height: 1536)
+          ..clear(img.ColorRgb8(80, 120, 180)),
+        quality: 100,
+      );
+      await app.importImages([(jpeg, 'OV3660_native.jpg')]);
+      final document = app.documents.single;
+      expect(document.path.endsWith('.jpg'), isTrue);
+      expect(await File(document.path).readAsBytes(), jpeg);
+      final decoded = img.decodeJpg(await File(document.path).readAsBytes())!;
+      expect((decoded.width, decoded.height), (2048, 1536));
     },
   );
   test(
@@ -91,6 +131,27 @@ void main() {
       expect(app.importing, isFalse);
       await app.importImages([(bytes, 'valid.png')]);
       expect(app.documents, hasLength(1));
+    },
+  );
+  test(
+    'AI health check exercises the engine without adding a sample to the queue',
+    () async {
+      engine.result = 'KHÁI QUÁT VỀ BIỂN ĐẢO VIỆT NAM';
+      await app.checkModel();
+      expect(engine.calls, 1);
+      expect(app.documents, isEmpty);
+      expect(app.busy, isFalse);
+      expect(app.message, contains('Kiểm tra AI đạt'));
+    },
+  );
+  test(
+    'AI check rejects numeric gibberish even if inference returns nonempty text',
+    () async {
+      engine.result = '1234567890';
+      await app.checkModel();
+      expect(app.message, contains('Kiểm tra AI chưa đạt'));
+      expect(app.assistant, AssistantState.error);
+      expect(app.documents, isEmpty);
     },
   );
   test(
@@ -177,7 +238,11 @@ void main() {
         Theme.of(tester.element(find.text('VietOCR'))).brightness,
         Brightness.dark,
       );
-      final headings = ['Đọc chữ từ ảnh', 'Hoạt động ngoại tuyến', 'Chụp ảnh'];
+      final headings = [
+        'Đọc chữ từ ảnh',
+        'Hoạt động ngoại tuyến',
+        'Chụp điện thoại',
+      ];
       final geometry = [
         for (final text in headings) tester.getRect(find.text(text)),
       ];

@@ -30,31 +30,35 @@ class CommandRejected implements Exception {
 }
 
 class CommandQueue {
-  CommandQueue(this.write, {this.timeout = const Duration(seconds: 3)});
+  CommandQueue(this.write, {this.timeout = const Duration(seconds: 3), this.onSend});
+  final void Function(String)? onSend;
   final Future<void> Function(List<int>) write;
   final Duration timeout;
   Future<void> _tail = Future.value();
   Completer<String>? _reply;
   String? _expected;
+  String? _prefix;
   bool _closed = false;
 
   void receive(String line) {
     if (_reply == null || _reply!.isCompleted) return;
-    if (line == _expected) {
+    if (line == _expected || (_prefix != null && line.startsWith(_prefix!))) {
       _reply!.complete(line);
     } else if (line.startsWith('ERR ')) {
       _reply!.completeError(CommandRejected(line));
     }
   }
 
-  Future<void> send(String command) {
+  Future<String> send(String command, {String? expectedPrefix}) {
     final bytes = ascii.encode('$command\n');
     if (bytes.length > 80 || command.contains('\n') || command.contains('\r')) {
       return Future.error(ArgumentError('Invalid BLE command'));
     }
     final operation = _tail.then((_) async {
       if (_closed) throw StateError('Bluetooth đã ngắt kết nối.');
+      onSend?.call(command.startsWith('WIFI SSID ') || command.startsWith('WIFI PASS ') ? 'WIFI credentials [hidden]' : command);
       _expected = command == 'PING' ? 'PONG' : 'OK $command';
+      _prefix = expectedPrefix;
       final reply = Completer<String>();
       _reply = reply;
       // Install the error handler before a transport callback can fail the reply.
@@ -69,7 +73,7 @@ class CommandQueue {
             bytes.sublist(offset, (offset + 20).clamp(0, bytes.length)),
           ).timeout(timeout);
         }
-        await response;
+        return await response;
       } catch (error) {
         // A late acknowledgement must never satisfy a subsequent command.
         // An explicit ERR is a complete response, so the channel remains usable.
@@ -81,7 +85,7 @@ class CommandQueue {
         _reply = null;
       }
     });
-    _tail = operation.catchError((_) {});
+    _tail = operation.then<void>((_) {}, onError: (Object _, StackTrace _) {});
     return operation;
   }
 
@@ -124,7 +128,7 @@ List<String> transitionCommands(
     result.add('THEME ${next.dark! ? 'DARK' : 'LIGHT'}');
   }
   final changed = previous?.state != next.state;
-  final count = next.count.clamp(1, 10);
+  final count = next.count.clamp(1, 2147483647);
   if (next.state == AssistantState.awake) {
     if (changed) result.add('WAKE');
   }

@@ -1,0 +1,189 @@
+{
+  "date": "2026-10-27",
+  "runtime": "Windows x64 Python ORT, Android session options",
+  "samples": [
+    {
+      "sample": "test.jpg",
+      "imported": false,
+      "split": false,
+      "lines": 1,
+      "fp32_text": "KHÁI QUÁT VỀ BIỂN ĐẢO VIỆT NAM",
+      "compact_text": "KHÁI QUÁT VỀ BIỂN ĐẢO VIỆT NAM",
+      "same_text": true
+    },
+    {
+      "sample": "test.jpg",
+      "imported": false,
+      "split": true,
+      "lines": 1,
+      "fp32_text": "KHÁI QUÁT VỀ BIỂN ĐẢO VIỆT NAM",
+      "compact_text": "KHÁI QUÁT VỀ BIỂN ĐẢO VIỆT NAM",
+      "same_text": true
+    },
+    {
+      "sample": "test.jpg",
+      "imported": true,
+      "split": false,
+      "lines": 1,
+      "fp32_text": "KHÁI QUÁT VỀ BIỂN ĐẢO VIỆT NAM",
+      "compact_text": "KHÁI QUÁT VỀ BIỂN ĐẢO VIỆT NAM",
+      "same_text": true
+    },
+    {
+      "sample": "test.jpg",
+      "imported": true,
+      "split": true,
+      "lines": 1,
+      "fp32_text": "KHÁI QUÁT VỀ BIỂN ĐẢO VIỆT NAM",
+      "compact_text": "KHÁI QUÁT VỀ BIỂN ĐẢO VIỆT NAM",
+      "same_text": true
+    },
+    {
+      "sample": "test2.jpg",
+      "imported": false,
+      "split": false,
+      "lines": 1,
+      "fp32_text": "Chương trình hành động thực biện Nghị quyết tung ương 9 - Khác, x của đảng bị",
+      "compact_text": "Chương trình hành động thực biện Nghị quyết tung ương 9 - Khác, x của đảng bị",
+      "same_text": true
+    },
+    {
+      "sample": "test2.jpg",
+      "imported": false,
+      "split": true,
+      "lines": 1,
+      "fp32_text": "Chương trình hành động thực biện Nghị quyết tung ương 9 - Khác, x của đảng bị",
+      "compact_text": "Chương trình hành động thực biện Nghị quyết tung ương 9 - Khác, x của đảng bị",
+      "same_text": true
+    },
+    {
+      "sample": "test2.jpg",
+      "imported": true,
+      "split": false,
+      "lines": 1,
+      "fp32_text": "Chương trình hành động thực biện Nghị quyết tung ương 9 - Khác, x của đảng bị",
+      "compact_text": "Chương trình hành động thực biện Nghị quyết tung ương 9 - Khác, x của đảng bị",
+      "same_text": true
+    },
+    {
+      "sample": "test2.jpg",
+      "imported": true,
+      "split": true,
+      "lines": 1,
+      "fp32_text": "Chương trình hành động thực biện Nghị quyết tung ương 9 - Khác, x của đảng bị",
+      "compact_text": "Chương trình hành động thực biện Nghị quyết tung ương 9 - Khác, x của đảng bị",
+      "same_text": true
+    },
+    {
+      "sample": "test3.jpg",
+      "imported": false,
+      "split": false,
+      "lines": 1,
+      "fp32_text": "Mẹ mày lực.",
+      "compact_text": "Mẹ mày lực.",
+      "same_text": true
+    },
+    {
+      "sample": "test3.jpg",
+      "imported": false,
+      "split": true,
+      "lines": 1,
+      "fp32_text": "Mẹ mày lưới.",
+      "compact_text": "Mẹ mày lưới.",
+      "same_text": true
+    },
+    {
+      "sample": "test3.jpg",
+      "imported": true,
+      "split": false,
+      "lines": 1,
+      "fp32_text": "Mẹ mày lực.",
+      "compact_text": "Mẹ mày lực.",
+      "same_text": true
+    },
+    {
+      "sample": "test3.jpg",
+      "imported": true,
+      "split": true,
+      "lines": 1,
+      "fp32_text": "Mẹ mày lưới.",
+      "compact_text": "Mẹ mày lưới.",
+      "same_text": true
+    },
+    {
+      "sample": "test4.jpg",
+      "imported": false,
+      "split": false,
+      "lines": 1,
+      "fp32_text": "Mẹ mày béo",
+      "compact_text": "Mẹ mày béo",
+      "same_text": true
+    },
+    {
+      "sample": "test4.jpg",
+      "imported": false,
+      "split": true,
+      "lines": 1,
+      "fp32_text": "Mẹ mày béo",
+      "compact_text": "Mẹ mày béo",
+      "same_text": true
+    },
+    {
+      "sample": "test4.jpg",
+      "imported": true,
+      "split": false,
+      "lines": 1,
+      "fp32_text": "Mẹ mày béo",
+      "compact_text": "Mẹ mày béo",
+      "same_text": true
+    },
+    {
+      "sample": "test4.jpg",
+      "imported": true,
+      "split": true,
+      "lines": 1,
+      "fp32_text": "Mẹ mày béo",
+      "compact_text": "Mẹ mày béo",
+      "same_text": true
+    },
+    {
+      "sample": "test5.jpg",
+      "imported": false,
+      "split": false,
+      "lines": 1,
+      "fp32_text": "Cơ bé bán diêm.",
+      "compact_text": "Cơ bé bán diêm.",
+      "same_text": true
+    },
+    {
+      "sample": "test5.jpg",
+      "imported": false,
+      "split": true,
+      "lines": 1,
+      "fp32_text": "Cơ bé bán diêm.",
+      "compact_text": "Cơ bé bán diêm.",
+      "same_text": true
+    },
+    {
+      "sample": "test5.jpg",
+      "imported": true,
+      "split": false,
+      "lines": 1,
+      "fp32_text": "Cơ bé bán diêm.",
+      "compact_text": "Cơ bé bán diêm.",
+      "same_text": true
+    },
+    {
+      "sample": "test5.jpg",
+      "imported": true,
+      "split": true,
+      "lines": 1,
+      "fp32_text": "Cơ bé bán diêm.",
+      "compact_text": "Cơ bé bán diêm.",
+      "same_text": true
+    }
+  ],
+  "compact_matches_fp32_on_all_cases": true,
+  "android_device_test": false,
+  "note": "Matching host outputs does not prove correctness of an installed APK or Android ARM kernels."
+}

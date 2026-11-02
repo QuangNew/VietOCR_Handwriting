@@ -24,6 +24,7 @@ def run_once(command, directory=BASE / ".logs"):
         except OSError:
             pass
     with path.open("w", encoding="utf-8", buffering=1) as log:
+        started_at = time.time()
         def emit(line):
             print(line, flush=True)
             log.write(line + "\n")
@@ -32,8 +33,10 @@ def run_once(command, directory=BASE / ".logs"):
         emit(f"Log: {path}")
         environment = os.environ.copy()
         environment.update(PYTHONUNBUFFERED="1", PYTHONUTF8="1", PYTHONIOENCODING="utf-8")
+        flags = subprocess.CREATE_NEW_PROCESS_GROUP if os.name == 'nt' else 0
         try:
             child = subprocess.Popen(command, cwd=BASE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                     stdin=subprocess.DEVNULL, creationflags=flags,
                                      text=True, encoding="utf-8", errors="replace", bufsize=1, env=environment)
         except OSError as error:
             emit(f"Cannot start app: {error}")
@@ -65,7 +68,7 @@ def run_once(command, directory=BASE / ".logs"):
             for name in ("app-crash.log", "bluetooth-crash.log", "ocr-crash.log"):
                 file = directory / name
                 try:
-                    if file.is_file() and file.stat().st_size:
+                    if file.is_file() and file.stat().st_size and file.stat().st_mtime >= started_at:
                         emit(f"--- Recent {name} ---")
                         emit("\n".join(file.read_text(encoding="utf-8", errors="replace").splitlines()[-45:]))
                 except OSError:
@@ -74,19 +77,25 @@ def run_once(command, directory=BASE / ".logs"):
 
 
 def supervise(arguments, read_input=input):
-    # Ctrl+C is delivered to both console processes. The GUI performs normal cleanup;
-    # the supervisor keeps reading output and never raises KeyboardInterrupt.
+    # IDE terminal activation can broadcast Ctrl+C. On Windows the GUI owns a
+    # separate process group; only closing its window requests normal shutdown.
     previous = signal.signal(signal.SIGINT, lambda *_: None)
     try:
         while True:
             run_once([sys.executable, "-u", "-X", "utf8", "-X", "faulthandler", str(BASE / "app.py"), *arguments])
-            try:
-                choice = read_input("Enter: reopen app | Q: close debug console > ")
-            except EOFError:
-                # Run-VietOCR.cmd also pauses on a nonzero supervisor exit.
-                return 1
-            if choice.strip().lower() in ("q", "quit", "exit"):
-                return 0
+            while True:
+                try:
+                    choice = read_input("Enter: reopen app | Q: close debug console > ").strip().lower()
+                except EOFError:
+                    # Run-VietOCR.cmd also pauses on a nonzero supervisor exit.
+                    return 1
+                if choice in ("q", "quit", "exit"):
+                    return 0
+                if choice in ("", "r", "reopen"):
+                    break
+                # IDEs may inject a Python activation command into this console.
+                # It must not accidentally reopen the GUI.
+                print("Enter/R: reopen app. Q: return to the terminal.", flush=True)
     finally:
         signal.signal(signal.SIGINT, previous)
 

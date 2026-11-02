@@ -1,6 +1,7 @@
 """Vietnamese desktop workflow: collect images, recognize, edit, and export."""
 
 import asyncio
+import io
 import logging
 import queue
 import threading
@@ -17,13 +18,16 @@ from .bluetooth_process import ProcessBLEProtocol, scan_robots_isolated
 from .bluetooth_coordinator import radio_access
 from .bluetooth_radio import begin_bluetooth_access, enable_bluetooth, open_bluetooth_settings
 from .camera import CameraWindow
-from .domain import AssistantState, BatchFullError, ImageBatch, MAX_IMAGES
+from .camera_udp import UdpCameraStream as CameraStream
+from .domain import AssistantState, BatchFullError, ImageBatch
+from .image_viewer import ImageViewer, save_image_dialog
+from .queue_progress import QueueProgress
 from .diagnostics import LOG_DIRECTORY
 from .ocr_process import OCRProcessService
 from .ocr_service import OCRSettings
 from .preferences import read_preferences, update_preferences
 from .robot_connection import RobotClient
-from .tasks import import_images, recognize_images
+from .tasks import import_images, recognize_images, warm_model
 from .theme import (PREFERENCES_PATH, apply_titlebar, atomic_repaint, load_theme,
                     recolor_canvas, recolor_widgets, save_theme, set_palette)
 from .widgets import COLORS as C, RobotFace, ScrollableFrame, card, configure_styles, label
@@ -33,6 +37,16 @@ STATUS_LABELS = {
     "error": "Cần thử lại", "cancelled": "Đã dừng",
 }
 logger = logging.getLogger("vietocr_desktop.ui")
+DEVICE_CHOICES = {
+    "Tự động: GPU rời → GPU tích hợp → CPU": "auto",
+    "GPU NVIDIA (CUDA)": "cuda",
+    "GPU tích hợp": "integrated",
+    "CPU": "cpu",
+}
+
+
+def device_label(device):
+    return "Tự động chọn GPU" if device == "auto" else device.upper()
 
 
 def _scan_robot_devices(events, token, cancel, isolated=True, radio_lock=None):
@@ -100,7 +114,7 @@ def _enable_robot_radio(events, token, cancel, radio_lock=None):
 
 
 class Application:
-    def __init__(self, root: tk.Tk, weights: str, device: str = "cpu", camera_index: int = 0,
+    def __init__(self, root: tk.Tk, weights: str, device: str = "auto", camera_index: int = 0,
                  preferences_path: Path | None = None, *, isolate_bluetooth: bool = True):
         self.root = root
         self.isolate_bluetooth = isolate_bluetooth
@@ -128,6 +142,9 @@ class Application:
         self._robot_radio_lock = threading.Lock()
         self.assistant_state = AssistantState.AWAKE
         self.robot_connection_var = tk.StringVar(value="ESP32 chưa kết nối")
+        self.wifi_connection_var = tk.StringVar(value='Wi-Fi · Kết nối Bluetooth để xem trạng thái')
+        self.wifi_detail_var = tk.StringVar(value='ESP32 tự dùng mạng đã lưu; ứng dụng sẽ đọc trạng thái khi kết nối BLE.')
+        self._wifi_state = None
         self.cancel_event = threading.Event()
         self.selected_id: str | None = None
         self.running = False
@@ -135,11 +152,40 @@ class Application:
         self.closing = False
         self.camera: CameraWindow | None = None
         self._camera_workers = []
+        self._ov_dialog = None
+        self._ov_receiving = False
+        self._ov_widgets = {}
+        self._ov_state = 'closed'
+        self._ov_preview_ready = False
+        self._ov_stream = None
+        self._ov_generation = 0
+        self._ov_preview_timer = None
+        self._ov_preview_deadline = 0
+        self._ov_live_photo = None
+        self._ov_live_image = None
+        self._ov_pending_photo = None
+        self._ov_review_timer = None
+        self._ov_review_deadline = 0
+        camera_preferences = read_preferences(self.preferences_path)
+        self._ov_mirror = tk.BooleanVar(value=bool(camera_preferences.get('camera_mirror', False)))
+        self._ov_flip = tk.BooleanVar(value=bool(camera_preferences.get('camera_flip', False)))
+        self._ov_orientation_requested = None
+        self._ov_frame_count = 0
+        self._ov_fps_at = 0.0
+        self._camera_config_window = None
+        self._camera_config_busy = False
+        self._image_viewer = None
+        self._camera_progress = {}
+        self._queue_panels = []
+        self._wifi_dialog = None
+        self._wifi_widgets = {}
+        self._auto_queue_halted = False
         self._camera_release_timer = None
         self._preview_photo = None
         self._thumbs = []
         self._preview_timer = None
         self._poll_timer = None
+        self._warm_timer = None
         self._rendering_text = False
         self._result_id: str | None = None
         self._run_total = 0
@@ -153,6 +199,7 @@ class Application:
         self.root.minsize(min(1180, width), min(760, height))
         configure_styles(root)
         self._build_ui()
+        self._queue_panels.append(QueueProgress(self.root, self.select_item))
         self.root.after_idle(lambda: apply_titlebar(self.root))
         self._sync_controls()
         self._render_queue()
@@ -160,11 +207,13 @@ class Application:
         self._set_assistant(AssistantState.AWAKE, "Chào bạn, mình đã thức!", "Thêm ảnh để mình giúp bạn đọc chữ nhé.")
         self.root.protocol("WM_DELETE_WINDOW", self.close)
         self.root.report_callback_exception = self.report_callback_exception
-        self.root.bind("<Control-o>", lambda _: self.import_files())
+        self.root.bind("<Control-o>", lambda _: self.open_camera())
         self.root.bind("<Control-Return>", lambda _: self.start_recognition())
         self.root.bind("<Control-s>", lambda _: self.save_results())
         self.root.bind("<Escape>", lambda _: self.cancel_recognition())
         self._poll_events()
+        if Path(self.settings.weights).is_file():
+            self._warm_timer = self.root.after(400, self._warm_model)
         preferences = read_preferences(self.preferences_path)
         saved_address = preferences.get("robot_ble_address")
         if isinstance(saved_address, str) and saved_address:
@@ -177,6 +226,10 @@ class Application:
     def _build_ui(self):
         shell = tk.Frame(self.root, bg=C["bg"])
         shell.pack(fill="both", expand=True, padx=28, pady=20)
+        # Reserve controls/status BEFORE expandable cards. Otherwise Tk clips
+        # the bottom text at Windows display scaling or shorter window heights.
+        footer = tk.Frame(shell, bg=C['bg'])
+        footer.pack(side='bottom', fill='x')
         header = tk.Frame(shell, bg=C["bg"])
         header.pack(fill="x")
         self.brand_mark = tk.Canvas(header, width=43, height=43, bg=C["bg"], highlightthickness=0)
@@ -190,6 +243,7 @@ class Application:
         self.settings_button.pack(side="right")
         self.robot_button = ttk.Button(header, text="Kết nối ESP32", command=self.open_robot_settings)
         self.robot_button.pack(side="right", padx=(10, 10))
+        ttk.Button(header, text='Wi-Fi camera', command=self.open_wifi_settings).pack(side='right', padx=6)
         self.theme_button = ttk.Button(header, text=self._theme_button_text(), width=18, command=self.toggle_theme)
         self.theme_button.pack(side="right", padx=(0, 10))
         label(header, "●  Xử lý trên máy", size=9, color=C["green"]).pack(side="right", padx=20)
@@ -218,15 +272,19 @@ class Application:
         self.robot_connection_label = label(speech, "ESP32 chưa kết nối",
                                             size=8, color=C["muted"], wraplength=265, justify="left")
         self.robot_connection_label.pack(anchor="w", pady=(6, 0))
+        label(speech, textvariable=self.wifi_connection_var, size=9, wraplength=400,
+              justify='left').pack(anchor='w', pady=(4, 0))
 
         workspace_header = tk.Frame(shell, bg=C["bg"])
         workspace_header.pack(fill="x", pady=(0, 13))
         label(workspace_header, "Không gian làm việc", size=15, bold=True).pack(side="left")
         self.upload_button = ttk.Button(workspace_header, text="＋  Tải ảnh lên", style="Primary.TButton", command=self.import_files)
-        self.upload_button.pack(side="right")
-        self.camera_button = ttk.Button(workspace_header, text="◎  Chụp ảnh", command=self.open_camera)
+        # Desktop input is OV5640 only. File import remains an internal smoke-test API.
+        self.ov_shot_button = ttk.Button(workspace_header, text="◎  Chụp OV5640", style="Primary.TButton", command=self.capture_ov)
+        self.ov_shot_button.pack(side="right")
+        self.camera_button = ttk.Button(workspace_header, text="Xem camera", command=self.open_camera)
         self.camera_button.pack(side="right", padx=(10, 10))
-        label(workspace_header, "Tối đa 10 ảnh / lượt", size=9, color=C["muted"]).pack(side="right", padx=(0, 8))
+        label(workspace_header, "Xử lý tuần tự", size=9, color=C["muted"]).pack(side="right", padx=(0, 8))
 
         workspace = tk.Frame(shell, bg=C["bg"])
         workspace.pack(fill="both", expand=True)
@@ -240,7 +298,7 @@ class Application:
         queue_header = tk.Frame(queue_card, bg=C["white"])
         queue_header.pack(fill="x", padx=14, pady=(17, 14))
         label(queue_header, "01  Ảnh của bạn", size=10, bold=True).pack(side="left")
-        self.queue_count = label(queue_header, "0 / 10", size=9, color=C["green"])
+        self.queue_count = label(queue_header, "0 ảnh", size=9, color=C["green"])
         self.queue_count.pack(side="right")
         self.queue_list = ScrollableFrame(queue_card)
         self.queue_list.pack(fill="both", expand=True, padx=7)
@@ -257,13 +315,15 @@ class Application:
         self.preview = tk.Canvas(preview_card, bg=C["preview"], highlightthickness=0, cursor="", width=1, height=1)
         self.preview.pack(fill="both", expand=True, padx=14)
         self.preview.bind("<Configure>", self._schedule_preview)
-        self.preview.bind("<Button-1>", lambda _: self.import_files() if not self.batch.items else None)
+        self.preview.bind("<Button-1>", lambda _: self.open_image_viewer())
         self.image_info = label(preview_card, "PNG, JPG, WEBP, BMP, TIFF", size=8, color=C["muted"])
         self.image_info.pack(padx=16, pady=(9, 0))
         preview_tools = tk.Frame(preview_card, bg=C["white"])
         preview_tools.pack(fill="x", padx=14, pady=12)
         self.rotate_button = ttk.Button(preview_tools, text="↶  Xoay trái", style="Small.TButton", command=self.rotate_selected)
         self.rotate_button.pack(side="left")
+        self.save_image_button = ttk.Button(preview_tools, text="Lưu ảnh gốc", style="Small.TButton", command=self.save_selected_image)
+        self.save_image_button.pack(side='left', padx=6)
         self.remove_button = ttk.Button(preview_tools, text="Xóa ảnh", style="Small.TButton", command=self.remove_selected)
         self.remove_button.pack(side="right")
 
@@ -295,6 +355,7 @@ class Application:
         self.empty_result_detail = label(self.empty_result, "Thêm ảnh rồi nhấn Nhận diện.\nMình sẽ đọc từng dòng cho bạn.",
                                           size=10, color=C["muted"], justify="center", wraplength=300)
         self.empty_result_detail.pack(pady=(9, 0))
+        text_frame.bind('<Configure>', lambda e: self.empty_result_detail.configure(wraplength=max(100, int(e.width * .82))))
         result_bottom = tk.Frame(result_card, bg=C["white"])
         result_bottom.pack(fill="x", padx=18, pady=(9, 14))
         self.text_stats = label(result_bottom, "0 ký tự", size=8, color=C["muted"])
@@ -302,7 +363,7 @@ class Application:
         self.copy_button = ttk.Button(result_bottom, text="Sao chép", style="Small.TButton", command=self.copy_selected)
         self.copy_button.pack(side="right")
 
-        actions = tk.Frame(shell, bg=C["bg"])
+        actions = tk.Frame(footer, bg=C["bg"])
         actions.pack(fill="x", pady=(15, 11))
         label(actions, "Cách đọc:", size=9, color=C["muted"]).pack(side="left", padx=(0, 8))
         self.layout_var = tk.StringVar(value="Tự tách dòng")
@@ -317,14 +378,16 @@ class Application:
         self.save_button.pack(side="right")
         self.copy_all_button = ttk.Button(actions, text="Sao chép tất cả", command=self.copy_all)
         self.copy_all_button.pack(side="right", padx=(10, 10))
-        self.progress = ttk.Progressbar(shell, style="Green.Horizontal.TProgressbar", maximum=100)
+        self.progress = ttk.Progressbar(footer, style="Green.Horizontal.TProgressbar", maximum=100)
         self.progress.pack(fill="x")
-        status_bar = tk.Frame(shell, bg=C["bg"])
+        status_bar = tk.Frame(footer, bg=C["bg"])
         status_bar.pack(fill="x", pady=(10, 0))
-        self.operation_var = tk.StringVar(value="Sẵn sàng · Ctrl+O thêm ảnh · Ctrl+Enter nhận diện")
-        label(status_bar, textvariable=self.operation_var, size=8, color=C["muted"]).pack(side="left")
-        self.model_label = label(status_bar, f"VietHandOCR  ·  {self.settings.device.upper()}", size=8, color=C["muted"])
-        self.model_label.pack(side="right")
+        self.operation_var = tk.StringVar(value="Kết nối BLE → Wi-Fi camera → Xem camera → Chụp OV5640")
+        self.operation_label = label(status_bar, textvariable=self.operation_var, size=8, color=C["muted"], anchor='w', justify='left')
+        self.operation_label.pack(fill='x')
+        status_bar.bind('<Configure>', lambda e: self.operation_label.configure(wraplength=max(100, e.width - 12)))
+        self.model_label = label(status_bar, f"VietHandOCR  ·  {device_label(self.settings.device)}", size=8, color=C["muted"])
+        self.model_label.pack(anchor='e', pady=(3, 0))
 
     def _draw_brand(self):
         self.brand_mark.delete("all")
@@ -400,7 +463,8 @@ class Application:
         link = RobotClient(address, lambda status, detail: events.put(("robot_connection", link, status, detail)),
                            name=self.robot_name,
                            protocol_factory=ProcessBLEProtocol if self.isolate_bluetooth else BLEProtocol,
-                           radio_lock=self._robot_radio_lock)
+                           radio_lock=self._robot_radio_lock,
+                           on_camera=lambda action, value, error: events.put(('robot_camera', link, action, value, error)))
         link.set_theme(self.theme)
         self.robot_link = link
         self._robot_links = [old for old in self._robot_links if not old.closed.is_set()]
@@ -408,6 +472,9 @@ class Application:
         self._publish_robot_state()
         self.robot_connection_var.set(f"Đang kết nối Bluetooth · {self.robot_name}")
         self.robot_connection_label.configure(text="ESP32 · Đang kết nối…", fg=C["muted"])
+        self._wifi_state = None
+        self.wifi_connection_var.set('Wi-Fi · Đang chờ BLE để đọc trạng thái')
+        self.wifi_detail_var.set('ESP32 tự dùng mạng đã lưu; không cần nhập lại mật khẩu.')
         link.start()
         self._sync_robot_dialog_controls()
         if save:
@@ -425,6 +492,8 @@ class Application:
         self.robot_name = ""
         self.robot_connection_var.set("ESP32 chưa kết nối")
         self.robot_connection_label.configure(text="ESP32 chưa kết nối", fg=C["muted"])
+        self._wifi_state = None
+        self.wifi_connection_var.set('Wi-Fi · Kết nối Bluetooth để xem trạng thái')
         self._save_robot_address("")
         self._sync_robot_dialog_controls()
 
@@ -434,6 +503,8 @@ class Application:
             self.robot_link = None
         self.robot_connection_var.set("Đang tìm trợ lý Bluetooth…")
         self.robot_connection_label.configure(text="ESP32 · Chưa kết nối", fg=C["muted"])
+        self._wifi_state = None
+        self.wifi_connection_var.set('Wi-Fi · Đang chờ BLE để đọc trạng thái')
 
     def _sync_robot_dialog_controls(self):
         dialog = self._robot_dialog
@@ -650,9 +721,24 @@ class Application:
         selected = self.batch.get(self.selected_id)
         pending = sum(item.status != "done" for item in self.batch.items)
         has_text = any(item.text.strip() for item in self.batch.items)
-        self.upload_button.configure(state="normal" if not locked and self.batch.remaining else "disabled")
-        camera_stopping = self.camera is None and any(worker.is_alive() for worker in self._camera_workers)
-        self.camera_button.configure(state="normal" if not locked and self.batch.remaining and not camera_stopping else "disabled")
+        self.upload_button.configure(state="disabled")
+        camera_ready = self.robot_link is not None and self.robot_link.connected.is_set() and not self._ov_receiving and not self.importing and not self.closing and not self._camera_config_busy
+        self.camera_button.configure(state="normal" if camera_ready else "disabled")
+        self.ov_shot_button.configure(state="normal" if camera_ready else "disabled")
+        if self._ov_widgets:
+            self._ov_widgets['capture'].configure(state='normal' if camera_ready and self._ov_preview_ready else 'disabled',
+                                                  text='Đang nhận ảnh…' if self._ov_receiving else 'Chụp OV5640')
+            self._ov_widgets['view'].configure(state='normal' if camera_ready and self._ov_state not in ('opening', 'reviewing') else 'disabled')
+            self._ov_widgets['skip'].configure(state='normal' if self._ov_pending_photo is not None else 'disabled')
+            if 'settings' in self._ov_widgets:
+                self._ov_widgets['settings'].configure(state='normal' if camera_ready and self._ov_state not in ('opening','reviewing') else 'disabled')
+            for key in ('mirror', 'flip'):
+                if key in self._ov_widgets:
+                    self._ov_widgets[key].configure(state='normal' if camera_ready and self._ov_state == 'ready' else 'disabled')
+        self.save_image_button.configure(state='normal' if selected else 'disabled')
+        if self._image_viewer is not None:
+            self._image_viewer.sync_controls()
+        self._update_camera_progress()
         self.settings_button.configure(state="disabled" if locked else "normal")
         for button in (self.rotate_button, self.remove_button):
             button.configure(state="normal" if selected and not locked else "disabled")
@@ -671,16 +757,25 @@ class Application:
         for child in self.queue_list.inner.winfo_children():
             child.destroy()
         self._thumbs.clear()
-        self.queue_count.configure(text=f"{len(self.batch.items)} / {MAX_IMAGES}")
+        self.queue_count.configure(text=f"{len(self.batch.items)} ảnh")
         if not self.batch.items:
             label(self.queue_list.inner, "Danh sách đang trống", size=9, color=C["muted"]).pack(pady=(35, 8))
-            label(self.queue_list.inner, "Thêm ảnh từ máy\nhoặc chụp bằng webcam.", size=9,
+            label(self.queue_list.inner, "Kết nối trợ lý rồi\nchụp bằng OV5640.", size=9,
                   color=C["muted"], justify="center").pack()
-        for index, item in enumerate(self.batch.items, 1):
+        selected_index = next((i for i, item in enumerate(self.batch.items) if item.id == self.selected_id), 0)
+        first = selected_index // 50 * 50
+        if len(self.batch.items) > 50:
+            pages = tk.Frame(self.queue_list.inner, bg=C['white']); pages.pack(fill='x', pady=8)
+            if first:
+                ttk.Button(pages, text='←', width=3, command=lambda: self.select_item(self.batch.items[first-1].id)).pack(side='left')
+            label(pages, f'{first+1}–{min(first+50, len(self.batch.items))}', size=8).pack(side='left', padx=8)
+            if first + 50 < len(self.batch.items):
+                ttk.Button(pages, text='→', width=3, command=lambda: self.select_item(self.batch.items[first+50].id)).pack(side='right')
+        for index, item in enumerate(self.batch.items[first:first+50], first+1):
             bg = C["pale"] if item.id == self.selected_id else C["white"]
             row = tk.Frame(self.queue_list.inner, bg=bg, padx=8, pady=10, cursor="hand2")
             row.pack(fill="x", pady=2)
-            thumb = item.image.copy()
+            thumb = item.thumbnail()
             thumb.thumbnail((54, 53), Image.Resampling.LANCZOS)
             photo = ImageTk.PhotoImage(thumb, master=self.root)
             self._thumbs.append(photo)
@@ -721,12 +816,22 @@ class Application:
         item = self.batch.get(self.selected_id)
         # Configure notifications also occur during ttk palette updates. A pending
         # resize must not rebuild the same PhotoImage after the atomic repaint.
-        key = (item.id if item else None, id(item.image) if item else None, width, height)
+        key = (item.id if item else None, item.version if item else None, width, height)
         if getattr(self, "_preview_key", None) == key and self.preview.find_all():
             return
         self._preview_key = key
         self.preview.delete("all")
         if item is None:
+            if height < 115:
+                # At high Windows scaling/small windows there is no room for
+                # the document illustration plus two captions. Keep the action
+                # visible rather than painting text beyond the canvas bounds.
+                if height >= 24:
+                    self.preview.create_text(width/2, height/2, text='Chụp OV5640 để thêm ảnh',
+                                             fill=C['muted'], font=('Segoe UI', 9))
+                self.preview_index.configure(text='')
+                self.image_info.configure(text='Bấm Xem camera hoặc Chụp OV5640')
+                return
             scale = min(1.0, max(0.5, (height-65)/125))
             x, y = width / 2, max(50*scale+8, height/2-30*scale)
             self.preview.create_rectangle(x-32*scale, y-50*scale, x+32*scale, y+28*scale,
@@ -738,13 +843,14 @@ class Application:
             self.preview.create_text(x+28*scale, y+21*scale, text="+", fill=C["on_accent"], font=("Segoe UI", max(12, int(20*scale))))
             self.preview.create_text(x, y+70*scale, text="Bắt đầu với một tấm ảnh", fill=C["ink"],
                                      font=("Segoe UI", 10 if scale < 1 else 12, "bold"))
-            self.preview.create_text(x, y+101*scale, text="Nhấn Tải ảnh lên hoặc Chụp ảnh", fill=C["muted"],
+            self.preview.create_text(x, y+101*scale, text="Kết nối trợ lý rồi chụp OV5640", fill=C["muted"],
                                      font=("Segoe UI", 8 if scale < 1 else 9))
             self.preview_index.configure(text="")
             self.image_info.configure(text="PNG, JPG, WEBP, BMP, TIFF")
             self.preview.configure(cursor="hand2")
             return
-        image = item.image.copy()
+        original = item.image
+        image = original.copy()
         image.thumbnail((max(1, width-24), max(1, height-24)), Image.Resampling.LANCZOS)
         self._preview_photo = ImageTk.PhotoImage(image, master=self.root)
         self.preview.create_rectangle((width-image.width)/2-1, (height-image.height)/2-1,
@@ -752,8 +858,35 @@ class Application:
                                       fill=C["white"], outline=C["border"])
         self.preview.create_image(width/2, height/2, image=self._preview_photo)
         self.preview_index.configure(text=f"{self.batch.items.index(item)+1} / {len(self.batch.items)}")
-        self.image_info.configure(text=f"{item.image.width} × {item.image.height} px  ·  {item.name[:36]}")
-        self.preview.configure(cursor="")
+        self.image_info.configure(text=f"{original.width} × {original.height} px · Bấm để zoom / crop · {item.name[:24]}")
+        self.preview.configure(cursor="hand2")
+
+    def open_image_viewer(self):
+        item = self.batch.get(self.selected_id)
+        if item is None or self.closing:
+            return
+        if self._image_viewer is not None:
+            if self._image_viewer.item is item:
+                self._image_viewer.window.lift()
+                return
+            self._image_viewer.close()
+        self._image_viewer = ImageViewer(self.root, item, self._image_edited,
+            lambda: not self.running and not self.importing and not self.closing and self.batch.get(item.id) is item,
+            lambda: setattr(self, '_image_viewer', None))
+
+    def _image_edited(self, item):
+        self.select_item(item.id)
+        self.operation_var.set('Đã crop ảnh · Nhận diện lại để cập nhật văn bản. Ảnh gốc được giữ nguyên.')
+
+    def save_selected_image(self):
+        item = self.batch.get(self.selected_id)
+        if item:
+            save_image_dialog(self.root, item, original=True)
+
+    def _update_camera_progress(self):
+        items = [item for item in self.batch.items if item.source.startswith('OV5640')]
+        for panel in self._queue_panels:
+            panel.update(items, self._camera_progress)
 
     def _render_result(self):
         item = self.batch.get(self.selected_id)
@@ -813,7 +946,7 @@ class Application:
             return
         if paths is None:
             paths = list(filedialog.askopenfilenames(
-                parent=self.root, title=f"Chọn ảnh · Còn {self.batch.remaining} / 10 chỗ",
+                parent=self.root, title="Chọn ảnh để kiểm chứng OCR",
                 filetypes=[("Ảnh", "*.jpg *.jpeg *.png *.webp *.bmp *.tif *.tiff"), ("Tất cả file", "*.*")],
             ))
         if not paths:
@@ -821,7 +954,7 @@ class Application:
         try:
             self.batch.check_capacity(len(paths))
         except BatchFullError as exc:
-            messagebox.showwarning("Giới hạn 10 ảnh", str(exc), parent=self.root)
+            messagebox.showwarning("Không thể thêm ảnh", str(exc), parent=self.root)
             return
         self.importing = True
         self._sync_controls()
@@ -831,14 +964,390 @@ class Application:
         self._start_background(import_images, (paths, self.events, self._shutdown), "VietOCR-import")
 
 
+    def open_wifi_settings(self):
+        if self._wifi_dialog is not None and self._wifi_dialog.winfo_exists():
+            self._wifi_dialog.lift(); return
+        window = self._wifi_dialog = tk.Toplevel(self.root)
+        window.title('Wi-Fi camera · ESP32')
+        window.configure(bg=C['bg'])
+        window.transient(self.root)
+        body = tk.Frame(window, bg=C['bg'], padx=24, pady=20); body.pack(fill='both', expand=True)
+        label(body, 'Kết nối ESP32 vào Wi-Fi 2.4 GHz', bold=True, size=14).pack(anchor='w')
+        label(body, textvariable=self.wifi_connection_var, bold=True, justify='left', wraplength=480).pack(anchor='w', pady=(12, 4))
+        label(body, textvariable=self.wifi_detail_var, justify='left', wraplength=480).pack(anchor='w', pady=(0, 12))
+        ssid, password = tk.StringVar(), tk.StringVar()
+        if self._wifi_state is not None:
+            ssid.set(self._wifi_state.ssid or self._wifi_state.saved_ssid)
+        label(body, 'Tên Wi-Fi').pack(anchor='w')
+        combo = ttk.Combobox(body, textvariable=ssid, width=35); combo.pack(fill='x', pady=(4, 10))
+        label(body, 'Mật khẩu (để trống với mạng mở)').pack(anchor='w')
+        ttk.Entry(body, textvariable=password, show='•').pack(fill='x', pady=(4, 10))
+        message = tk.StringVar(value='Trạng thái tự cập nhật mỗi 5 giây. Quét mạng chỉ khi cần đổi Wi-Fi.')
+        label(body, textvariable=message, justify='left', wraplength=480).pack(fill='x', pady=10)
+        buttons = tk.Frame(body, bg=C['bg']); buttons.pack(fill='x')
+        controls = []
+        def request(action):
+            try:
+                if action == 'wifi_join':
+                    if self._wifi_state is not None and self._wifi_state.state == 'ready' and ssid.get() == self._wifi_state.ssid and not password.get():
+                        message.set('Mạng này đã kết nối. Không cần nhập lại mật khẩu hoặc kết nối lại.')
+                        return
+                    from .wifi_camera import wifi_commands
+                    wifi_commands(ssid.get(), password.get())
+                if self.robot_link is None or not self.robot_link.wifi(action, ssid.get(), password.get()):
+                    raise ValueError('Kết nối trợ lý Bluetooth và đợi thao tác trước hoàn tất.')
+                for button in controls: button.configure(state='disabled')
+                if action == 'wifi_join': password.set('')
+                message.set('Đang quét mạng…' if action == 'wifi_scan' else 'Đang gửi cấu hình…' if action == 'wifi_join' else 'Đang kiểm tra…')
+            except ValueError as error: message.set(str(error))
+        for text, action in [('Quét mạng', 'wifi_scan'), ('Kết nối', 'wifi_join'), ('Kiểm tra LAN', 'wifi_status')]:
+            button = ttk.Button(buttons, text=text, command=lambda value=action: request(value)); button.pack(side='left', padx=4); controls.append(button)
+        self._wifi_widgets = {'message': message, 'combo': combo, 'buttons': controls, 'password': password, 'ssid': ssid, 'name_edited': False}
+        def edited(_):
+            if self._wifi_widgets: self._wifi_widgets['name_edited'] = True
+        combo.bind('<KeyRelease>', edited)
+        combo.bind('<<ComboboxSelected>>', edited)
+        def close():
+            password.set(''); self._wifi_dialog = None; self._wifi_widgets = {}; window.destroy()
+        window.protocol('WM_DELETE_WINDOW', close)
+        window.after_idle(lambda: apply_titlebar(window))
+        if self.robot_link is not None:
+            self.robot_link.wifi('wifi_state')
+
+    def _wifi_event(self, action, value, error):
+        if action == 'wifi_state':
+            if error:
+                self._wifi_state = None
+                self.wifi_connection_var.set('Wi-Fi · Chưa đọc được trạng thái')
+                self.wifi_detail_var.set(str(error))
+            else:
+                self._wifi_state = value
+                self.wifi_connection_var.set(value.summary)
+                self.wifi_detail_var.set(value.detail)
+                if self._wifi_widgets and not self._wifi_widgets['name_edited'] and not self._wifi_widgets['ssid'].get():
+                    self._wifi_widgets['ssid'].set(value.ssid or value.saved_ssid)
+            return
+        if not self._wifi_widgets: return
+        for button in self._wifi_widgets['buttons']: button.configure(state='normal')
+        if error:
+            self._wifi_widgets['message'].set(f'Wi-Fi: {error}'); return
+        if action == 'wifi_scan':
+            self._wifi_widgets['combo']['values'] = [row[0] for row in value]
+            self._wifi_widgets['message'].set(f'Tìm thấy {len(value)} mạng. Chọn mạng rồi nhập mật khẩu.')
+        elif action == 'wifi_status':
+            fields = value.split()
+            if value.startswith('WIFI STATUS READY '):
+                self._wifi_widgets['message'].set(f'Đã kiểm tra đường LAN tới {fields[3]}:80. HTTP hoạt động; trạng thái cảm biến hiện ở cửa sổ camera.')
+            else: self._wifi_widgets['message'].set('ESP32 đang kết nối, hãy đợi rồi kiểm tra lại.' if 'JOINING' in value else 'ESP32 chưa vào Wi-Fi. Kiểm tra mật khẩu và dùng mạng 2.4 GHz.')
+        else: self._wifi_widgets['message'].set(value)
+
     def open_camera(self):
-        if self.locked or not self.batch.remaining:
+        if self.closing or self.robot_link is None or not self.robot_link.connected.is_set():
+            self.operation_var.set('Kết nối trợ lý Bluetooth trước khi mở OV5640.')
             return
-        if any(worker.is_alive() for worker in self._camera_workers):
-            self.operation_var.set("Camera đang giải phóng thiết bị · Vui lòng chờ một chút")
+        if self._ov_dialog is not None and self._ov_dialog.winfo_exists():
+            self._ov_dialog.lift()
+            if self._ov_state not in ('opening', 'ready', 'receiving', 'reviewing'):
+                self._request_ov_preview()
             return
-        self.camera = CameraWindow(self.root, self.batch, self._on_capture, self._on_camera_close, self.camera_index)
-        self._camera_workers = [self.camera._worker]
+        window = tk.Toplevel(self.root)
+        self._ov_dialog = window
+        window.title('Camera OV5640')
+        window.configure(bg=C['bg'])
+        window.resizable(True, True)
+        window.geometry(f'{min(1160, window.winfo_screenwidth()-60)}x{min(880, window.winfo_screenheight()-100)}+30+30')
+        # Reserve the footer before expandable content. A fixed 210px window
+        # clipped the shutter button at Windows font/display scaling settings.
+        footer = tk.Frame(window, bg=C['bg'], padx=18, pady=18)
+        footer.pack(side='bottom', fill='x')
+        shutter = ttk.Button(footer, text='Chụp OV5640', style='Primary.TButton', command=self.capture_ov)
+        shutter.pack(side='left', padx=(0, 8))
+        view = ttk.Button(footer, text='Xem lại camera', command=self._request_ov_preview)
+        view.pack(side='left', padx=(0, 8))
+        skip = ttk.Button(footer, text='Bỏ qua · Chụp tiếp', command=self._finish_ov_review, state='disabled')
+        skip.pack(side='left', padx=(0, 8))
+        ttk.Button(footer, text='Đóng', command=self._close_ov_camera).pack(side='right')
+        body = tk.Frame(window, bg=C['bg'], padx=24, pady=20)
+        body.pack(fill='both', expand=True)
+        heading=tk.Frame(body,bg=C['bg']); heading.pack(fill='x')
+        label(heading, 'Camera OV5640', size=18, bold=True).pack(side='left')
+        settings_button=ttk.Button(heading,text='Cấu hình camera',command=self.open_camera_settings)
+        settings_button.pack(side='right')
+        label(body, textvariable=self.wifi_connection_var, justify='left', wraplength=800).pack(anchor='w', pady=(8, 0))
+        label(body, 'Preview nhanh, cùng góc nhìn 4:3 · Ảnh chụp gốc 2592 × 1944.\nKéo cạnh cửa sổ để đổi kích thước. Xem ảnh vừa chụp 3 giây rồi tự quay lại preview.',
+              justify='left').pack(anchor='w', pady=(12, 10))
+        orientation = tk.Frame(body, bg=C['bg']); orientation.pack(fill='x', pady=(0, 6))
+        mirror = ttk.Checkbutton(orientation, text='Lật ngang', variable=self._ov_mirror, command=self._change_ov_orientation)
+        mirror.pack(side='left', padx=(0, 18))
+        flip = ttk.Checkbutton(orientation, text='Lật dọc', variable=self._ov_flip, command=self._change_ov_orientation)
+        flip.pack(side='left')
+        label(orientation, 'Áp dụng cho cả ảnh chụp', color=C['muted']).pack(side='left', padx=18)
+        metrics = tk.StringVar(value='Đang đo tốc độ…')
+        label(orientation, textvariable=metrics, color=C['muted']).pack(side='right')
+        message = tk.StringVar(value='Đang mở camera…')
+        status_label = label(body, textvariable=message, color=C['muted'], justify='left', wraplength=800)
+        status_label.pack(anchor='w', pady=8)
+        body.bind('<Configure>', lambda event: status_label.configure(wraplength=max(240, event.width-48)))
+        live = tk.Canvas(body, bg=C['preview'], height=540, width=800, highlightthickness=0)
+        live.pack(fill='both', expand=True)
+        progress = ttk.Progressbar(body, mode='determinate', maximum=100, style='Green.Horizontal.TProgressbar')
+        progress.pack(fill='x', pady=8)
+        self._ov_widgets = {'capture': shutter, 'view': view, 'skip': skip, 'message': message, 'progress': progress, 'live': live,
+                            'mirror': mirror, 'flip': flip, 'metrics': metrics, 'settings': settings_button}
+        live.bind('<Configure>', lambda _: self._draw_ov_image())
+        self._queue_panels.append(QueueProgress(window, self.select_item))
+        self._update_camera_progress()
+        window.update_idletasks()
+        window.minsize(min(800, window.winfo_screenwidth()-40), min(520, window.winfo_screenheight()-80))
+        window.after_idle(lambda: apply_titlebar(window))
+        window.protocol('WM_DELETE_WINDOW', self._close_ov_camera)
+        window.bind('<Escape>', lambda _: self._close_ov_camera())
+        self._request_ov_preview()
+
+    def _set_ov_status(self, state, message):
+        self._ov_state = state
+        self._ov_preview_ready = state == 'ready'
+        if self._ov_widgets:
+            self._ov_widgets['message'].set(message)
+
+    def _cancel_ov_preview_timer(self):
+        if self._ov_preview_timer is not None:
+            self.root.after_cancel(self._ov_preview_timer)
+            self._ov_preview_timer = None
+
+    def _request_ov_preview(self):
+        if self.closing or self._ov_receiving or self._camera_config_busy or self._ov_state == 'opening' or self._ov_pending_photo is not None:
+            return
+        self._stop_ov_stream()
+        self._ov_generation += 1
+        self._ov_frame_count = 0
+        self._ov_fps_at = time.monotonic()
+        mirror,flip = self._ov_orientation_requested or (None,None)
+        if self.robot_link is None or not self.robot_link.camera('open', request_token=self._ov_generation,
+                                                               mirror=mirror, flip=flip):
+            self._set_ov_status('failed', 'Kết nối trợ lý Bluetooth trước khi mở camera.')
+        else:
+            self._ov_preview_deadline = time.monotonic() + 30
+            self._set_ov_status('opening', 'Đang kiểm tra Wi-Fi trước khi mở cảm biến…')
+            self.operation_var.set('Đang mở camera OV5640…')
+            self._ov_preview_timer = self.root.after(20, self._poll_ov_preview)
+        self._sync_controls()
+
+    def _change_ov_orientation(self):
+        self._ov_orientation_requested=(self._ov_mirror.get(),self._ov_flip.get())
+        try:
+            update_preferences(self.preferences_path, camera_mirror=self._ov_mirror.get(), camera_flip=self._ov_flip.get())
+        except OSError:
+            logger.warning('Cannot save camera orientation', exc_info=True)
+        # Restart the reader so buffered JPEGs with the previous orientation
+        # cannot appear after the new sensor settings are acknowledged.
+        self._request_ov_preview()
+
+    def open_camera_settings(self):
+        if self._camera_config_window is not None and self._camera_config_window.alive:
+            self._camera_config_window.window.lift(); return
+        if self.robot_link is None or not self.robot_link.connected.is_set():
+            self.operation_var.set('Kết nối ESP32 trước khi chỉnh camera.'); return
+        from .camera_settings_view import CameraSettingsWindow
+        self._camera_config_window=CameraSettingsWindow(self._ov_dialog or self.root,
+            lambda:self._request_camera_settings('settings_get'), self._apply_camera_settings)
+        self._request_camera_settings('settings_get')
+
+    def _request_camera_settings(self, action, settings=None, persist=True):
+        window=self._camera_config_window
+        if self._camera_config_busy: return
+        if self.robot_link is None or not self.robot_link.camera_settings(action,settings,persist=persist):
+            if window is not None and window.alive: window.receive(error='Bluetooth đã ngắt hoặc đang bận.')
+            return
+        self._camera_config_busy=True
+        if window is not None and window.alive: window.busy()
+        self._sync_controls()
+
+    def _apply_camera_settings(self, settings, persist):
+        self._stop_ov_stream()
+        self._ov_generation+=1
+        if self._ov_dialog is not None: self._set_ov_status('configuring','Đang đổi cấu hình camera…')
+        self._request_camera_settings('settings_set',settings,persist)
+
+    def _camera_settings_event(self, action, config, error):
+        self._camera_config_busy=False
+        if not error and not isinstance(config,dict): error='Không đọc được cấu hình camera. Hãy tải lại.'
+        window=self._camera_config_window
+        if window is not None and window.alive: window.receive(config,error)
+        if not error:
+            self._ov_mirror.set(bool(config['settings']['hmirror']))
+            self._ov_flip.set(bool(config['settings']['vflip']))
+            if action=='settings_set':
+                self._ov_orientation_requested=None
+                try: update_preferences(self.preferences_path,camera_mirror=self._ov_mirror.get(),camera_flip=self._ov_flip.get())
+                except OSError: logger.warning('Cannot save camera orientation',exc_info=True)
+                if self._ov_dialog is not None and not self.closing: self._request_ov_preview()
+        elif action=='settings_set' and self._ov_dialog is not None:
+            self._set_ov_status('failed',str(error))
+        self._sync_controls()
+
+    def _poll_ov_preview(self):
+        self._ov_preview_timer = None
+        if self.closing or self._ov_dialog is None or self._ov_state not in ('opening', 'ready') or self._ov_receiving:
+            return
+        stream = self._ov_stream
+        was_ready = self._ov_preview_ready
+        error, jpeg = (stream.error(), stream.latest()) if stream is not None else (None, None)
+        if jpeg is not None and not error:
+            try:
+                with Image.open(io.BytesIO(jpeg)) as image:
+                    if image.width * 3 != image.height * 4 or not (160 <= image.width <= 2592):
+                        raise ValueError('Preview cần cùng tỷ lệ 4:3 với ảnh chụp OV5640.')
+                    self._ov_live_image = image.convert('RGB')
+                self._draw_ov_image()
+                self._ov_frame_count += 1
+                now = time.monotonic()
+                elapsed = now - self._ov_fps_at
+                if elapsed >= 1.0 and self._ov_widgets:
+                    self._ov_widgets['metrics'].set(f'{self._ov_live_image.width} × {self._ov_live_image.height} · {self._ov_frame_count/elapsed:.1f} FPS')
+                    self._ov_frame_count = 0; self._ov_fps_at = now
+                if not was_ready:
+                    self._ov_fps_at = now; self._ov_frame_count = 0
+                    self._set_ov_status('ready', 'Preview UDP · Ảnh chụp 5 MP, cùng hướng với preview.')
+                    self.operation_var.set('Đang xem stream OV5640 qua Wi-Fi.')
+            except (OSError, ValueError) as exc:
+                error = f'Không đọc được khung hình camera: {exc}'
+        if not error and self._ov_state == 'opening' and time.monotonic() >= self._ov_preview_deadline:
+            error = 'Chưa có khung hình. Cần firmware OV5640 3.0.0 trở lên; kiểm tra Wi-Fi và UDP 82.'
+        if error:
+            self._stop_ov_stream()
+            self._set_ov_status('failed', error)
+            self.operation_var.set(error)
+        else:
+            self._ov_preview_timer = self.root.after(20, self._poll_ov_preview)
+        if error or self._ov_preview_ready != was_ready:
+            self._sync_controls()
+
+    def _stop_ov_stream(self):
+        self._cancel_ov_preview_timer()
+        if self._ov_stream is not None:
+            self._ov_stream.stop()
+            self._ov_stream = None
+
+    def _draw_ov_image(self):
+        if self._ov_live_image is None or not self._ov_widgets:
+            return
+        live = self._ov_widgets['live']
+        width, height = max(1, live.winfo_width()), max(1, live.winfo_height())
+        image = self._ov_live_image
+        scale = min(width/image.width, height/image.height)
+        display = image.resize((max(1, round(image.width*scale)), max(1, round(image.height*scale))), Image.Resampling.BILINEAR)
+        self._ov_live_photo = ImageTk.PhotoImage(display, master=self.root)
+        live.delete('all')
+        live.create_image(width/2, height/2, image=self._ov_live_photo)
+
+    def _start_ov_review(self, value):
+        metadata, jpeg = value
+        with Image.open(io.BytesIO(jpeg)) as image:
+            if image.size != (metadata.width, metadata.height):
+                raise ValueError('Kích thước JPEG không khớp metadata.')
+            self._ov_live_image = image.convert('RGB')
+        if self._ov_dialog is None:
+            self._queue_ov_photo(value)
+            return
+        self._ov_pending_photo = value
+        self._ov_review_deadline = time.monotonic() + 3
+        self._draw_ov_image()
+        self._review_ov_tick()
+
+    def _review_ov_tick(self):
+        self._ov_review_timer = None
+        if self.closing or self._ov_pending_photo is None:
+            return
+        remaining = self._ov_review_deadline - time.monotonic()
+        if remaining <= 0:
+            self._finish_ov_review()
+            return
+        self._set_ov_status('reviewing', f'Ảnh vừa chụp · Tự vào hàng đợi sau {remaining:.1f}s. Bỏ qua để chụp tiếp.')
+        self._sync_controls()
+        self._ov_review_timer = self.root.after(100, self._review_ov_tick)
+
+    def _finish_ov_review(self, resume=True):
+        if self._ov_review_timer is not None:
+            self.root.after_cancel(self._ov_review_timer)
+            self._ov_review_timer = None
+        value = self._ov_pending_photo
+        if value is None:
+            return
+        try:
+            self._queue_ov_photo(value)
+        except (OSError, ValueError) as error:
+            self._set_ov_status('reviewing', f'Chưa lưu được ảnh: {error}. Bấm Bỏ qua để thử lưu lại.')
+            return
+        self._ov_pending_photo = None
+        self._ov_state = 'closed'
+        if resume and self._ov_dialog is not None and not self.closing:
+            self._request_ov_preview()
+        self._sync_controls()
+
+    def _queue_ov_photo(self, value):
+        metadata, jpeg = value
+        item = self.batch.add_jpeg(jpeg, f'OV5640_{metadata.id}.jpg')
+        self.select_item(item.id)
+        if not self.running and not self.closing:
+            self._set_assistant(AssistantState.RECEIVED, 'Đã nhận ảnh OV5640!', 'Ảnh gốc đã vào hàng đợi. Bạn có thể chụp tiếp.')
+            if not self._auto_queue_halted:
+                self.root.after_idle(self.start_recognition)
+
+    def _ov_preview_event(self, action, value, error):
+        if self._ov_dialog is None or self._ov_receiving or self._ov_state != 'opening':
+            return
+        if error:
+            self._stop_ov_stream()
+            self._set_ov_status('failed', f'Không mở được camera: {error}')
+            self.operation_var.set(f'OV5640: {error}')
+            self._sync_controls()
+            return
+        if action == 'open':
+            self._set_ov_status('opening', 'Đang kết nối stream Wi-Fi…')
+            self._ov_orientation_requested=None
+            if getattr(value,'mirror',None) is not None:self._ov_mirror.set(value.mirror)
+            if getattr(value,'flip',None) is not None:self._ov_flip.set(value.flip)
+            self._ov_stream = CameraStream(value).start()
+            self._cancel_ov_preview_timer()
+            self._ov_preview_timer = self.root.after(20, self._poll_ov_preview)
+        self._sync_controls()
+
+    def _close_ov_camera(self):
+        self._finish_ov_review(resume=False)
+        if self._ov_pending_photo is not None:
+            return
+        self._stop_ov_stream()
+        self._ov_generation += 1
+        if self.robot_link and self.robot_link.connected.is_set():
+            self.robot_link.camera('close')
+        window = self._ov_dialog
+        self._ov_dialog = None
+        self._ov_widgets = {}
+        self._ov_state = 'closed'
+        self._ov_preview_ready = False
+        self._ov_live_photo = None
+        self._ov_live_image = None
+        if window is not None:
+            self._queue_panels = [panel for panel in self._queue_panels if panel.frame.master is not window]
+            window.destroy()
+
+    def capture_ov(self):
+        if self._ov_receiving or self.importing or self.closing or self._camera_config_busy:
+            return
+        if self._ov_dialog is None or not self._ov_preview_ready:
+            self.open_camera()
+            return
+        self._stop_ov_stream()
+        if self.robot_link is None or not self.robot_link.camera('capture'):
+            self._set_ov_status('failed', 'Bluetooth đã ngắt hoặc đang bận. Mở lại camera để chụp.')
+            self.operation_var.set('Chưa gửi được lệnh chụp OV5640.')
+            self._sync_controls()
+            return
+        self._ov_receiving = True
+        self._set_ov_status('receiving', 'Đang chụp và nhận ảnh gốc qua Wi-Fi…')
+        self._ov_widgets['progress']['value'] = 0
+        self.operation_var.set('Đang nhận JPEG gốc từ OV5640…')
         self._sync_controls()
 
     def _on_capture(self, image: Image.Image, name: str):
@@ -849,7 +1358,7 @@ class Application:
             return
         self.select_item(item.id)
         self._set_assistant(AssistantState.RECEIVED, "Đã nhận ảnh của bạn!", f"Có {len(self.batch.items)} ảnh đang chờ trong danh sách.")
-        self.operation_var.set(f"Đã chụp {name} · {len(self.batch.items)}/10 ảnh")
+        self.operation_var.set(f"Đã chụp {name} · {len(self.batch.items)} ảnh")
 
     def _on_camera_close(self):
         self.camera = None
@@ -886,17 +1395,17 @@ class Application:
             self._set_assistant(AssistantState.AWAKE, "Mình vẫn ở đây!", "Thêm ảnh để bắt đầu một lượt mới nhé.")
         else:
             self._publish_robot_state()
-        self.operation_var.set(f"Danh sách hiện có {len(self.batch.items)}/10 ảnh")
+        self.operation_var.set(f"Danh sách hiện có {len(self.batch.items)} ảnh")
 
     def clear_batch(self):
         if self.locked:
             return
-        self.batch.items.clear()
+        self.batch.clear()
         self.selected_id = self._result_id = None
         self._refresh()
         self.progress["value"] = 0
         self._set_assistant(AssistantState.AWAKE, "Bắt đầu một lượt mới nhé!", "Mình đã sẵn sàng nhận thêm ảnh.")
-        self.operation_var.set("Đã dọn danh sách · Bạn có thể thêm tối đa 10 ảnh mới")
+        self.operation_var.set("Đã dọn danh sách · Sẵn sàng nhận ảnh mới")
 
     def _refresh(self):
         self._render_queue()
@@ -917,6 +1426,7 @@ class Application:
         if not jobs:
             return
         self.running = True
+        self._auto_queue_halted = False
         self.cancel_event = threading.Event()
         self._run_total = len(jobs)
         self._run_index = 0
@@ -928,14 +1438,21 @@ class Application:
         self.operation_var.set("Đang nạp model · Lần đầu có thể cần vài giây…")
         self._set_assistant(AssistantState.PROCESSING, "Để mình đọc giúp bạn…", "Đang chuẩn bị mô hình nhận diện trên máy.")
         # Queue membership and images stay fixed until the worker finishes.
-        snapshots = [(item.id, item.image) for item in jobs]
+        snapshots = [(item.id, item.image_path) for item in jobs]
         self._start_background(recognize_images, (snapshots, settings, self.cancel_event, self.service, self.events), "VietOCR-OCR")
+
+    def _warm_model(self):
+        self._warm_timer = None
+        if self.closing or self.running or not Path(self.settings.weights).is_file(): return
+        self.operation_var.set('Đang chuẩn bị model trong nền · Bạn có thể cấu hình Wi-Fi và xem camera.')
+        self._start_background(warm_model, (self.settings, self.service, self.events, self._shutdown), 'VietOCR-model-warmup')
 
 
     def cancel_recognition(self):
         if not self.running or self.cancel_event.is_set():
             return
         self.cancel_event.set()
+        self._auto_queue_halted = True
         self._sync_controls()
         self.operation_var.set("Đang dừng nhận diện và giải phóng model…")
         self._set_assistant(AssistantState.PROCESSING, "Mình đang dừng lại…", "Kết quả đã hoàn tất được giữ lại.")
@@ -986,6 +1503,15 @@ class Application:
 
     def _handle_event(self, event):
         kind, *data = event
+        if kind == 'model_warmed':
+            service, info, seconds, error = data
+            if service is not self.service or self.running: return
+            if error:
+                self.operation_var.set('Model chưa sẵn sàng · Nhấn nhận diện để thử lại; xem .logs/ocr-worker.log.')
+            elif info:
+                self.model_label.configure(text=f'VietHandOCR · {info["name"]} · {info["id"]}')
+                self.operation_var.set(f'Model sẵn sàng · Nạp nền {seconds:.1f} giây')
+            return
         if kind == "robot_connection":
             link, status, detail = data
             if link is self.robot_link:
@@ -994,6 +1520,53 @@ class Application:
                            "waiting": "ESP32 · Đang chờ Bluetooth…"}.get(status, "ESP32 · Chưa kết nối")
                 self.robot_connection_label.configure(text=summary, fg=C["green"] if status == "connected" else C["muted"])
                 self._sync_robot_dialog_controls()
+                if status != 'connected':
+                    if self._camera_config_busy:
+                        self._camera_config_busy=False
+                        if self._camera_config_window is not None and self._camera_config_window.alive:
+                            self._camera_config_window.receive(error='Bluetooth đã ngắt. Kết nối lại rồi tải cấu hình.')
+                    self._wifi_state = None
+                    self.wifi_connection_var.set('Wi-Fi · BLE chưa kết nối, chưa xác định trạng thái hiện tại')
+                    self.wifi_detail_var.set('ESP32 vẫn giữ mạng đã lưu. Trạng thái sẽ cập nhật khi Bluetooth nối lại.')
+                    self._ov_receiving = False
+                    self._stop_ov_stream()
+                    if self._ov_pending_photo is None:
+                        self._set_ov_status('closed', 'Kết nối trợ lý Bluetooth để xem camera.')
+                self._sync_controls()
+        elif kind == 'robot_camera':
+            link, action, value, error = data
+            if link is not self.robot_link: return
+            if action.startswith('settings_'):
+                self._camera_settings_event(action,value,error); return
+            if action.startswith('wifi_'):
+                self._wifi_event(action, value, error); return
+            if action == 'open':
+                request_token, value = value
+                if request_token != self._ov_generation: return
+            if action == 'progress':
+                received, total = value
+                if total:
+                    message = f'Đang nhận ảnh OV5640: {received * 100 // total}% · {received:,}/{total:,} byte'
+                    self.operation_var.set(message)
+                    if self._ov_widgets:
+                        self._ov_widgets['message'].set(message)
+                        self._ov_widgets['progress']['value'] = received * 100 / total
+                return
+            if action == 'open':
+                self._ov_preview_event(action, value, error)
+                return
+            if action == 'capture': self._ov_receiving = False
+            if error:
+                self._set_ov_status('failed', f'OV5640: {error}')
+                self.operation_var.set(f'OV5640: {error}')
+                if not self.running: self._set_assistant(AssistantState.ERROR, 'Chưa nhận được ảnh camera', 'Xem log Bluetooth để biết lỗi gốc.')
+            elif action == 'capture':
+                if self._ov_widgets:
+                    self._ov_widgets['progress']['value'] = 100
+                self._start_ov_review(value)
+            else:
+                self.operation_var.set('Xem góc camera trên TFT.' if action == 'open' else 'Đã trở về trợ lý.')
+            self._sync_controls()
         elif kind == "robot_scan":
             self._receive_robot_scan(*data)
         elif kind == "robot_radio":
@@ -1010,7 +1583,7 @@ class Application:
             self.progress.configure(mode="determinate", value=0)
             self._sync_controls()
             errors = data[0]
-            self.operation_var.set(f"Đã nhận {len(self.batch.items)}/10 ảnh · Sẵn sàng nhận diện")
+            self.operation_var.set(f"Đã nhận {len(self.batch.items)} ảnh · Sẵn sàng nhận diện")
             if self.batch.items:
                 self._set_assistant(AssistantState.RECEIVED, "Đã nhận ảnh của bạn!", f"Mình sẵn sàng đọc {len(self.batch.items)} ảnh trong danh sách.")
             if errors:
@@ -1019,10 +1592,15 @@ class Application:
         elif kind == "model_loaded":
             self.progress.stop()
             self.progress.configure(mode="determinate", value=0)
+        elif kind == "model_device":
+            device = data[0]
+            text = f"{device['name']} · {device['id']}" if device else device_label(self.settings.device)
+            self.model_label.configure(text=f"VietHandOCR  ·  {text}")
         elif kind == "started":
             item_id, self._run_index, total = data
             item = self.batch.get(item_id)
             if item:
+                self._camera_progress[item_id] = 0
                 item.status, item.text, item.error = "processing", "", ""
                 self._render_queue()
                 if self.selected_id == item_id:
@@ -1032,6 +1610,8 @@ class Application:
                 self._set_assistant(AssistantState.PROCESSING, f"Đang đọc ảnh {self._run_index}/{total}", "Từng dòng chữ đang trở thành văn bản.")
         elif kind == "line_progress":
             item_id, line, total = data
+            self._camera_progress[item_id] = line / total if total else 0
+            self._update_camera_progress()
             self.progress["value"] = (self._run_index-1 + (line-1)/total) / self._run_total * 100
             self._publish_robot_progress()
             if not self.cancel_event.is_set():
@@ -1056,6 +1636,7 @@ class Application:
                 if item.id == self.selected_id:
                     self._render_result()
         elif kind == "fatal":
+            self._auto_queue_halted = True
             self.operation_var.set("Không thể nạp model · Kiểm tra Cài đặt model")
             messagebox.showerror("Không thể khởi động AI", data[0], parent=self.root)
         elif kind == "finished":
@@ -1068,9 +1649,17 @@ class Application:
                 self.operation_var.set(f"Đã dừng · {successes} ảnh hoàn tất, {failures} ảnh lỗi · Kết quả đã có được giữ lại")
                 self._set_assistant(AssistantState.AWAKE, "Đã dừng theo ý bạn", "Bạn có thể tiếp tục với các ảnh còn lại.")
             elif failures:
+                self._auto_queue_halted = True
                 self.operation_var.set(f"{successes} ảnh hoàn tất · {failures} lỗi · Kiểm tra ảnh hoặc Cài đặt model rồi thử lại")
                 self._set_assistant(AssistantState.ERROR, "Có ảnh cần thử lại", "Xem thông báo ở phần văn bản hoặc kiểm tra model.")
             else:
+                pending = [item for item in self.batch.items if item.status == 'ready']
+                if pending and not self._auto_queue_halted:
+                    self.root.after_idle(lambda: self.start_recognition(pending))
+                    return
+                if self._ov_receiving:
+                    self._set_assistant(AssistantState.PROCESSING, 'Đang nhận ảnh tiếp theo…', 'Ảnh đã đọc xong được giữ lại.')
+                    return
                 self.progress["value"] = 100
                 self.operation_var.set(f"Hoàn tất {successes} ảnh · Chỉnh sửa văn bản, sao chép hoặc lưu .txt")
                 self._set_assistant(AssistantState.DONE, "Xong rồi, bạn ơi!", "Văn bản đã sẵn sàng. Mình chờ lượt tiếp theo nhé.")
@@ -1141,14 +1730,16 @@ class Application:
         device_column = tk.Frame(row, bg=C["white"])
         device_column.pack(side="left", fill="x", expand=True)
         label(device_column, "Thiết bị xử lý", bold=True).pack(anchor="w", pady=(0, 6))
-        device_var = tk.StringVar(value="CPU" if self.settings.device == "cpu" else "GPU (CUDA)")
-        ttk.Combobox(device_column, textvariable=device_var, values=("CPU", "GPU (CUDA)"), state="readonly", width=23).pack(anchor="w")
+        choices = dict(DEVICE_CHOICES)
+        if self.settings.device not in choices.values():
+            choices[self.settings.device] = self.settings.device
+        device_var = tk.StringVar(value=next(name for name, value in choices.items() if value == self.settings.device))
+        ttk.Combobox(device_column, textvariable=device_var, values=tuple(choices), state="readonly", width=38).pack(anchor="w")
         camera_column = tk.Frame(row, bg=C["white"])
         camera_column.pack(side="left", fill="x", expand=True)
-        label(camera_column, "Camera (0 là mặc định)", bold=True).pack(anchor="w", pady=(0, 6))
-        camera_var = tk.StringVar(value=str(self.camera_index))
-        ttk.Spinbox(camera_column, from_=0, to=9, textvariable=camera_var, width=13).pack(anchor="w", ipady=6)
-        label(body, "Tự tách dòng: dành cho giấy một cột, chữ ngay ngắn.\nMột dòng: dành cho ảnh đã cắt sát một dòng chữ. GPU cần PyTorch hỗ trợ CUDA.",
+        label(camera_column, "Nguồn ảnh", bold=True).pack(anchor="w", pady=(0, 6))
+        label(camera_column, "OV5640 qua Wi-Fi · BLE điều khiển", color=C['muted']).pack(anchor='w')
+        label(body, "Tự động ưu tiên GPU rời, GPU tích hợp rồi CPU khi thiết bị không chạy được.\nThiết bị thực tế hiện ở thanh trạng thái sau khi nạp model.\nGPU tích hợp dùng DirectML và bộ ONNX tương ứng với trọng số đã chọn.",
               size=9, color=C["muted"], justify="left").pack(anchor="w", pady=(0, 20))
 
         def save():
@@ -1156,16 +1747,8 @@ class Application:
             if not path.is_file():
                 messagebox.showwarning("Chưa tìm thấy model", "Hãy chọn một file trọng số .pth có sẵn.", parent=window)
                 return
-            try:
-                camera_index = int(camera_var.get())
-                if not 0 <= camera_index <= 9:
-                    raise ValueError()
-            except ValueError:
-                messagebox.showwarning("Camera không hợp lệ", "Nhập số camera từ 0 đến 9.", parent=window)
-                return
-            self.settings = OCRSettings(str(path.resolve()), "cpu" if device_var.get() == "CPU" else "cuda:0")
-            self.camera_index = camera_index
-            self.model_label.configure(text=f"VietHandOCR  ·  {self.settings.device.upper()}")
+            self.settings = OCRSettings(str(path.resolve()), choices[device_var.get()])
+            self.model_label.configure(text=f"VietHandOCR  ·  {device_label(self.settings.device)}")
             self.operation_var.set("Đã cập nhật cài đặt · Model sẽ được nạp ở lượt nhận diện tiếp theo")
             window.destroy()
 
@@ -1173,9 +1756,10 @@ class Application:
         ttk.Button(body, text="Đóng", command=window.destroy).pack(side="right", padx=10)
         window.bind("<Escape>", lambda _: window.destroy())
 
-    def close(self):
+    def close(self, reason='window_close'):
         if self.closing:
             return
+        logger.info("Desktop shutdown requested: reason=%s", reason)
         self.closing = True
         self._shutdown.set()
         self.cancel_event.set()
@@ -1192,9 +1776,10 @@ class Application:
         if close_service is not None:
             cleanup("AI process", close_service)
         cleanup("progress animation", self.progress.stop)
+        cleanup("camera stream", self._stop_ov_stream)
         if self.camera is not None:
             cleanup("camera", self.camera.close)
-        for timer in (self._poll_timer, self._preview_timer, self._camera_release_timer):
+        for timer in (self._poll_timer, self._preview_timer, self._camera_release_timer, self._ov_preview_timer, self._warm_timer, self._ov_review_timer):
             if timer is not None:
                 cleanup("UI timer", lambda token=timer: self.root.after_cancel(token))
         cleanup("controls", self._sync_controls)

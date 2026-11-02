@@ -31,7 +31,10 @@ Các mục sau cần làm sau khi có bản chạy ổn định trên điện th
 
 ## IoT
 
-Giữ BLE chỉ truyền trạng thái nhỏ. Có thể thêm chọn độ sáng, lịch ngủ và mute
+Đã có chụp OV3660, xem trực tiếp trên TFT và truyền JPEG qua characteristic BLE
+riêng; xem [hướng dẫn camera](../pbl4/docs/CAMERA.md). Cần kiểm chứng pinout bo
+thật, tốc độ truyền/MTU và chất lượng ảnh trước khi tối ưu độ phân giải/ánh sáng.
+App nhận ảnh tuần tự và lưu hàng đợi trên thiết bị. Có thể thêm chọn độ sáng, lịch ngủ và mute
 được lưu; đổi độ sáng thật cần nối LED/backlight qua chân điều khiển phù hợp
 vì hiện LED nối cố định 3V3. TMB12A05 chỉ phát beep; muốn đọc thành tiếng trên
 ESP32 cần mạch phát âm thanh và loa. TTS trên điện thoại là bước có thể làm

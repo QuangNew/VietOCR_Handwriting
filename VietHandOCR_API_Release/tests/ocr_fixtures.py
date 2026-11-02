@@ -44,3 +44,26 @@ class ProcessEngine:
         on_progress(2, 2)
         self.calls += 1
         return f"Tiếng Việt {self.calls} · {os.getpid()} · {image.getpixel((0, 0))}"
+
+
+class AcceleratorEngine(ProcessEngine):
+    def load(self, settings):
+        path = Path(settings.weights)
+        if settings.device == "cuda:0":
+            if path.stem == "gpu-native-load":
+                os._exit(21)
+            if path.stem == "gpu-load":
+                raise RuntimeError("CUDA out of memory")
+        super().load(settings)
+
+    def recognize(self, image, settings, cancel, on_progress):
+        from desktop.ocr_service import DeviceExecutionError, RecognitionError
+        path = Path(settings.weights)
+        if path.stem == "bad-image":
+            raise RecognitionError("Không tìm thấy dòng chữ")
+        if settings.device != "cpu":
+            if path.stem == "gpu-native-inference":
+                os._exit(22)
+            if path.stem == "gpu-inference":
+                raise DeviceExecutionError("simulated GPU device removed")
+        return super().recognize(image, settings, cancel, on_progress) + " | " + settings.device

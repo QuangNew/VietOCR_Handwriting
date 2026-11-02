@@ -1,0 +1,31 @@
+{
+  "repository": "https://github.com/espressif/esp32-camera",
+  "commit": "281d951f75b6559adec3cdb8cf076366da103880",
+  "files": [
+    {
+      "path": "sensors/ov5640_af.c",
+      "url": "https://raw.githubusercontent.com/espressif/esp32-camera/281d951f75b6559adec3cdb8cf076366da103880/sensors/ov5640_af.c",
+      "sha256": "6cb68941b84cd04992825ceaa0c85a8b2206b77da261a82dd399af174bb3f7cb"
+    },
+    {
+      "path": "sensors/private_include/ov5640_af_firmware.h",
+      "url": "https://raw.githubusercontent.com/espressif/esp32-camera/281d951f75b6559adec3cdb8cf076366da103880/sensors/private_include/ov5640_af_firmware.h",
+      "sha256": "0420422fd4175548fa8abf4da484dc56f4642e443d314fa8797bc20fe19690a4"
+    },
+    {
+      "path": "sensors/ov5640.c",
+      "url": "https://raw.githubusercontent.com/espressif/esp32-camera/281d951f75b6559adec3cdb8cf076366da103880/sensors/ov5640.c",
+      "sha256": "df60065649695167db86787d7904b584ec82f73f8c0a686743f93f8d2d5b35ac"
+    },
+    {
+      "path": "sensors/private_include/ov5640_settings.h",
+      "url": "https://raw.githubusercontent.com/espressif/esp32-camera/281d951f75b6559adec3cdb8cf076366da103880/sensors/private_include/ov5640_settings.h",
+      "sha256": "db1930b344a83b084f6fb5c3c3e1dead5922a422c1212355c52ad5af141d3b6f"
+    },
+    {
+      "path": "LICENSE",
+      "url": "https://raw.githubusercontent.com/espressif/esp32-camera/281d951f75b6559adec3cdb8cf076366da103880/LICENSE",
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    }
+  ]
+}

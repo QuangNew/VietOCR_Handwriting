@@ -7,7 +7,7 @@ import time
 from collections import deque
 from dataclasses import dataclass
 
-from .bluetooth_transport import BLEProtocol, RobotCommandRejected, validate_address
+from .bluetooth_transport import BLEProtocol, RobotCommandRejected, RobotProtocolError, validate_address
 from .bluetooth_coordinator import radio_access
 from .domain import AssistantState
 LOGGER = logging.getLogger("vietocr_desktop.ble")
@@ -50,10 +50,12 @@ class _StopRequested(Exception):
 class RobotClient:
     def __init__(self, address: str, on_status, *, name: str = "VietOCR-Assistant",
                  timeout: float = 2.0, heartbeat: float = 4.0, retry_delay: float = 3.0,
-                 protocol_factory=BLEProtocol, radio_lock=None):
+                 protocol_factory=BLEProtocol, radio_lock=None, on_camera=None):
         self.address = validate_address(address)
         self.name = name
         self._on_status = on_status
+        self._on_camera = on_camera or (lambda *args: None)
+        self._camera_jobs = deque()
         self._timeout, self._heartbeat, self._retry_delay = timeout, heartbeat, retry_delay
         self._protocol_factory = protocol_factory
         self._radio_lock = radio_lock
@@ -103,7 +105,7 @@ class RobotClient:
                 pass  # The event loop already closed.
 
     def set_state(self, state: AssistantState, images: int = 0) -> None:
-        images = max(0, min(10, images)) if state not in (AssistantState.AWAKE, AssistantState.SLEEP) else 0
+        images = max(0, min(2147483647, images)) if state not in (AssistantState.AWAKE, AssistantState.SLEEP) else 0
         with self._lock:
             progress = self._snapshot.progress if state == self._snapshot.state == AssistantState.PROCESSING else None
             snapshot = RobotSnapshot(state, images, progress)
@@ -125,6 +127,38 @@ class RobotClient:
         if self.connected.is_set():
             self._beep.set()
             self._wake_worker()
+
+    def camera(self, action, *, request_token=None, mirror=None, flip=None):
+        if action not in ('open', 'status', 'close', 'capture', 'preview', 'stream_info') or not self.connected.is_set():
+            return False
+        with self._lock:
+            if len(self._camera_jobs) >= 4:
+                return False
+            arguments = {}
+            if request_token is not None: arguments['request_token'] = request_token
+            if action == 'open' and mirror is not None and flip is not None:
+                arguments.update(mirror=bool(mirror), flip=bool(flip))
+            self._camera_jobs.append((action, arguments) if arguments else action)
+        self._wake_worker()
+        return True
+
+    def wifi(self, action, ssid='', password=''):
+        if action not in ('wifi_scan', 'wifi_join', 'wifi_status', 'wifi_state') or not self.connected.is_set():
+            return False
+        with self._lock:
+            if action == 'wifi_state' and any(isinstance(job, tuple) and job[0] == action for job in self._camera_jobs):
+                return True
+            if len(self._camera_jobs) >= 4: return False
+            self._camera_jobs.append((action, {'ssid': ssid, 'password': password} if action == 'wifi_join' else {}))
+        self._wake_worker()
+        return True
+
+    def camera_settings(self, action, settings=None, *, persist=True):
+        if action not in ('settings_get', 'settings_set') or not self.connected.is_set(): return False
+        with self._lock:
+            if len(self._camera_jobs) >= 4: return False
+            self._camera_jobs.append((action, {} if action == 'settings_get' else {'settings':settings,'persist':persist}))
+        self._wake_worker(); return True
 
     def set_theme(self, theme: str) -> None:
         if theme not in ("light", "dark"):
@@ -196,7 +230,8 @@ class RobotClient:
             except Exception as exc:
                 if not self._stop.is_set():
                     self._failures += 1
-                    LOGGER.warning("Connection failed", exc_info=True)
+                    LOGGER.warning("Connection failed (%s): %s", type(exc).__name__, exc,
+                                   exc_info=not isinstance(exc, (RobotProtocolError, ConnectionError)))
                     reason = str(exc).strip() or "Bật Bluetooth và kiểm tra firmware ESP32."
                     self._emit("offline", f"Chưa kết nối BLE · {reason} Thử lại sau {self.retry_seconds:g} giây.")
             deadline = time.monotonic() + self.retry_seconds
@@ -217,7 +252,7 @@ class RobotClient:
             # Do not report connected until the correct NUS peer acknowledges.
             await self._interruptible(protocol.request("PING"))
             await self._interruptible(protocol.request("WAKE"))
-            self._failures = 0
+            stable_since = time.monotonic()
             previous = RobotSnapshot()
             previous_theme = None
             theme_supported = True
@@ -225,7 +260,12 @@ class RobotClient:
                 self.connected.set()
             self._emit("connected", f"Đã kết nối BLE · {self.name}")
             next_ping = time.monotonic() + self._heartbeat
+            next_wifi = time.monotonic()
             while not self._stop.is_set():
+                # A completed handshake is not yet a stable connection. Keeping
+                # failures until 30s prevents a bad adapter from looping at 3s.
+                if time.monotonic() - stable_since >= 30:
+                    self._failures = 0
                 self._async_changed.clear()
                 with self._lock:
                     snapshot = self._pending_states.popleft() if self._pending_states else self._snapshot
@@ -242,6 +282,55 @@ class RobotClient:
                 for command in state_commands(snapshot, previous):
                     await self._interruptible(protocol.request(command))
                 previous = snapshot
+                with self._lock:
+                    camera_job = self._camera_jobs.popleft() if self._camera_jobs else None
+                if camera_job is None and time.monotonic() >= next_wifi:
+                    camera_job = 'wifi_state'
+                if camera_job:
+                    arguments = {}
+                    if isinstance(camera_job, tuple): camera_job, arguments = camera_job
+                    request_token = arguments.pop('request_token', None)
+                    try:
+                        if camera_job == 'open':
+                            if hasattr(protocol, 'network'):
+                                value = await self._interruptible(protocol.network('camera_open', **arguments))
+                            else:
+                                from .wifi_camera import open_preview
+                                value = await self._interruptible(open_preview(protocol, **arguments))
+                        elif camera_job.startswith('settings_'):
+                            if hasattr(protocol, 'network'):
+                                value = await self._interruptible(protocol.network(camera_job, **arguments))
+                            else:
+                                from .camera_settings import get_config, apply_config
+                                value = await self._interruptible(get_config(protocol) if camera_job == 'settings_get' else apply_config(protocol, **arguments))
+                        elif camera_job in ('preview', 'stream_info') or camera_job.startswith('wifi_'):
+                            if hasattr(protocol, 'network'):
+                                value = await self._interruptible(protocol.network(camera_job, **arguments))
+                            else:
+                                from .wifi_camera import preview, stream_info, wifi_scan, wifi_configure, wifi_check, wifi_state
+                                operation = {'preview': preview, 'stream_info': stream_info, 'wifi_scan': wifi_scan, 'wifi_status': wifi_check,
+                                             'wifi_join': wifi_configure, 'wifi_state': wifi_state}[camera_job]
+                                value = await self._interruptible(operation(protocol, **arguments))
+                        elif camera_job == 'capture':
+                            progress = lambda received, total: self._on_camera('progress', (received, total), '')
+                            if hasattr(protocol, 'capture'):
+                                value = await self._interruptible(protocol.capture(on_progress=progress))
+                            else:
+                                from .wifi_camera import capture_fast
+                                value = await self._interruptible(capture_fast(protocol, on_progress=progress))
+                        elif camera_job == 'status':
+                            value = await self._interruptible(protocol.request('CAM STATUS', expected_prefix='CAM STATUS '))
+                        else:
+                            await self._interruptible(protocol.request(f'CAM {camera_job.upper()}'))
+                            value = None
+                        self._on_camera(camera_job, (request_token, value) if request_token is not None else value, '')
+                    except Exception as error:
+                        self._on_camera(camera_job, (request_token, None) if request_token is not None else None, str(error))
+                        if not isinstance(error, (RobotCommandRejected, ValueError)):
+                            raise
+                    finally:
+                        if camera_job == 'wifi_state': next_wifi = time.monotonic() + 5
+                        elif camera_job in ('wifi_join', 'wifi_scan', 'wifi_status'): next_wifi = 0
                 if self._beep.is_set():
                     self._beep.clear()
                     await self._interruptible(protocol.request("BEEP"))
@@ -249,7 +338,7 @@ class RobotClient:
                     await self._interruptible(protocol.request("PING"))
                     next_ping = time.monotonic() + self._heartbeat
                 with self._lock:
-                    pending = bool(self._pending_states)
+                    pending = bool(self._pending_states or self._camera_jobs)
                 if not pending:
                     await self._interruptible(self._wait_for_change(
                         max(0.01, min(0.25, next_ping - time.monotonic()))))
@@ -257,6 +346,7 @@ class RobotClient:
             with self._lock:
                 self.connected.clear()
                 self._pending_states.clear()
+                self._camera_jobs.clear()
             self._beep.clear()
             if self._stop.is_set() and protocol.client is not None and protocol.client.is_connected:
                 try:

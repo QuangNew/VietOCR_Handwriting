@@ -11,7 +11,9 @@ bool numericArgument(const char* argument, int minimum, int maximum, int& value)
   int number = 0;
   for (const char* cursor = argument; *cursor; ++cursor) {
     if (*cursor < '0' || *cursor > '9') return false;
-    number = number * 10 + (*cursor - '0');
+    const int digit = *cursor - '0';
+    if (number > maximum / 10 || (number == maximum / 10 && digit > maximum % 10)) return false;
+    number = number * 10 + digit;
     if (number > maximum) return false;
   }
   if (number < minimum) return false;
@@ -56,7 +58,7 @@ bool parseCommand(const char* line, Command& command) {
   if (!strcmp(verb, "RECEIVED")) {
     command.type = CommandType::Received;
     command.value = 1;
-    return !argument || numericArgument(argument, 1, 10, command.value);
+    return !argument || numericArgument(argument, 1, 2147483647, command.value);
   }
   if (!strcmp(verb, "PROGRESS")) {
     command.type = CommandType::Progress;
