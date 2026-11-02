@@ -1,5 +1,6 @@
 import os
 from copy import deepcopy
+from pathlib import Path
 import cv2
 import numpy as np
 from PIL import Image
@@ -16,7 +17,7 @@ if not hasattr(Image, 'ANTIALIAS'):
     Image.ANTIALIAS = getattr(Image.Resampling, 'LANCZOS', getattr(Image, 'LANCZOS', 1))
 
 # =========================================================================
-# 1. MODEL CONFIGURATION
+# 1. MODEL CONFIGURATION (checkpoint VietOCR cũ, ảnh cao 32 px; model ML_s44 dùng model/model_config.json)
 # Định nghĩa cấu hình trực tiếp (lấy từ config_vgg_transformer.yml) 
 # để file này có thể hoạt động hoàn toàn độc lập.
 # =========================================================================
@@ -160,14 +161,22 @@ class VietOCR_DIP_Pipeline:
 # 3. CORE API CLASS
 # =========================================================================
 class VietHandOCR:
-    def __init__(self, weight_path="vgg_transformer_final.pth", device='cpu'):
+    def __init__(self, weight_path=None, device='cpu'):
         """
         Khởi tạo API nhận diện chữ viết tay (VietHandOCR).
-        :param weight_path: Đường dẫn tuyệt đối hoặc tương đối tới file model (.pth)
+        :param weight_path: Đường dẫn tới file model (.pth). Mặc định: ML_s44 trong model/ nếu đã cài
+                            (theo model_config.json), nếu không thì vgg_transformer_final.pth cạnh AI.py.
+                            .pth nằm cạnh model_config.json của gói viethandocr-lite được nạp bằng
+                            viethandocr_lite (ảnh cao 64 px, cắt lề V2c); .pth khác là checkpoint VietOCR cũ.
         :param device: 'cpu' hoặc 'cuda:0' (nếu có GPU)
         """
         self.config = deepcopy(MODEL_CONFIG)
         self.load_error = None
+        if weight_path is None:
+            from desktop.lite_predictor import release_weights
+            base = Path(__file__).resolve().parent
+            weight_path = release_weights(base) or base / "vgg_transformer_final.pth"
+        weight_path = str(weight_path)
         
         # Ghi đè các thông số quan trọng
         self.config['device'] = device
@@ -176,8 +185,14 @@ class VietHandOCR:
         
         # Khởi tạo mô hình vietocr
         try:
-            from desktop.torch_predictor import TorchPredictor
-            self.predictor = TorchPredictor(self.config)
+            from desktop.lite_predictor import LitePredictor, lite_model_dir
+            model_dir = lite_model_dir(weight_path)
+            if model_dir is not None:
+                # Gói viethandocr-lite (ML_s44): bộ nạp và bước cắt lề V2c của nhóm AI, tính FP32.
+                self.predictor = LitePredictor(model_dir, device)
+            else:
+                from desktop.torch_predictor import TorchPredictor
+                self.predictor = TorchPredictor(self.config)
         except Exception as e:
             self.load_error = e
             warnings.warn(f"VietHandOCR: Không thể khởi tạo mô hình Predictor. Chi tiết lỗi: {str(e)}")
@@ -227,7 +242,8 @@ if __name__ == "__main__":
     
     parser = argparse.ArgumentParser(description="VietHandOCR Standalone API Test")
     parser.add_argument("--image", type=str, default="test.jpg", help="Đường dẫn tới ảnh thử nghiệm")
-    parser.add_argument("--weights", type=str, default="vgg_transformer_final.pth", help="Đường dẫn model weights")
+    parser.add_argument("--weights", type=str, default=None,
+                        help="Đường dẫn model weights (mặc định: ML_s44 trong model/, nếu chưa có thì vgg_transformer_final.pth)")
     parser.add_argument("--device", type=str, default="cpu", help="Thiết bị chạy: 'cpu' hoặc 'cuda:0'")
     args = parser.parse_args()
 

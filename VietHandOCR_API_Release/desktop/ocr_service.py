@@ -96,8 +96,8 @@ class OCRService:
         path = Path(settings.weights).expanduser().resolve()
         if not path.is_file():
             raise RecognitionError(
-                "Không tìm thấy file trọng số .pth. Mở 'Cài đặt model' để chọn "
-                f"vgg_transformer_final.pth.\n{path}"
+                "Không tìm thấy file trọng số .pth. Chép file model vào thư mục model/ "
+                f"(xem README) hoặc mở 'Cài đặt model' để chọn file khác.\n{path}"
             )
         key = (str(path), settings.device, settings.adapter_luid)
         if self._engine is not None and self._model_key == key:

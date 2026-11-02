@@ -20,6 +20,7 @@ sys.path.insert(0, str(BASE))
 
 from desktop.application import Application
 from desktop.domain import load_image
+from app import default_weights
 
 
 def pump(root, predicate, timeout=180):
@@ -54,7 +55,7 @@ def main():
     args = parser.parse_args()
     if not 1 <= args.rounds <= 10:
         parser.error("rounds must be 1..10")
-    weights = BASE / "vgg_transformer_final.pth"
+    weights = default_weights(BASE)
     samples = [load_image(BASE / filename) for filename in ("test.jpg", "test2.jpg")]
     page = Image.new("RGB", (max(image.width for image in samples)+100,
                              sum(image.height for image in samples)+180), "white")

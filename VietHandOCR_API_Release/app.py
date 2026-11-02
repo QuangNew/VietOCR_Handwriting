@@ -10,8 +10,11 @@ from pathlib import Path
 
 
 def default_weights(base: Path) -> Path:
-    compact = base / "vgg_transformer_compact.pth"
-    return compact if compact.is_file() else base / "vgg_transformer_final.pth"
+    """Installed ML_s44 release first, then the legacy checkpoints (compact FP16 before the FP32 original)."""
+    from desktop.lite_predictor import release_weights
+    release = release_weights(base)
+    candidates = [release, base / "vgg_transformer_compact.pth", base / "vgg_transformer_final.pth"]
+    return next((path for path in candidates if path is not None and path.is_file()), release or candidates[2])
 
 
 def run_mainloop(root, app):

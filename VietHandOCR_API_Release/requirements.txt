@@ -1,6 +1,8 @@
 vietocr>=0.3.12
 torch
 torchvision
+# ML_s44 (viethandocr_lite.py): the V2c margin crop uses scipy.ndimage.
+scipy>=1.13
 # Windows iGPU / non-CUDA GPU inference; includes CPUExecutionProvider too.
 onnxruntime-directml==1.24.4; sys_platform == 'win32'
 opencv-python

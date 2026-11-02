@@ -4,7 +4,8 @@
 
 ## 1. Thành phần
 - `AI.py`: Code chính chứa toàn bộ tiền xử lý ảnh (DIP) và bọc gọi mô hình OCR.
-- `vgg_transformer_final.pth`: Trọng số (weights) của mô hình.
+- `viethandocr_lite.py` và `model/`: model **ML_s44** (mặc định) của nhóm AI gồm code đọc ảnh, `model_config.json` và trọng số FP16 76 MB. Xem [Model ML_s44](#model-ml_s44-mặc-định).
+- `vgg_transformer_final.pth`, `vgg_transformer_compact.pth`: Trọng số model VietOCR cũ (ảnh cao 32 px). Vẫn dùng được khi chọn thủ công hoặc khi chưa có trọng số ML_s44.
 - `requirements.txt`: Danh sách các thư viện cần cài đặt.
 - `test.jpg`, `test2.jpg`: Ảnh để chạy thử nghiệm.
 
@@ -28,13 +29,26 @@ Nếu `.venv` đã tồn tại, dùng trực tiếp `.\.venv\Scripts\python.exe`
 
 `numpy` được giới hạn dưới 2.0 để tương thích với `imgaug` của VietOCR. `torch` và `torchvision` cũng được cài vì `AI.py` sử dụng trực tiếp hai thư viện này.
 
+### Model ML_s44 (mặc định)
+
+Model hiện hành là **ML_s44** (VietOCR VGG19-BN + Transformer, ảnh cao 64 px, nhóm AI bàn giao dạng `VietHandOCR_ML_s44_v1`). App và `AI.py` tự dùng model này khi file trọng số mà `model/model_config.json` chỉ định có mặt; nếu chưa có thì dùng lại `vgg_transformer_compact.pth` / `vgg_transformer_final.pth` như trước.
+
+- **Trọng số không nằm trong Git** (`*.pth` bị bỏ qua). Sau khi pull, chép file `.pth` mà `model/model_config.json` chỉ định (hiện là `ml_s44_fp16.pth`, 76 MB) vào `VietHandOCR_API_Release/model/`. Khi nạp, app kiểm SHA-256 theo cấu hình; file hỏng hoặc chép thiếu sẽ báo lỗi.
+- **Cài lại thư viện sau khi pull:** `.\.venv\Scripts\python.exe -m pip install -r requirements.txt` (thêm `scipy` cho bước cắt lề V2c). Máy có GPU NVIDIA cài tiếp `requirements-cuda.txt` như ở phần GPU bên dưới; nếu chỉ cài `requirements.txt` (torch CPU) app vẫn chạy nhưng dùng CPU.
+- **Độ chính xác số học:** trọng số lưu **FP16** nhưng được ép về **FP32** khi nạp, nên tính toán là FP32, giống `vgg_transformer_compact.pth` (lưu FP16, tính FP32); dự án không có đường tính FP16. Nhóm AI đã so với bản lưu FP32 trên 678 dòng validation UIT-HWDB: 676/678 dòng giống hệt, số lỗi ký tự 971 → 971. Muốn dùng bản FP32: thay cả file `.pth` lẫn `model_config.json` của bản đó vào `model/`, không cần sửa code. Dòng `Lite model initialized in … (cpu, torch.float32)` trong `.logs/ocr-worker.log` cho biết thiết bị và kiểu số đang dùng.
+- **Khác model cũ:** ảnh cao 64 px, cắt lề V2c trước khi đọc, cấu hình riêng trong `model_config.json`; không chạy được với `MODEL_CONFIG` 32 px của `AI.py`. Chỉ `.pth` nằm cạnh `model_config.json` và đúng tên trong đó mới được nạp theo kiểu ML_s44; mọi `.pth` khác vẫn được coi là checkpoint VietOCR cũ. ML_s44 dùng bộ giải mã của nhóm AI (`viethandocr_lite.py`), không dùng `desktop/torch_predictor.py`. Phần tiền xử lý DIP (căn nghiêng, CLAHE), tách dòng, hàng đợi và giao diện giữ nguyên.
+- **Thiết bị xử lý giữ nguyên:** Tự động (GPU rời → GPU tích hợp → CPU), CPU và CUDA đều dùng được với ML_s44. **GPU tích hợp/DirectML chưa dùng được** vì cần bản ONNX xuất từ ML_s44 mà chưa có; thiết bị DirectML báo thiếu ONNX và Tự động chuyển sang thiết bị kế tiếp. **Đường CUDA chưa được chạy thử trên GPU thật**, kể cả bởi nhóm AI; hãy thử trên máy có GPU trước khi dựa vào.
+- **Đo trên CPU Ryzen 7 8845H (02/11/2026):** nạp model 0,4 s; dòng chữ in hoa ngắn 0,7–1,1 s, dòng viết tay dài khoảng 75 ký tự 1,5–2,6 s; đọc đúng văn bản ở các ảnh mẫu `test.jpg`, `test2.jpg` và tài liệu hai dòng ghép từ hai ảnh đó (chỉ khác kiểu đặt dấu `khoá`/`khóa`). Đây là kiểm tra mẫu, không phải đánh giá độ chính xác; ảnh chụp có thể thêm dấu chấm cuối dòng hoặc đổi dấu.
+- App Mobile vẫn dùng model cũ (ONNX FP32 xuất từ `vgg_transformer_final.pth`); ML_s44 chưa được xuất sang ONNX/Flutter.
+- Giới hạn, số đo và nguồn gốc model: [model/README.md](model/README.md) (README gốc của gói). Notebook thử từng ảnh một dòng: [demo/demo_nhan_dien.ipynb](demo/demo_nhan_dien.ipynb), cần thêm `demo/requirements-notebook.txt`. Mã suy luận dựa trên VietOCR (Apache-2.0), xem [LICENSE_VietOCR.txt](LICENSE_VietOCR.txt); nhóm AI chưa kiểm tra điều khoản bộ dữ liệu UIT-HWDB cho việc phát hành công khai hoặc thương mại.
+
 ## 3. Cách test nhanh (Command Line)
 Chạy trực tiếp file `AI.py` bằng Terminal/Command Prompt:
 ```powershell
 .\.venv\Scripts\python.exe -X utf8 AI.py --image test.jpg
 .\.venv\Scripts\python.exe -X utf8 AI.py --image test2.jpg
 ```
-Tùy chọn `-X utf8` giúp in kết quả tiếng Việt trên Windows, kể cả khi chuyển hướng đầu ra vào file hoặc công cụ khác.
+Tùy chọn `-X utf8` giúp in kết quả tiếng Việt trên Windows, kể cả khi chuyển hướng đầu ra vào file hoặc công cụ khác. Mặc định dùng ML_s44 trong `model/` nếu đã chép trọng số; thêm `--weights vgg_transformer_final.pth` để chạy model cũ.
 
 ## 4. Cách tích hợp vào Code ứng dụng
 Bạn có thể gọi Class `VietHandOCR` từ `AI.py` rất đơn giản như sau:
@@ -44,7 +58,7 @@ import cv2
 from AI import VietHandOCR
 
 # Khởi tạo mô hình một lần duy nhất lúc khởi động app
-ocr = VietHandOCR(weight_path="vgg_transformer_final.pth", device="cpu")
+ocr = VietHandOCR(weight_path="model/ml_s44_fp16.pth", device="cpu")  # bỏ weight_path để dùng mặc định
 
 # 1. Truyền đường dẫn file
 text1 = ocr.predict("test.jpg")
@@ -132,7 +146,7 @@ Nếu đứng ở thư mục gốc repository:
 .\VietHandOCR_API_Release\.venv\Scripts\python.exe -X utf8 .\VietHandOCR_API_Release\app.py
 ```
 
-Đường dẫn model mặc định luôn được tính theo vị trí `app.py`, nên có thể mở app từ bất kỳ thư mục nào. App ưu tiên `vgg_transformer_compact.pth` nếu file này tồn tại, sau đó dùng `vgg_transformer_final.pth` nằm cạnh `AI.py`. `--weights` cho phép chọn bản gốc hoặc model khác. Trọng số bị bỏ qua bởi Git và phải được cung cấp riêng trên máy mới.
+Đường dẫn model mặc định luôn được tính theo vị trí `app.py`, nên có thể mở app từ bất kỳ thư mục nào. App ưu tiên model ML_s44 trong `model/` (file do `model_config.json` chỉ định) nếu file đó tồn tại, sau đó `vgg_transformer_compact.pth`, rồi `vgg_transformer_final.pth` nằm cạnh `AI.py`. `--weights` cho phép chọn bản gốc hoặc model khác. Trọng số bị bỏ qua bởi Git và phải được cung cấp riêng trên máy mới.
 
 Có thể chọn model hoặc thiết bị xử lý từ dòng lệnh:
 
@@ -217,7 +231,7 @@ Sử dụng bộ encoder/decoder trong `models/` của desktop, hoặc dùng chu
 trọng số đã chọn; checkpoint tùy chỉnh cần bản ONNX xuất tương ứng. Bản compact
 đóng gói hiện tại được nhận dạng qua SHA256 đã kiểm chứng. Nếu thiếu/sai bộ
 ONNX, Tự động ghi lỗi rồi thử thiết bị tiếp theo. DirectML vẫn dùng CPU cho
-một số toán tử không được GPU hỗ trợ.
+một số toán tử không được GPU hỗ trợ. **ML_s44 chưa có bản ONNX nên không chạy được bằng DirectML** (xem [Model ML_s44](#model-ml_s44-mặc-định)); dùng CUDA hoặc CPU.
 
 Ngày 26/10: RTX 4050/CUDA, Intel UHD/DirectML và CPU đã chạy hai ảnh mẫu,
 cho cùng văn bản; profiling xác nhận có kernel DirectML trên encoder/decoder.
@@ -313,6 +327,8 @@ desktop chỉ cập nhật màu tại chỗ, giữ các hàng ảnh, vị trí c
 
 ### Giảm dung lượng bản desktop
 
+Phần này áp dụng cho model VietOCR cũ. ML_s44 đã lưu FP16 (76 MB), không cần chạy `compact_model.py`.
+
 Tạo checkpoint gọn từ thư mục gốc repository:
 
 ```powershell
@@ -372,6 +388,7 @@ desktop/application.py    # Giao diện và điều phối công việc nền
 desktop/domain.py         # Hàng đợi ảnh lưu file, không giới hạn 10 ảnh, trạng thái trợ lý
 desktop/ocr_process.py     # Điều phối tiến trình AI, tái sử dụng/hủy/khởi động lại
 desktop/ocr_service.py     # Xử lý OCR cốt lõi: gọi AI.py và tách dòng
+desktop/lite_predictor.py  # Tìm và chạy model ML_s44 (viethandocr_lite) qua cùng giao diện predictor
 desktop/tasks.py           # Tác vụ nền chỉ nhận dữ liệu và hàng đợi, không gọi Tk
 desktop/diagnostics.py     # Log xoay vòng và dấu vết lỗi native
 desktop/camera.py         # Webcam, chụp liên tiếp, giải phóng camera
@@ -396,7 +413,7 @@ Kiểm tra hàng đợi trên 10 ảnh, EXIF, tách dòng, tái sử dụng mode
 .\.venv\Scripts\python.exe -X utf8 -m unittest discover -s tests -v
 ```
 
-Các kiểm tra Tkinter cần phiên desktop có màn hình. Bộ test camera giả lập không truy cập webcam thật.
+Các kiểm tra Tkinter cần phiên desktop có màn hình. Bộ test camera giả lập không truy cập webcam thật. `tests/test_lite_engine.py` kiểm tra chọn model ML_s44/model cũ, truyền thiết bị xuống bộ nạp và đọc ảnh thật bằng ML_s44 trên CPU, gồm kiểm tra checkpoint FP16 được tính ở FP32; các ca dùng model thật tự bỏ qua khi chưa có trọng số hoặc torch/scipy.
 
 Các test BLE dùng scanner và GATT peripheral bất đồng bộ giả lập: kiểm tra quét,
 ghép notification bị chia nhỏ, timeout, hủy kết nối, heartbeat, khôi phục trạng thái,
