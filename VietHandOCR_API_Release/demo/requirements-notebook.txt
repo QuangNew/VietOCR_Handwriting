@@ -1,0 +1,4 @@
+# Thêm phần cần cho demo_nhan_dien.ipynb (cài vào cùng .venv với app)
+-r ../requirements.txt
+matplotlib>=3.8
+ipykernel>=6.29
