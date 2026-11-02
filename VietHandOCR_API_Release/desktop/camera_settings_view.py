@@ -11,7 +11,8 @@ class CameraSettingsWindow:
         self.window = tk.Toplevel(parent)
         self.window.title('Cấu hình camera OV5640')
         self.window.configure(bg=C['bg']); self.window.transient(parent)
-        self.window.geometry('760x690'); self.window.minsize(580,440)
+        self.window.geometry(f'{min(980,parent.winfo_screenwidth()-80)}x{min(800,parent.winfo_screenheight()-100)}')
+        self.window.minsize(720,500)
         self.values, self.inputs = {}, {}
         self.loaded = False; self.working = True
         self.persist = tk.BooleanVar(value=True)
@@ -27,7 +28,7 @@ class CameraSettingsWindow:
         ttk.Button(buttons,text='Đóng',command=self.window.destroy).pack(side='right',padx=6)
         header=tk.Frame(self.window,bg=C['bg'],padx=16,pady=12); header.pack(fill='x')
         label(header,'Camera OV5640',size=16,bold=True).pack(anchor='w')
-        label(header,'Ảnh chụp luôn 5 MP. Preview nhẹ hơn giúp căn hình nhanh.\nQS thấp = nét hơn, ảnh nặng hơn. Chỉnh xong bấm Áp dụng.',justify='left').pack(anchor='w',pady=8)
+        label(header,'Ảnh chụp luôn 5 MP. Bấm vào chữ trên preview để chọn điểm AF.\nQS thấp = nét hơn, ảnh nặng hơn. Chỉnh xong bấm Áp dụng.',justify='left',wraplength=860).pack(anchor='w',pady=8)
         presets=tk.Frame(header,bg=C['bg']); presets.pack(fill='x')
         for name in PRESETS:
             ttk.Button(presets,text=name,style='Small.TButton',command=lambda n=name:self.preset(n)).pack(side='left',padx=(0,6))
@@ -38,10 +39,10 @@ class CameraSettingsWindow:
                 scroll=ScrollableFrame(tabs); tabs.add(scroll,text=group); groups[group]=scroll
             scroll=groups[group]; row=tk.Frame(scroll.inner,bg=C['white'],padx=12,pady=10)
             row.pack(fill='x'); row.columnconfigure(1,weight=1)
-            label(row,title,bg=C['white']).grid(row=0,column=0,sticky='w',padx=(0,12))
+            label(row,title,bg=C['white'],wraplength=310,justify='left').grid(row=0,column=0,sticky='w',padx=(0,12))
             if choices is not None:
                 value=tk.StringVar(value=choices[default])
-                control=ttk.Combobox(row,textvariable=value,values=list(choices.values()),state='readonly',width=27)
+                control=ttk.Combobox(row,textvariable=value,values=list(choices.values()),state='readonly',width=24)
             else:
                 value=tk.IntVar(value=default)
                 control=ttk.Spinbox(row,textvariable=value,from_=low,to=high,width=12)

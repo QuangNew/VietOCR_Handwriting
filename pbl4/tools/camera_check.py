@@ -37,6 +37,7 @@ class Link:
 
     @staticmethod
     def safe(line):
+        if line.startswith('WIFI SAVED PASS '): return 'WIFI SAVED PASS [REDACTED]'
         return re.sub(r'(WIFI STATUS READY \S+ )\S+', r'\1[REDACTED]', line)
 
     def read(self):
@@ -107,9 +108,13 @@ def main():
     parser.add_argument('--preview-width', type=int)
     parser.add_argument('--max-fps', type=int)
     parser.add_argument('--preview-quality', type=int)
+    parser.add_argument('--focus-x', type=int)
+    parser.add_argument('--focus-y', type=int)
     parser.add_argument('--output', type=Path, default=Path('.toolchain/ov5640-hardware'))
     parser.add_argument('--serial-only', action='store_true')
     parser.add_argument('--udp', action='store_true', help='Use UDP preview, HTTP stills')
+    parser.add_argument('--wake', action='store_true', help='Pulse USB-UART RTS to wake/reset the board')
+    parser.add_argument('--sleep-after', action='store_true', help='Stop camera/radios and deep sleep after the test (EN/RESET wakes)')
     parser.add_argument('--show', action='store_true', help='Show the IoT test stream in a resizable window')
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
@@ -124,9 +129,18 @@ def main():
         picture=tk.Label(viewer,bg='#101614');picture.pack(fill='both',expand=True)
         viewer.update()
     try:
+        if args.wake:
+            link.device.rts = True
+            time.sleep(.15)
+            link.device.rts = False
+            time.sleep(3)
         result['info'] = link.command('INFO', 'INFO ')
         link.command('CAM CLOSE')
         link.command('WAKE')
+        for key,value in (('focus_x',args.focus_x),('focus_y',args.focus_y)):
+            if value is not None:
+                if not 0<=value<=100: raise ValueError('Focus coordinates must be 0..100 percent')
+                link.command(f'CAM SET {key} {value}'); time.sleep(.3)
         if args.preview_width:
             link.command(f'CAM SET preview_width {args.preview_width}')
             time.sleep(.5)
@@ -245,6 +259,18 @@ def main():
     finally:
         try: link.command('CAM CLOSE')
         except Exception: pass
+        if args.sleep_after:
+            try:
+                link.command('POWER SLEEP')
+                deadline=time.monotonic()+12
+                with link.condition:
+                    while not any('POWER DEEP_SLEEP:' in line for line in link.lines):
+                        remaining=deadline-time.monotonic()
+                        if remaining<=0: raise TimeoutError('Board did not confirm deep sleep')
+                        link.condition.wait(remaining)
+                result['deep_sleep_confirmed']=True
+            except Exception as error:
+                result['errors'].append(f'Power down failed: {error}')
         link.close()
         if viewer is not None:
             try: viewer.destroy()

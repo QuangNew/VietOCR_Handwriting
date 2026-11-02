@@ -1,0 +1,104 @@
+{
+  "cycles": [
+    {
+      "cycle": 1,
+      "transport": "UDP VOJ1, CRC32 verified on every frame",
+      "first_frame_seconds": 7.125,
+      "frames": 31,
+      "preview_dimensions": [
+        640,
+        480
+      ],
+      "steady_fps": 9.898,
+      "average_jpeg_bytes": 12596,
+      "gap_max_seconds": 0.484
+    }
+  ],
+  "errors": [
+    "RuntimeError: ERR CAMERA_FOCUS: autofocus did not lock; add light, hold page steady, or disable AF for a manually focused lens"
+  ],
+  "physical_board": true,
+  "port": "COM8",
+  "info": "INFO VIETOCR_ASSISTANT 3.2.0-focus-power WIFI1 CAMERA_OV5640_2592x1944 AF1",
+  "ip": "192.168.100.173",
+  "health_before": {
+    "sensor": "OV5640",
+    "autofocus": "NOT_INITIALIZED",
+    "preview_fps_limit": 30,
+    "firmware": "3.2.0-focus-power",
+    "ip": "192.168.100.173",
+    "rssi": -52,
+    "http": true,
+    "stream_port": 81,
+    "preview": [
+      640,
+      480
+    ],
+    "still": [
+      2592,
+      1944
+    ],
+    "preview_jpeg_quality": 18,
+    "jpeg_quality": 6,
+    "jpeg_capacity": 2097152,
+    "mirror": false,
+    "flip": true,
+    "camera_status": "CLOSED",
+    "die_deci_c": 151,
+    "cooling": false,
+    "cpu_mhz": 240,
+    "effective_fps_limit": 30,
+    "focus_point": [
+      50,
+      25
+    ]
+  },
+  "deep_sleep_confirmed": true,
+  "serial": [
+    "INFO VIETOCR_ASSISTANT 3.2.0-focus-power WIFI1 CAMERA_OV5640_2592x1944 AF1",
+    "OK CAM CLOSE",
+    "STATE awake",
+    "OK WAKE",
+    "OK CAM SET",
+    "CAMERA GDMA owned RX=1 peripheral=CAM clock=managed",
+    "OK CAM SET",
+    "WIFI STATUS READY 192.168.100.173 [REDACTED] 42696e546f6d",
+    "CAMERA DVP configured: buffers=2 capacity=2097152 SRAM_ring=32768 EOF_bytes=4096 direct_psram=0",
+    "CAMERA PREVIEW OPEN requested",
+    "OK CAM OPEN",
+    "POWER die_c=17.1 cpu_mhz=240 camera=active cooling=0",
+    "STATE idle",
+    "TFT FPS assistant=13 (animation target=60; camera limited by SPI/JPEG)",
+    "CAMERA AF firmware=READY load_ms=4973 status=0x70 error=0",
+    "CAMERA INIT OK (waiting for JPEG) sensor=0x5640 PSRAM=8385831 preview=640x480 QS=18 still=2592x1944 QS=8",
+    "POWER die_c=17.1 cpu_mhz=240 camera=active cooling=0",
+    "TFT FPS assistant=9 (animation target=60; camera limited by SPI/JPEG)",
+    "CAMERA MODE preview 640x480 QS=18 mirror=0 flip=1",
+    "CAMERA FIRST JPEG bytes=12629 640x480",
+    "WIFI UDP fps=0.1 dropped=0 640x480",
+    "POWER die_c=17.1 cpu_mhz=240 camera=active cooling=0",
+    "OK CAM CLOSE",
+    "OK CAM SHOT 3522894452",
+    "ERR CAMERA_BUSY: capturing",
+    "CAMERA MODE still 2592x1944 QS=6 mirror=0 flip=1",
+    "ERR CAMERA_BUSY: capturing",
+    "ERR CAMERA_BUSY: capturing",
+    "ERR CAMERA_BUSY: capturing",
+    "ERR CAMERA_BUSY: capturing",
+    "ERR CAMERA_BUSY: capturing",
+    "TFT FPS assistant=10 (animation target=60; camera limited by SPI/JPEG)",
+    "ERR CAMERA_BUSY: capturing",
+    "ERR CAMERA_BUSY: capturing",
+    "ERR CAMERA_BUSY: capturing",
+    "ERR CAMERA_BUSY: capturing",
+    "CAMERA AF single=NOT_LOCKED status=0xfffffffb error=4 elapsed_ms=1070",
+    "CAMERA AF diagnostic zone_ok=0 point=50,25 ack=1 fw_status=112",
+    "ERR CAMERA_FOCUS: autofocus did not lock; add light, hold page steady, or disable AF for a manually focused lens",
+    "OK CAM CLOSE",
+    "OK POWER SLEEP",
+    "WIFI disconnected reason=8",
+    "WIFI POWER OFF",
+    "CAMERA POWER OFF: sensor standby, XCLK/DMA stopped",
+    "POWER DEEP_SLEEP: camera/radios stopped; press EN/RESET to wake"
+  ]
+}

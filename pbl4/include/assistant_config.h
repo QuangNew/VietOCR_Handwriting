@@ -5,7 +5,7 @@
 
 // The TFT's SPI pins and ILI9341 driver are configured in platformio.ini.
 namespace assistant_config {
-constexpr char kFirmwareVersion[] = "3.0.0-ov5640";
+constexpr char kFirmwareVersion[] = "3.2.0-focus-power";
 #ifndef ASSISTANT_BUZZER_PIN
 #define ASSISTANT_BUZZER_PIN 5
 #endif
@@ -20,7 +20,7 @@ constexpr uint8_t kDisplayRotation = 1;
 constexpr bool kInvertDisplay = false;
 constexpr uint32_t kSerialBaud = 115200;
 constexpr uint32_t kFrameIntervalUs = 1000000 / 60;  // Animation target, not a guarantee of camera FPS.
-constexpr uint32_t kSleepFrameIntervalMs = 150;
+constexpr uint32_t kSleepFrameIntervalMs = 1000;
 constexpr char kBluetoothName[] = "VietOCR-Assistant";
 // Nordic UART Service: RX is phone/app -> ESP32, TX is ESP32 -> phone/app.
 constexpr char kBleServiceUuid[] = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";

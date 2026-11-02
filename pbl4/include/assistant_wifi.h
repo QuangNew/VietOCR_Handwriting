@@ -14,6 +14,8 @@ class AssistantWifi {
   bool command(const char* line, Print& response);
   void update(uint32_t now);
   void endSession();
+  void prepareSleep() { sleepRequested_ = true; }
+  bool sleeping() const { return sleeping_; }
   void bluetoothConnected() { bluetoothWake_ = true; }
  private:
   AssistantCamera* camera_ = nullptr;
@@ -26,6 +28,7 @@ class AssistantWifi {
   bool joining_ = false, joinPending_ = false, restoreReconnect_ = false, wasOnline_ = false;
   String joinSsid_, joinPassword_;
   wifi_credentials::Profile cached_, candidate_;
+  wifi_credentials::Book savedNetworks_;
   bool cacheOnFlash_ = false, cacheDirty_ = false;
   uint32_t lastCacheAttempt_ = 0;
   WifiReconnect reconnect_;
@@ -33,6 +36,8 @@ class AssistantWifi {
   std::atomic<uint16_t> disconnectReason_{0};
   IPAddress serverIp_;
   uint32_t lastServerAttempt_ = 0;
+  uint32_t powerPolicyAt_ = 0;
+  bool fastRadio_ = true;
   portMUX_TYPE udpMutex_=portMUX_INITIALIZER_UNLOCKED;
   bool udpActive_=false, udpRadio_=false;
   uint32_t udpPeer_=0, udpGeneration_=0, udpExpires_=0, udpSequence_=0, udpAt_=0;
@@ -45,6 +50,7 @@ class AssistantWifi {
   QueueHandle_t commands_ = nullptr, replies_ = nullptr;
   std::atomic<uint32_t> replyEpoch_{0};
   std::atomic<bool> bluetoothWake_{false};
+  std::atomic<bool> sleepRequested_{false}, sleeping_{false};
   static void task(void* context);
   void run();
   void initialize();

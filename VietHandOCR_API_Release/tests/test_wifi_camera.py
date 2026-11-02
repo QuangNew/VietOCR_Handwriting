@@ -81,6 +81,21 @@ class WifiTransportTests(unittest.TestCase):
 
 
 class WifiWorkflowTests(unittest.IsolatedAsyncioTestCase):
+    async def test_unfocused_or_unsettled_photo_is_released_without_retrying_shutter(self):
+        for code in ('CAMERA_FOCUS', 'CAMERA_EXPOSURE'):
+            commands=[]
+            async def request(command, **kwargs):
+                commands.append(command)
+                if command == 'WIFI STATUS': return f'WIFI STATUS READY 192.168.1.2 {TOKEN} 61'
+                if command.startswith('CAM META '): raise RobotCommandRejected(f'ERR {code}: not ready')
+                return 'OK ' + command
+            with patch('desktop.wifi_camera.check_http'), patch('desktop.wifi_camera.fetch_jpeg') as download:
+                with self.assertRaisesRegex(ValueError, code):
+                    await capture_fast(SimpleNamespace(request=request))
+                download.assert_not_called()
+            self.assertEqual(sum(c.startswith('CAM SHOT ') for c in commands), 1)
+            self.assertEqual(sum(c.startswith('CAM RELEASE ') for c in commands), 1)
+
     async def test_orientation_is_applied_before_open_and_rejected_without_starting_stream(self):
         commands = []
         async def request(command, **kwargs):

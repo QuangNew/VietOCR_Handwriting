@@ -7,6 +7,7 @@
 #include <lwip/sockets.h>
 #include "assistant_config.h"
 #include "camera_udp.h"
+#include "assistant_power.h"
 #include <cJSON.h>
 
 String AssistantWifi::hex(const String& value) {
@@ -62,6 +63,19 @@ void AssistantWifi::run() {
     }
   };
   for (;;) {
+      if (sleepRequested_) {
+        if (!sleeping_) {
+          stopServers();
+          if (udpSocket_ >= 0) { close(udpSocket_); udpSocket_ = -1; }
+          if (udpRadio_) { esp_coex_preference_set(ESP_COEX_PREFER_BALANCE); udpRadio_ = false; }
+          WiFi.disconnect(false, false);  // Preserve the saved NVS profile.
+          WiFi.mode(WIFI_OFF);
+          sleeping_ = true;
+          Serial.println("WIFI POWER OFF");
+        }
+        vTaskDelay(pdMS_TO_TICKS(20));
+        continue;
+      }
     if (bluetoothWake_.exchange(false)) reconnectForBluetooth(millis());
     CommandJob job;
     if (xQueueReceive(commands_, &job, 0) == pdTRUE && job.epoch == replyEpoch_) {
@@ -123,16 +137,19 @@ void AssistantWifi::initialize() {
 void AssistantWifi::loadProfile() {
   Preferences saved;
   if (!saved.begin("vietocr-wifi", true)) { Serial.println("WIFI CACHE empty"); return; }
-  wifi_credentials::load(saved, cached_, cacheOnFlash_);
+  wifi_credentials::loadBook(saved, savedNetworks_, cacheOnFlash_);
+  if (savedNetworks_.count) cached_ = savedNetworks_.profiles[0];
   saved.end();
   Serial.println(cached_.ssid[0] ? "WIFI CACHE loaded; auto-connect enabled" : "WIFI CACHE empty or invalid");
 }
 bool AssistantWifi::saveProfile() {
   Preferences saved;
   if (!saved.begin("vietocr-wifi", false)) { Serial.println("ERR WIFI_CACHE: cannot open NVS"); return false; }
-  const bool confirmed = wifi_credentials::save(saved, candidate_);
+  wifi_credentials::Book next = savedNetworks_;
+  next.remember(candidate_);
+  const bool confirmed = wifi_credentials::saveBook(saved, next);
   saved.end();
-  if (confirmed) { cached_ = candidate_; cacheOnFlash_ = true; Serial.println("WIFI CACHE saved and verified (NVS)"); }
+  if (confirmed) { savedNetworks_ = next; cached_ = candidate_; cacheOnFlash_ = true; Serial.println("WIFI CACHE saved and verified (NVS)"); }
   else Serial.println("ERR WIFI_CACHE: could not save; current connection still works");
   return confirmed;
 }
@@ -202,6 +219,18 @@ void AssistantWifi::stopServers() {
   serverIp_ = IPAddress();
 }
 void AssistantWifi::tick(uint32_t now) {
+  const bool fast=!camera_->poweredDown();
+  if (fast!=fastRadio_) {
+    // Never WIFI_PS_NONE: that aborts this runtime when BLE is enabled.
+    const auto policy=fast ? WIFI_PS_MAX_MODEM:WIFI_PS_MIN_MODEM;
+    const auto result=esp_wifi_set_ps(policy);
+    if (result==ESP_OK) fastRadio_=fast;
+  }
+  if (WiFi.status()==WL_CONNECTED && uint32_t(now-powerPolicyAt_)>=10000) {
+    powerPolicyAt_=now;
+    const int rssi=WiFi.RSSI();
+    WiFi.setTxPower(rssi>-60 ? WIFI_POWER_8_5dBm:rssi>-70 ? WIFI_POWER_13dBm:WIFI_POWER_19_5dBm);
+  }
   if (joinPending_ && now - connectingSince_ >= 250) {
     joinPending_ = false; connectingSince_ = now; disconnectReason_ = 0;
     // Configure first, associate only after the wake interval has been set.
@@ -274,7 +303,21 @@ void AssistantWifi::tick(uint32_t now) {
 }
 bool AssistantWifi::execute(const char* line, Print& response) {
   if (strncmp(line, "WIFI ", 5)) return false;
-  if (!strcmp(line, "WIFI SAVED")) {
+  if (!strcmp(line, "WIFI SAVED COUNT")) {
+    response.printf("WIFI SAVED COUNT %u\n", unsigned(savedNetworks_.count));
+  } else if (!strncmp(line,"WIFI SAVED SSID ",16)) {
+    unsigned index; char extra;
+    if (sscanf(line+16,"%u %c",&index,&extra)!=1 || index>=savedNetworks_.count) response.println("ERR WIFI_INDEX");
+    else response.printf("WIFI SAVED SSID %u %s\n",index,hex(String(savedNetworks_.profiles[index].ssid)).c_str());
+  } else if (!strncmp(line,"WIFI SAVED PASS ",16)) {
+    unsigned index,offset; char extra;
+    if (sscanf(line+16,"%u %u %c",&index,&offset,&extra)!=2 || index>=savedNetworks_.count || offset>63)
+      response.println("ERR WIFI_INDEX");
+    else {
+      const String password(savedNetworks_.profiles[index].password);
+      response.printf("WIFI SAVED PASS %u %u %s\n",index,offset,hex(password.substring(offset,offset+24)).c_str());
+    }
+  } else if (!strcmp(line, "WIFI SAVED")) {
     response.printf("WIFI SAVED %u %s\n", cached_.ssid[0] ? 1u : 0u, hex(String(cached_.ssid)).c_str());
   } else if (!strcmp(line, "WIFI STATUS")) {
     if (WiFi.status() == WL_CONNECTED && server_ && uint32_t(WiFi.localIP()) != 0) {
@@ -339,7 +382,7 @@ bool AssistantWifi::execute(const char* line, Print& response) {
     WiFi.setAutoReconnect(false); esp_wifi_scan_stop(); scan_.reset(); restoreReconnect_ = false;
     WiFi.disconnect(false, false); joining_ = joinPending_ = false;
     ssid_ = password_ = joinSsid_ = joinPassword_ = "";
-    cached_ = candidate_ = wifi_credentials::Profile{}; cacheOnFlash_ = cacheDirty_ = false;
+    cached_ = candidate_ = wifi_credentials::Profile{}; savedNetworks_ = wifi_credentials::Book{}; cacheOnFlash_ = cacheDirty_ = false;
     rotateToken(); response.println("OK WIFI FORGET");
   } else response.println("ERR WIFI_COMMAND");
   return true;
@@ -359,15 +402,17 @@ esp_err_t AssistantWifi::health(httpd_req_t* request) {
   camera.replace("\\", "/"); camera.replace("\"", "'"); camera.replace("\n", " "); camera.replace("\r", " ");
   auto* self = static_cast<AssistantWifi*>(request->user_ctx);
   const auto profile = self->camera_->configuration();
-  char response[640];
-  snprintf(response, sizeof(response), "{\"sensor\":\"OV5640\",\"autofocus\":\"%s\",\"preview_fps_limit\":%d,\"firmware\":\"%s\",\"ip\":\"%s\",\"rssi\":%ld,\"http\":true,\"stream_port\":81,\"preview\":[%u,%u],\"still\":[%u,%u],\"preview_jpeg_quality\":%d,\"jpeg_quality\":%d,\"jpeg_capacity\":%u,\"mirror\":%s,\"flip\":%s,\"camera_status\":\"%s\"}",
+  char response[896];
+  snprintf(response, sizeof(response), "{\"sensor\":\"OV5640\",\"autofocus\":\"%s\",\"preview_fps_limit\":%d,\"firmware\":\"%s\",\"ip\":\"%s\",\"rssi\":%ld,\"http\":true,\"stream_port\":81,\"preview\":[%u,%u],\"still\":[%u,%u],\"preview_jpeg_quality\":%d,\"jpeg_quality\":%d,\"jpeg_capacity\":%u,\"mirror\":%s,\"flip\":%s,\"camera_status\":\"%s\",\"die_deci_c\":%d,\"cooling\":%s,\"cpu_mhz\":%u,\"effective_fps_limit\":%u,\"focus_point\":[%d,%d]}",
            self->camera_->focusStatus(),profile[camera_settings::MaxFps],
            assistant_config::kFirmwareVersion, WiFi.localIP().toString().c_str(), long(WiFi.RSSI()),
            profile[camera_settings::PreviewWidth], profile[camera_settings::PreviewWidth] * 3 / 4,
            camera_transfer::kNativeWidth, camera_transfer::kNativeHeight,
            profile[camera_settings::PreviewQuality], profile[camera_settings::StillQuality],
            unsigned(camera_transfer::kMaxImageBytes), self->camera_->mirrored() ? "true" : "false",
-           self->camera_->flipped() ? "true" : "false", camera.c_str());
+           self->camera_->flipped() ? "true" : "false", camera.c_str(),
+           assistant_power::temperatureDeciC(),assistant_power::tooHot() ? "true":"false",getCpuFrequencyMhz(),
+           self->camera_->maxFps(),profile[camera_settings::FocusX],profile[camera_settings::FocusY]);
   httpd_resp_set_type(request, "application/json"); httpd_resp_set_hdr(request, "Cache-Control", "no-store");
   return httpd_resp_sendstr(request, response);
 }
@@ -441,6 +486,7 @@ esp_err_t AssistantWifi::udpControl(httpd_req_t* request) {
   if (!++self->udpGeneration_) self->udpGeneration_=1;
   const uint32_t generation=self->udpGeneration_;
   portEXIT_CRITICAL(&self->udpMutex_);
+  if (value) self->camera_->renewPreviewLease();
   char response[128];snprintf(response,sizeof(response),"{\"active\":%s,\"stream\":%lu,\"datagram_bytes\":1200,\"header_bytes\":32,\"lease_seconds\":60}",value ? "true":"false",(unsigned long)generation);
   return httpd_resp_sendstr(request,response);
 }
@@ -502,7 +548,7 @@ esp_err_t AssistantWifi::jpeg(httpd_req_t* request) {
       httpd_resp_set_status(request, "400 Bad Request"); return httpd_resp_sendstr(request, "Invalid image ID");
     }
     frame = self->camera_->copyImage(id);
-  } else frame = self->camera_->copyPreview();
+  } else { self->camera_->renewPreviewLease(); frame = self->camera_->copyPreview(); }
   if (!frame.data) { httpd_resp_set_status(request, "503 Service Unavailable"); return httpd_resp_sendstr(request, "Camera not ready"); }
   httpd_resp_set_type(request, "image/jpeg"); httpd_resp_set_hdr(request, "Cache-Control", "no-store");
   const uint32_t start = millis();
@@ -543,6 +589,7 @@ esp_err_t AssistantWifi::stream(httpd_req_t* request) {
   uint32_t last = 0, sent = 0, started = millis(), lastFrame = started;
   uint32_t statsAt = started, statsFrames = 0, sendMs = 0, sendBytes = 0;
   while (result == ESP_OK && self->camera_->viewing() && WiFi.status() == WL_CONNECTED) {
+    self->camera_->renewPreviewLease();
     bool current;
     portENTER_CRITICAL(&self->tokenMutex_); current = !memcmp(session, self->tokenBytes_, sizeof(session)); portEXIT_CRITICAL(&self->tokenMutex_);
     if (!current || millis() - lastFrame > 30000) break;

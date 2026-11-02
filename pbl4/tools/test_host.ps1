@@ -25,6 +25,7 @@ Invoke-HostTest 'music_output_core3' $driverSources @($fakeInclude, '-DESP_ARDUI
 Invoke-HostTest 'camera_transfer' @("$projectRoot/test/test_camera_transfer.cpp")
 Invoke-HostTest 'camera_udp' @("$projectRoot/test/test_camera_udp.cpp")
 Invoke-HostTest 'camera_settings' @("$projectRoot/test/test_camera_settings.cpp")
+Invoke-HostTest 'capture_quality' @("$projectRoot/test/test_capture_quality.cpp")
 Invoke-HostTest 'autofocus' @("$projectRoot/test/test_autofocus.cpp") @("-I$projectRoot/lib/Ov5640Autofocus/src")
 Invoke-HostTest 'native_jpeg' @("$projectRoot/test/test_native_jpeg.cpp")
 Invoke-HostTest 'native_dma' @("$projectRoot/test/test_native_dma.cpp") @("-I$projectRoot/test/camera_fakes")

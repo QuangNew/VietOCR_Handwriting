@@ -10,7 +10,7 @@ namespace camera_settings {
 enum Key {
   PreviewWidth, PreviewQuality, StillQuality, MaxFps, Brightness, Contrast,
   Saturation, Sharpness, Denoise, WbMode, Aec, AeLevel, AecValue, Agc,
-  AgcGain, SpecialEffect, Hmirror, Vflip, Lenc, Autofocus, Count
+  AgcGain, SpecialEffect, Hmirror, Vflip, Lenc, Autofocus, FocusX, FocusY, Count
 };
 struct Field { const char* name; int32_t minimum, maximum, initial; };
 static const Field kFields[Count] = {
@@ -20,7 +20,7 @@ static const Field kFields[Count] = {
   {"wb_mode",0,4,0}, {"aec",0,1,1}, {"ae_level",-5,5,0},
   {"aec_value",0,1944,500}, {"agc",0,1,1}, {"agc_gain",0,64,0},
   {"special_effect",0,6,0}, {"hmirror",0,1,0}, {"vflip",0,1,0}, {"lenc",0,1,1},
-  {"autofocus",0,1,1}
+  {"autofocus",0,1,1}, {"focus_x",0,100,50}, {"focus_y",0,100,50}
 };
 inline bool previewWidth(int32_t width) {
   return width == 320 || width == 640 || width == 800 || width == 1024 || width == 1600 || width == 2048 || width == 2592;
@@ -50,16 +50,17 @@ struct Settings {
 constexpr size_t kBlobBytes = 12 + 4 * Count;
 inline void encode(const Settings& settings, uint8_t* output) {
   camera_transfer::write32(output, 0x43414d32);
-  camera_transfer::write32(output+4, 2);
+  camera_transfer::write32(output+4, 3);
   for (int i=0; i<Count; ++i) camera_transfer::write32(output+8+i*4, uint32_t(settings.values[i]));
   camera_transfer::write32(output+kBlobBytes-4, camera_transfer::crc32(output, kBlobBytes-4));
 }
 inline bool decode(const uint8_t* input, size_t length, Settings& output) {
-  if (length != kBlobBytes || camera_transfer::read32(input) != 0x43414d32 ||
-      camera_transfer::read32(input+4) != 2 ||
+  if (!input || length<12) return false;
+  const bool legacy = length == 12 + 4 * 20 && camera_transfer::read32(input+4) == 2;
+  if ((!legacy && (length != kBlobBytes || camera_transfer::read32(input+4) != 3)) || camera_transfer::read32(input) != 0x43414d32 ||
       camera_transfer::read32(input+length-4) != camera_transfer::crc32(input,length-4)) return false;
   Settings next;
-  for (int i=0; i<Count; ++i) next.values[i] = int32_t(camera_transfer::read32(input+8+i*4));
+  for (int i=0; i<(legacy ? 20:Count); ++i) next.values[i] = int32_t(camera_transfer::read32(input+8+i*4));
   if (!next.valid()) return false;
   output = next; return true;
 }

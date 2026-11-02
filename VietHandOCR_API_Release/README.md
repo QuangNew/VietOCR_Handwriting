@@ -37,7 +37,7 @@ Model hiện hành là **ML_s44** (VietOCR VGG19-BN + Transformer, ảnh cao 64 
 - **Cài lại thư viện sau khi pull:** `.\.venv\Scripts\python.exe -m pip install -r requirements.txt` (thêm `scipy` cho bước cắt lề V2c). Máy có GPU NVIDIA cài tiếp `requirements-cuda.txt` như ở phần GPU bên dưới; nếu chỉ cài `requirements.txt` (torch CPU) app vẫn chạy nhưng dùng CPU.
 - **Độ chính xác số học:** trọng số lưu **FP16** nhưng được ép về **FP32** khi nạp, nên tính toán là FP32, giống `vgg_transformer_compact.pth` (lưu FP16, tính FP32); dự án không có đường tính FP16. Nhóm AI đã so với bản lưu FP32 trên 678 dòng validation UIT-HWDB: 676/678 dòng giống hệt, số lỗi ký tự 971 → 971. Muốn dùng bản FP32: thay cả file `.pth` lẫn `model_config.json` của bản đó vào `model/`, không cần sửa code. Dòng `Lite model initialized in … (cpu, torch.float32)` trong `.logs/ocr-worker.log` cho biết thiết bị và kiểu số đang dùng.
 - **Khác model cũ:** ảnh cao 64 px, cắt lề V2c trước khi đọc, cấu hình riêng trong `model_config.json`; không chạy được với `MODEL_CONFIG` 32 px của `AI.py`. Chỉ `.pth` nằm cạnh `model_config.json` và đúng tên trong đó mới được nạp theo kiểu ML_s44; mọi `.pth` khác vẫn được coi là checkpoint VietOCR cũ. ML_s44 dùng bộ giải mã của nhóm AI (`viethandocr_lite.py`), không dùng `desktop/torch_predictor.py`. Phần tiền xử lý DIP (căn nghiêng, CLAHE), tách dòng, hàng đợi và giao diện giữ nguyên.
-- **Thiết bị xử lý giữ nguyên:** Tự động (GPU rời → GPU tích hợp → CPU), CPU và CUDA đều dùng được với ML_s44. **GPU tích hợp/DirectML chưa dùng được** vì cần bản ONNX xuất từ ML_s44 mà chưa có; thiết bị DirectML báo thiếu ONNX và Tự động chuyển sang thiết bị kế tiếp. **Đường CUDA chưa được chạy thử trên GPU thật**, kể cả bởi nhóm AI; hãy thử trên máy có GPU trước khi dựa vào.
+- **Thiết bị xử lý giữ nguyên:** Tự động (GPU rời → GPU tích hợp → CPU), CPU và CUDA đều dùng được với ML_s44. **GPU tích hợp/DirectML chưa dùng được** vì cần bản ONNX xuất từ ML_s44 mà chưa có; thiết bị DirectML báo thiếu ONNX và Tự động chuyển sang thiết bị kế tiếp. **Đã kiểm tra CUDA trên RTX 4050 ngày 02/11/2026:** model ML_s44 chạy FP32 với cấu hình 64 px/V2c, đọc được ảnh mẫu. Xem [báo cáo tích hợp](docs/REVIEW_2026-11-02.md); đây chưa phải đánh giá độ chính xác trên bộ dữ liệu lớn.
 - **Đo trên CPU Ryzen 7 8845H (02/11/2026):** nạp model 0,4 s; dòng chữ in hoa ngắn 0,7–1,1 s, dòng viết tay dài khoảng 75 ký tự 1,5–2,6 s; đọc đúng văn bản ở các ảnh mẫu `test.jpg`, `test2.jpg` và tài liệu hai dòng ghép từ hai ảnh đó (chỉ khác kiểu đặt dấu `khoá`/`khóa`). Đây là kiểm tra mẫu, không phải đánh giá độ chính xác; ảnh chụp có thể thêm dấu chấm cuối dòng hoặc đổi dấu.
 - App Mobile vẫn dùng model cũ (ONNX FP32 xuất từ `vgg_transformer_final.pth`); ML_s44 chưa được xuất sang ONNX/Flutter.
 - Giới hạn, số đo và nguồn gốc model: [model/README.md](model/README.md) (README gốc của gói). Notebook thử từng ảnh một dòng: [demo/demo_nhan_dien.ipynb](demo/demo_nhan_dien.ipynb), cần thêm `demo/requirements-notebook.txt`. Mã suy luận dựa trên VietOCR (Apache-2.0), xem [LICENSE_VietOCR.txt](LICENSE_VietOCR.txt); nhóm AI chưa kiểm tra điều khoản bộ dữ liệu UIT-HWDB cho việc phát hành công khai hoặc thương mại.
@@ -72,6 +72,12 @@ print("Kết quả 2:", text2)
 
 ## 5. Chạy ứng dụng desktop
 
+**Giao diện mới:** bố cục tài liệu với thanh bên kết nối/danh sách ảnh, hai vùng
+ảnh–văn bản kéo đổi kích thước, nền sáng/tối xám trung tính. Dùng **Sun Valley
+ttk 2.6.1 (MIT)**, đã kèm theme và giấy phép trong repo; không cần cài thêm.
+Xem [ảnh giao diện và so sánh các style MIT](docs/DESKTOP_UI.md),
+[thông báo bản quyền](THIRD_PARTY_NOTICES.md).
+
 **Bản test OV5640 ngày 02/11/2026:** mở [dist/VietOCR.exe](dist/VietOCR.exe)
 hoặc `Run-VietOCR.cmd`. File EXE là launcher nhỏ dùng `.venv`, model và mã
 nguồn hiện có trong dự án; giữ EXE trong thư mục `dist`, chưa phải gói portable
@@ -79,8 +85,8 @@ nguồn hiện có trong dự án; giữ EXE trong thư mục `dist`, chưa ph�
 Build lại bằng `powershell -File tools/build_desktop.ps1`, dùng MSYS2 UCRT đã
 có trên máy, không tải thêm công cụ/thư viện.
 
-**Cấu hình camera trong app (firmware 3.0.0-ov5640):** kết nối BLE/Wi-Fi,
-mở **Xem camera → Cấu hình camera**. Bảng có preset Mượt/Cân bằng/Chi tiết,
+**Cấu hình camera trong app (khuyến nghị firmware 3.2.0-focus-power):** kết nối BLE/Wi-Fi,
+mở **Chụp OV5640 → Cấu hình camera**. Bảng có preset Mượt/Cân bằng/Chi tiết/**Tài liệu OCR**,
 độ phân giải preview 320×240 đến 2592×1944, JPEG, giới hạn FPS, autofocus, màu sắc,
 cân bằng trắng, phơi sáng/gain tự động hoặc thủ công, hiệu ứng, lật ảnh và
 hiệu chỉnh ống kính. Preview mặc định VGA/QS18 truyền qua UDP VOJ1 từ cổng 82,
@@ -116,17 +122,17 @@ thường hoặc lặp lại crash trace cũ từ phiên trước.
 
 Ứng dụng Python/Tkinter dùng `VietHandOCR` trong `AI.py` và trọng số cục bộ, không cần server. Tkinter đi kèm bộ cài Python trên Windows; không cần cài thêm thư viện giao diện.
 
-Giao diện desktop chỉ chụp bằng **OV3660 trên ESP32-S3 qua Wi-Fi LAN**,
-không có nút tải file/webcam. Xem stream trên desktop; TFT vẫn là trợ lý. Nhận JPEG có CRC32
-rồi tự đọc theo hàng đợi, không còn giới hạn 10 ảnh. Xem
-[đấu dây camera và hướng dẫn](../pbl4/docs/CAMERA.md); dây TFT/còi cũ bị trùng
-chân camera nên phải chuyển dây trước khi dùng profile camera.
+Desktop nhận **ảnh từ máy tính hoặc camera OV5640 trên ESP32-S3**. Bấm
+**Tải ảnh lên** (Ctrl+O) để thêm nhiều file, hoặc **Chụp OV5640** để mở khung
+ngắm rồi chụp bên trong. Hàng đợi không giới hạn 10 ảnh; ảnh chụp có CRC32 và
+được xử lý tuần tự. **Tải tất cả** dưới danh sách lưu toàn bộ ảnh gốc trong
+queue vào thư mục bạn chọn, không ghi đè file có sẵn. Xem [cập nhật UI/AF/Wi-Fi](docs/REVIEW_2026-11-02.md).
 
 Model chạy trong **tiến trình AI riêng**, được giữ lại để dùng cho các lượt tiếp theo. `OCRProcessService` điều phối tiến trình; `OCRService` xử lý ảnh, tách dòng và gọi `AI.py`. Giao diện không nạp PyTorch vào tiến trình Tkinter. Nếu nạp model thất bại, tiến trình AI dừng bất thường hoặc hết thời gian chờ, app báo lỗi và cho phép nhận diện lại bằng tiến trình mới.
 
-![Giao diện VietOCR Handwriting](docs/desktop-preview.png)
+![Giao diện VietOCR Handwriting](docs/ui/dark-document.png)
 
-Ứng dụng mặc định dùng **giao diện tối**. Nút **Chế độ sáng / Chế độ tối** ở góc trên cho phép chuyển ngay trong lúc sử dụng, giữ nguyên ảnh và nội dung đang chỉnh sửa. Lựa chọn được lưu trong `.desktop-preferences.json` cạnh `app.py` và áp dụng ở lần mở tiếp theo; file này được bỏ qua bởi Git.
+Ứng dụng mặc định dùng **giao diện tối**. Nút **Dùng nền sáng / Dùng nền tối** ở cuối thanh bên cho phép chuyển ngay trong lúc sử dụng, giữ nguyên ảnh và nội dung đang chỉnh sửa. Lựa chọn được lưu trong `.desktop-preferences.json` cạnh `app.py` và áp dụng ở lần mở tiếp theo; file này được bỏ qua bởi Git.
 
 Chạy từ thư mục `VietHandOCR_API_Release`:
 
@@ -156,55 +162,27 @@ Có thể chọn model hoặc thiết bị xử lý từ dòng lệnh:
 
 ### Quy trình sử dụng
 
-1. **Kết nối ESP32** qua BLE. App tự hiện mạng Wi-Fi/IP và cập nhật mỗi 5 giây; nếu bo đã tự vào mạng thì mở camera luôn. Mở **Wi-Fi camera** để cấu hình lần đầu hoặc đổi mạng; không phải quét/nhập mật khẩu mỗi phiên. **Kiểm tra LAN** kiểm tra đường HTTP riêng. Máy tính và ESP32 cần cùng LAN. Firmware **2.5.0-preview** dùng preview **640×480/QS16**, ảnh chụp **2048×1536/QS4**, cùng cửa sổ cảm biến 4:3. Kéo cạnh/phóng to cửa sổ camera để canh ảnh; **Lật ngang / Lật dọc** áp dụng cho cả preview và JPEG chụp, chọn cả hai để xoay 180°. Giao diện hiện FPS thực. Bản 2.5.0 chỉ build, chưa nạp/đo FPS trên bo. Sau khi nhận ảnh, xem **3 giây** hoặc bấm **Bỏ qua · Chụp tiếp**: ảnh tự vào queue OCR, preview tự mở lại, cửa sổ vẫn giữ nguyên. Bảng tiến trình nằm ở góc dưới bên phải và có thể thu gọn. TFT luôn hiển thị trợ lý theo theme app. Wi-Fi và hướng camera được nhớ trên NVS ESP32. Xem [giao thức camera](../pbl4/docs/CAMERA.md).
+1. **Tải ảnh lên** từ máy tính hoặc **Chụp OV5640**. Với camera, kết nối ESP32
+   qua BLE trước; bo và máy tính cần cùng LAN. Preview VGA nhẹ, JPEG chụp giữ
+   **2592 × 1944**. Bấm vào vùng chữ trên preview để chọn điểm AF. Hướng lật
+   áp dụng cho preview và ảnh chụp, không lật thêm trong app.
+2. **Wi-Fi:** trạng thái tự cập nhật mỗi **3 giây**; không còn nút Kiểm tra LAN.
+   Quét/chọn/nhập mạng ở tab Kết nối mạng. Tab **Mạng đã lưu trên ESP32** đọc tối
+   đa 5 mạng trong flash, cho xem mật khẩu và điền lại cấu hình. Mật khẩu mặc
+   định bị che và không ghi vào log. Các chức năng mới cần firmware 3.2.0.
+3. Sau chụp, xem ảnh **3 giây** hoặc bấm **Bỏ qua · Chụp tiếp**. Ảnh tự vào queue
+   OCR, khung chụp tiếp tục mở. Bảng tiến trình có nút **Ẩn**, tự ẩn sau 5 giây
+   khi tất cả ảnh đã xong/lỗi/dừng; tác vụ đang chạy vẫn tiếp tục khi ẩn.
+4. Bấm ảnh gốc để zoom/pan/crop. Với ảnh có nền, cửa, hình vẽ như bốn ảnh mẫu,
+   cắt sát dòng chữ rồi chọn **Một dòng**. Model ML_s44 là bộ đọc dòng, không
+   phải bộ phát hiện chữ trong cảnh. **Tự tách dòng** dành cho trang một cột.
+5. Chỉnh văn bản rồi sao chép/xuất `.txt`. **Tải tất cả** lưu các ảnh gốc; **Lưu
+   ảnh** lưu riêng ảnh đang chọn. **Dọn danh sách** xóa queue tạm; hãy lưu trước
+   khi đóng app vì phiên chưa tự khôi phục.
 
-Bấm **Ảnh gốc** để xem lớn: cuộn chuột zoom, kéo pan, bật chọn vùng để crop
-tự do; áp dụng crop cập nhật ảnh OCR và giữ ảnh gốc để khôi phục. **Lưu ảnh
-gốc** xuất JPEG nhận từ OV3660 nguyên byte. Dòng kích thước là kích thước
-ảnh gốc (lỗi cũ ghi kích thước thumbnail 101×76 đã sửa), không phải số pixel
-widget đang hiển thị. Camera cần firmware mới vì JPEG QS0 có thể vượt bộ đệm
-629 KB của driver cũ; bản mới cấp 2 MiB, chẩn đoán trạng thái cảm biến và giữ
-modem sleep cho Wi-Fi/BLE. Chưa có số đo FPS phần cứng cho preview VGA của 2.5.0.
-
-Nếu Quét mạng báo `INVALID_COMMAND`, bo đang chạy firmware cũ, chưa có Wi-Fi.
-App hiện chỉ rõ cần nạp `esp32-s3-cam-ov3660` mới rồi kết nối BLE lại.
-Ngày 27/10 đã nạp `2.0.1-wifi` vào bo COM8 và quét qua BLE được 7 tên mạng.
-Gửi `INFO` trong Serial để kiểm tra phiên bản; cập nhật mã Python không tự
-cập nhật firmware trên bo.
-
-Từ bản HTTP camera 2.1.0: nút Kiểm tra kết nối thử `/health` thật, chụp cần
-đường HTTP hoạt động. Lỗi hiện IP/cổng và mã gốc (refused/timeout/no route),
-không quy mọi lỗi thành "khác LAN". Từ **2.2.0-stream**, preview dùng một kết nối
-MJPEG **:81/stream** ở thread riêng, không qua worker/IPC BLE và không hỏi
-`WIFI STATUS` cho từng khung. Hai phía chỉ giữ khung mới nhất, dừng socket khi
-đóng/chụp/ngắt BLE/thoát. Chụp chuyển cảm biến về 3 MP, xác nhận kích thước từ
-JPEG SOF trước khi gửi. Nạp firmware mới để dùng stream; APK không cập nhật bo.
-Xem `first_frame_ms`, `capture_ms`/`send_ms` trên Serial để đo bo sau nạp.
-
-Model được nạp nền khi mở app; `desktop/torch_predictor.py` dựng cùng kiến
-trúc/trọng số bằng meta+mmap, bỏ việc khởi tạo ngẫu nhiên classifier VGG bị
-loại bỏ. Decoder giữ KV cache, chỉ giải mã token mới, vẫn tính FP32 và giữ
-ưu tiên GPU rời → tích hợp → CPU. Ước lượng góc nghiêng dùng ảnh nhỏ, sau đó
-xoay ảnh gốc. Đo A/B trên cùng model CPU/RTX4050, 5 ảnh, kết quả văn bản khớp;
-chi tiết và giới hạn tại `docs/performance-validation.json`. Thời gian nạp
-checkpoint sau imports khác với tổng khởi động/import CUDA của app.
-2. Ảnh hợp lệ tự vào hàng đợi OCR. Có thể chụp tiếp sau khi nhận xong ảnh trước, trong lúc OCR vẫn chạy. Hàng đợi không giới hạn 10 ảnh; ảnh gốc đã chuẩn hóa được lưu file tạm thay vì giữ tất cả trong RAM. Danh sách phân trang 50 mục.
-3. Chọn **Tự tách dòng** cho ảnh tài liệu một cột, hoặc **Một dòng** cho ảnh đã cắt sát một dòng chữ. Model chỉ nạp khi cần và được dùng lại. **Nhận diện** tiếp tục các ảnh lỗi/chưa hoàn tất; **Xoay trái** và **Xóa ảnh** dùng khi OCR dừng.
-4. Đọc và sửa kết quả trực tiếp trong ô **Văn bản**. **Sao chép** lấy văn bản ảnh đang chọn; **Sao chép tất cả** và **Lưu văn bản .txt** gộp các kết quả có nội dung theo thứ tự ảnh, kèm tên ảnh. File `.txt` dùng UTF-8 để giữ dấu tiếng Việt.
-5. **Dừng** hủy tiến trình AI đang nạp model hoặc nhận diện, giải phóng model và giữ kết quả của các ảnh đã hoàn tất. Nhấn **Nhận diện** để tiếp tục các ảnh chưa xong; model sẽ được nạp lại. **Nhận diện lại** xử lý riêng ảnh đang chọn và thay kết quả cũ.
-6. **Dọn danh sách** bắt đầu lượt mới, xóa các file ảnh tạm trong lượt. Hãy lưu văn bản trước khi dọn danh sách hoặc đóng app; phiên desktop chưa tự khôi phục sau khi thoát.
-
-Nếu bấm nút **Chụp OV3660** ở cửa sổ chính khi chưa xem trước, app mở cửa sổ
-camera để ngắm trước; nhấn Chụp trong cửa sổ đó khi đã sẵn sàng. Nút được bố
-trí theo cỡ chữ Windows, không bị cắt bởi chiều cao cố định như bản trước.
-Firmware cũ không hỗ trợ `CAM STATUS` vẫn dùng được và app nhắc cập nhật nếu
-TFT chưa có hình.
-
-Đường nhận JPEG Windows dùng long read tối đa 480 byte mỗi lượt, giảm các
-lượt ghi selector ở MTU thấp; driver không hỗ trợ sẽ tự lùi về chunk theo MTU.
-Log Bluetooth hiện MTU, số byte/chunk và tiến độ nhận, timeout kèm số byte đã
-nhận. `CAM META ...` trong log chỉ xác nhận ESP32 đã có ảnh, chưa xác nhận
-ảnh đã truyền xong; cần dòng `JPEG received ... CRC32 verified`.
+Bluetooth có cửa sổ kéo giãn và vùng cuộn; các nút kết nối/ngắt/đóng luôn nằm
+trong thanh cuối. Thanh bên chứa kết nối và danh sách ảnh rộng hơn bản trước.
+Xem [giao thức camera](../pbl4/docs/CAMERA.md) và [quy trình AF/giảm tải](../pbl4/docs/OCR_CAPTURE.md).
 
 **Cài đặt model** mặc định **Tự động: GPU rời → GPU tích hợp → CPU**. Thiết lập
 áp dụng cho phiên hiện tại. Thanh trạng thái hiển thị tên và backend của thiết

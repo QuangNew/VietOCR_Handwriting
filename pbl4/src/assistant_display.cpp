@@ -262,6 +262,8 @@ void AssistantDisplay::render(const assistant::Model& model, bool demo, bool mut
   }
   uint32_t interval = model.state == assistant::State::Sleeping
       ? assistant_config::kSleepFrameIntervalMs * 1000 : assistant_config::kFrameIntervalUs;
+  // Static/idle faces do not need a full SPI transfer sixty times a second.
+  if (model.state==assistant::State::Idle || model.state==assistant::State::Done) interval=100000;
   if (!buffered_ && interval < 150000) interval = 150000;
   const uint32_t frameAt = micros();
   if (!firstFrame_ && !refresh && frameAt - lastFrameUs_ < interval) return;

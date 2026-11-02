@@ -59,10 +59,12 @@ async def _serve(pipe):
             from .wifi_camera import capture_fast
             return await capture_fast(protocol, on_progress=progress)
         if command == 'network' and protocol is not None:
-            if data['action'] in ('settings_get','settings_set'):
-                from .camera_settings import get_config, apply_config
-                return await get_config(protocol) if data['action'] == 'settings_get' else await apply_config(protocol,data['settings'],data.get('persist',True))
-            from .wifi_camera import preview, stream_info, open_preview, wifi_scan, wifi_configure, wifi_check, wifi_state
+            if data['action'] in ('settings_get','settings_set','settings_focus'):
+                from .camera_settings import get_config, apply_config, focus_at
+                if data['action']=='settings_get': return await get_config(protocol)
+                operation=focus_at if data['action']=='settings_focus' else apply_config
+                return await operation(protocol,data['settings'],data.get('persist',True))
+            from .wifi_camera import preview, stream_info, open_preview, wifi_scan, wifi_configure, wifi_check, wifi_state, wifi_profiles
             if data['action'] == 'camera_open':
                 return await open_preview(protocol, mirror=data.get('mirror'), flip=data.get('flip'))
             if data['action'] == 'preview': return await preview(protocol)
@@ -70,6 +72,7 @@ async def _serve(pipe):
             if data['action'] == 'wifi_scan': return await wifi_scan(protocol)
             if data['action'] == 'wifi_status': return await wifi_check(protocol)
             if data['action'] == 'wifi_state': return await wifi_state(protocol)
+            if data['action'] == 'wifi_profiles': return await wifi_profiles(protocol)
             if data['action'] == 'wifi_join': return await wifi_configure(protocol, data['ssid'], data['password'])
         raise RobotProtocolError("Invalid Bluetooth worker operation")
 

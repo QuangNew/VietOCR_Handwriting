@@ -27,11 +27,19 @@ FIELDS = {
     'vflip': ('Lật dọc', 'Hướng ảnh', 0, 1, 0, {0:'Tắt',1:'Bật'}),
     'lenc': ('Hiệu chỉnh ống kính', 'Hướng ảnh', 0, 1, 1, {0:'Tắt',1:'Bật'}),
     'autofocus': ('Lấy nét tự động', 'Ánh sáng', 0, 1, 1, {0:'Tắt',1:'Bật'}),
+    'focus_x': ('Điểm lấy nét ngang · % từ trái', 'Ánh sáng', 0, 100, 50, None),
+    'focus_y': ('Điểm lấy nét dọc · % từ trên', 'Ánh sáng', 0, 100, 50, None),
 }
 DEFAULTS = {key: field[4] for key,field in FIELDS.items()}
 PRESETS = {'Mượt': {'preview_width':640,'preview_quality':24,'max_fps':30},
            'Cân bằng': {'preview_width':640,'preview_quality':18,'max_fps':30},
-           'Chi tiết': {'preview_width':1024,'preview_quality':10,'max_fps':15}}
+           'Chi tiết': {'preview_width':1024,'preview_quality':10,'max_fps':15},
+           # Keep orientation chosen by the user. Avoid aggressive sharpening,
+           # denoising and clipping that can destroy Vietnamese accent strokes.
+           'Tài liệu OCR': {'preview_width':640,'preview_quality':18,'max_fps':30,
+               'still_quality':6,'brightness':0,'contrast':0,'saturation':0,
+               'sharpness':0,'denoise':0,'wb_mode':0,'special_effect':0,
+               'aec':1,'ae_level':0,'agc':1,'lenc':1,'autofocus':1}}
 
 def validate_settings(values, *, partial=False):
     if not isinstance(values, dict) or (not partial and set(values) != set(FIELDS)):
@@ -48,8 +56,14 @@ def validate_settings(values, *, partial=False):
 def parse_config(data):
     if not isinstance(data,dict) or type(data.get('schema')) is not int or data.get('schema') != 2 or data.get('sensor') != 'OV5640':
         raise ValueError('Cần firmware OV5640 3.0.0 trở lên để chỉnh cấu hình.')
-    validate_settings(data.get('settings'))
-    validate_settings(data.get('defaults'))
+    # Basic camera settings keep working with firmware predating focus points.
+    supported = data.get('focus_point_supported', isinstance(data.get('settings'),dict) and 'focus_x' in data['settings'] and 'focus_y' in data['settings'])
+    data['focus_point_supported'] = supported
+    for section in ('settings','defaults'):
+        values = data.get(section)
+        if isinstance(values,dict):
+            for key in ('focus_x','focus_y'): values.setdefault(key,50)
+        validate_settings(values)
     for key in ('revision','applied_revision'):
         if type(data.get(key)) is not int or data[key] < 0:
             raise ValueError('Camera trả phiên bản cấu hình không hợp lệ.')
@@ -59,7 +73,7 @@ def parse_config(data):
 
 def request_config(endpoint, settings=None, *, persist=False):
     from .wifi_camera import _NoRedirect, http_error
-    body = None if settings is None else json.dumps({'settings':validate_settings(settings),'persist':bool(persist)}, separators=(',',':')).encode()
+    body = None if settings is None else json.dumps({'settings':validate_settings(settings,partial=True),'persist':bool(persist)}, separators=(',',':')).encode()
     request = Request(f'http://{endpoint.ip}/camera/config', data=body,
                       headers={'Authorization':f'Bearer {endpoint.token}','Content-Type':'application/json','Cache-Control':'no-cache'})
     try:
@@ -86,6 +100,11 @@ async def apply_config(protocol, settings, persist=True):
     from .wifi_camera import WifiEndpoint, wifi_status
     settings=validate_settings(settings)
     endpoint = WifiEndpoint.parse(await wifi_status(protocol))
+    current = await asyncio.to_thread(request_config,endpoint)
+    if not current.get('focus_point_supported',True):
+        if settings['focus_x']!=50 or settings['focus_y']!=50:
+            raise ValueError('Nạp firmware OV5640 3.2.0 để chọn điểm lấy nét.')
+        settings={key:value for key,value in settings.items() if key not in ('focus_x','focus_y')}
     await protocol.request('CAM CLOSE',timeout=5)
     result=await asyncio.to_thread(request_config,endpoint,settings,persist=persist)
     revision=result['revision']; deadline=time.monotonic()+20; ping=time.monotonic()
@@ -98,3 +117,16 @@ async def apply_config(protocol, settings, persist=True):
             await protocol.request('PING'); ping=time.monotonic()
         await asyncio.sleep(.15)
         result=await asyncio.to_thread(request_config,endpoint)
+
+
+async def focus_at(protocol, settings, persist=False):
+    point = validate_settings(settings,partial=True)
+    if set(point) != {'focus_x','focus_y'}:
+        raise ValueError('Điểm lấy nét cần tọa độ ngang và dọc.')
+    current = await get_config(protocol)
+    if not current.get('focus_point_supported',True):
+        raise ValueError('Nạp firmware OV5640 3.2.0 để bấm chọn điểm lấy nét.')
+    values = dict(current['settings']); values.update(point)
+    result = await apply_config(protocol,values,persist=False)
+    await protocol.request('CAM FOCUS',timeout=5)
+    return result

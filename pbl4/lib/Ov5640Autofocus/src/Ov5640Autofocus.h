@@ -17,7 +17,8 @@ class Ov5640Autofocus {
   bool ready() const { return control_.ready(); }
   bool continuous() { return control_.continuous(); }
   bool pause() { return control_.pause(); }
-  bool single() { return control_.single(); }
+  bool single(uint32_t timeoutMs=4000) { return control_.single(timeoutMs); }
+  bool zone(unsigned x, unsigned y, bool mirror, bool flip) { return control_.zone(x,y,mirror,flip); }
   int status() { return control_.status(); }
   autofocus::Error error() const { return control_.error(); }
  private:

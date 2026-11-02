@@ -8,6 +8,7 @@ AssistantBluetooth::AssistantBluetooth(CommandHandler command, DisconnectHandler
 
 void AssistantBluetooth::begin() {
   BLEDevice::init(assistant_config::kBluetoothName);
+  BLEDevice::setPower(ESP_PWR_LVL_N0);
   BLEDevice::setMTU(517);
   server_ = BLEDevice::createServer();
   server_->setCallbacks(this);
@@ -52,11 +53,11 @@ void AssistantBluetooth::onConnect(BLEServer*, esp_ble_gatts_cb_param_t* param) 
   portEXIT_CRITICAL(&mutex_);
   esp_ble_conn_update_params_t params{};
   memcpy(params.bda, param->connect.remote_bda, sizeof(esp_bd_addr_t));
-  params.min_int = 12;  // 15 ms; central chooses the final connection interval.
-  params.max_int = 24;  // 30 ms.
-  params.latency = 0;
+  params.min_int = 24;  // 30 ms; JPEG uses Wi-Fi, BLE only carries controls.
+  params.max_int = 40;  // 50 ms; central chooses the final connection interval.
+  params.latency = 4;   // Skip idle events; still answer controls when data is queued.
   params.timeout = 400;
-  Serial.printf("BLE LINK fast interval request rc=%d\n", int(esp_ble_gap_update_conn_params(&params)));
+  Serial.printf("BLE LINK control interval 30..50ms latency=4 rc=%d\n", int(esp_ble_gap_update_conn_params(&params)));
 }
 
 void AssistantBluetooth::onMtuChanged(BLEServer*, esp_ble_gatts_cb_param_t* param) {

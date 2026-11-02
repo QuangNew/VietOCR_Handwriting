@@ -1,5 +1,7 @@
 #include "assistant_camera.h"
 #include "assistant_config.h"
+#include "capture_quality.h"
+#include "assistant_power.h"
 #include <esp_camera.h>
 #include <esp_heap_caps.h>
 #include <esp_timer.h>
@@ -34,7 +36,7 @@ uint16_t AssistantCamera::previewWidth() {
   return configuration()[camera_settings::PreviewWidth];
 }
 unsigned AssistantCamera::maxFps() {
-  return configuration()[camera_settings::MaxFps];
+  return assistant_power::limitFps(configuration()[camera_settings::MaxFps]);
 }
 bool AssistantCamera::mirrored() {
   return configuration()[camera_settings::Hmirror];
@@ -164,6 +166,7 @@ bool AssistantCamera::initialize() {
     return false;
   }
   initialized_ = true;
+  sensorOff_ = false;
   modeConfigured_ = false;
   sensor_t* sensor = esp_camera_sensor_get();
   if (!sensor || sensor->id.PID != 0x5640) {
@@ -242,6 +245,7 @@ bool AssistantCamera::selectMode(bool preview) {
     return false;
   }
   if (settings[Autofocus] && autofocus_.ready() && preview) {
+    autofocus_.zone(settings[FocusX], settings[FocusY], settings[Hmirror], settings[Vflip]);
     if (!autofocus_.continuous()) Serial.printf("CAMERA AF continuous failed error=%d\n", int(autofocus_.error()));
     focusRaw_=autofocus_.status();
   } else if (!settings[Autofocus]) {
@@ -277,9 +281,10 @@ void AssistantCamera::run() {
   if (saved.begin("vietocr-camera", true)) {
     camera_settings::Settings loaded;
     uint8_t bytes[camera_settings::kBlobBytes];
-    const bool valid = saved.isKey("profile5640") && saved.getBytesLength("profile5640") == sizeof(bytes) &&
-        saved.getBytes("profile5640", bytes, sizeof(bytes)) == sizeof(bytes) &&
-        camera_settings::decode(bytes, sizeof(bytes), loaded);
+    const size_t length=saved.isKey("profile5640") ? saved.getBytesLength("profile5640"):0;
+    const bool valid = length>=12 && length<=sizeof(bytes) &&
+        saved.getBytes("profile5640", bytes, sizeof(bytes)) == length &&
+        camera_settings::decode(bytes, length, loaded);
     if (!valid) {
       const uint8_t orientation = saved.getUChar("orientation", 0);
       loaded.set("hmirror", !!(orientation & 1)); loaded.set("vflip", !!(orientation & 2));
@@ -290,12 +295,30 @@ void AssistantCamera::run() {
   }
   unsigned missingFrames = 0, rejectedFrames = 0;
   for (;;) {
+    if (suspended_) {
+      if (powerOffRequested_) {
+        clear(); shutdownSensor(); powerOffRequested_ = false;
+      }
+      vTaskDelay(pdMS_TO_TICKS(20));
+      continue;
+    }
+    if (assistant_power::tooHot()) {
+      viewing_=false; shutdownSensor();
+      setError("CAMERA_TEMPERATURE: chip >=85C; camera paused until <=75C");
+      vTaskDelay(pdMS_TO_TICKS(250)); continue;
+    }
     uint32_t shot;
     xSemaphoreTake(mutex_, portMAX_DELAY);
     const bool close = closing_;
     const bool configure = settingsPending_;
     shot = pending_; pending_ = 0;
     xSemaphoreGive(mutex_);
+    if (viewing_ && int32_t(millis()-previewLeaseUntil_.load())>=0) {
+      viewing_=false; previewReady_=false;
+      Serial.println("CAMERA preview lease expired; no viewer renewal");
+    }
+    if (shot || viewing_ || configure || focusPending_) lastActivity_ = millis();
+    else if (initialized_ && uint32_t(millis()-lastActivity_) >= 10000) shutdownSensor();
     if (close) { clear(); shot = 0; }
     if (shot) capture(shot);
     else if (focusPending_.exchange(false)) {
@@ -307,6 +330,11 @@ void AssistantCamera::run() {
     else if (configure && !viewing_) { selectMode(true); }
     else if (viewing_ && !selectMode(true)) { viewing_ = false; }
     else if (viewing_) {
+      const unsigned fps=maxFps();
+      if (fps && uint32_t(millis()-previewFrameAt_)<1000/fps) {
+        vTaskDelay(pdMS_TO_TICKS(2)); continue;
+      }
+      previewFrameAt_=millis();
       if (appliedSettings_[camera_settings::Autofocus] && autofocus_.ready() && millis()-focusPollAt_>=250) {
         focusRaw_=autofocus_.status(); focusPollAt_=millis();
       }
@@ -404,10 +432,18 @@ void AssistantCamera::run() {
 
 void AssistantCamera::capture(uint32_t id) {
   const uint32_t started = millis();
-  // Focus while the sensor is in fast preview mode, then hold the lens while
-  // switching to full 5 MP. Never autofocus from a BLE or HTTP callback.
+  if (assistant_power::tooHot()) { setError("CAMERA_TEMPERATURE: camera cooling down"); return; }
+  // AF statistics are reliable on the preview window used while loading
+  // the bundled firmware. Focus there, hold the physical lens, then switch to
+  // the same 4:3 field of view at native 5 MP and let its AEC/AGC settle.
   if (!selectMode(true)) return;
-  if (appliedSettings_[camera_settings::Autofocus]) focusOnce();
+  if (appliedSettings_[camera_settings::Autofocus]) {
+    if (!settleExposure() || !focusOnce()) {
+      setError("CAMERA_FOCUS: autofocus did not lock; add light and select a region with text");
+      return;
+    }
+    autofocus_.pause();
+  }
   if (!selectMode(false)) return;
   uint64_t after = esp_timer_get_time();
   // Drop the preview copy before allocating a still. Keep driver frame buffers
@@ -420,9 +456,11 @@ void AssistantCamera::capture(uint32_t id) {
   uint16_t width = 0, height = 0;
   bool recovered=false;
   unsigned invalid=0;
-  for (int attempt = 0; attempt < 16 && millis() - started < 24000; ++attempt) {
+  capture_quality::ExposureSettling exposureSettling;
+  bool exposureFailed = false;
+  for (int attempt = 0; attempt < 24 && millis() - started < 24000; ++attempt) {
     xSemaphoreTake(mutex_, portMAX_DELAY);
-    const bool cancelled = requested_ != id || closing_;
+    const bool cancelled = requested_ != id || closing_ || assistant_power::tooHot();
     xSemaphoreGive(mutex_);
     if (cancelled) break;
     frame = esp_camera_fb_get();
@@ -433,7 +471,25 @@ void AssistantCamera::capture(uint32_t id) {
     if (frame && frame->format == PIXFORMAT_JPEG && frame->len <= camera_transfer::kMaxImageBytes &&
         camera_transfer::freshFrame(captured, after) &&
         camera_transfer::jpegDimensions(frame->buf, frame->len, width, height) &&
-        width == camera_transfer::kNativeWidth && height == camera_transfer::kNativeHeight) break;
+        width == camera_transfer::kNativeWidth && height == camera_transfer::kNativeHeight) {
+      sensor_t* sensor = esp_camera_sensor_get();
+      const int hi = sensor->get_reg(sensor, 0x3500, 0x0f);
+      const int mid = sensor->get_reg(sensor, 0x3501, 0xff);
+      const int lo = sensor->get_reg(sensor, 0x3502, 0xff);
+      const int gh = sensor->get_reg(sensor, 0x350a, 0x03);
+      const int gl = sensor->get_reg(sensor, 0x350b, 0xff);
+      const int exposure = hi < 0 || mid < 0 || lo < 0 ? -1 : (hi<<16)|(mid<<8)|lo;
+      const int gain = gh < 0 || gl < 0 ? -1 : (gh<<8)|gl;
+      if (exposureSettling.observe(exposure, gain)) {
+        exposureFailed = false;
+        Serial.printf("CAMERA OCR READY focus=%s exposure_q4=%d gain_q4=%d settle_ms=%lu\n",
+            focusStatus(), exposure, gain, (unsigned long)((esp_timer_get_time()-after)/1000));
+        break;
+      }
+      exposureFailed = true;
+      esp_camera_fb_return(frame); frame = nullptr;
+      continue;
+    }
     const bool absent=!frame;
     if (frame) esp_camera_fb_return(frame);
     frame = nullptr;
@@ -445,9 +501,15 @@ void AssistantCamera::capture(uint32_t id) {
       autofocus_.reset(); focusRaw_=-2;
       esp_camera_deinit(); initialized_=false;
       if (!selectMode(true)) break;
-      if (appliedSettings_[camera_settings::Autofocus]) focusOnce();
+      if (appliedSettings_[camera_settings::Autofocus]) {
+        if (!settleExposure() || !focusOnce()) {
+          setError("CAMERA_FOCUS: autofocus did not lock after recovery"); return;
+        }
+        autofocus_.pause();
+      }
       if (!selectMode(false)) break;
       after=esp_timer_get_time();
+      exposureSettling.reset();
     }
   }
   uint8_t* copy = nullptr;
@@ -463,7 +525,9 @@ void AssistantCamera::capture(uint32_t id) {
   uint8_t* previous = image_;
   image_ = copy; size_ = length; frameId_ = id; crc_ = checksum;
   width_ = width; height_ = height; touched_ = millis();
-  if (!copy) error_ = frame ? "CAMERA_MEMORY: no PSRAM for full JPEG" : "CAMERA_CAPTURE: no complete fresh 2592x1944 JPEG after bounded recovery; see Serial DVP counters";
+  if (!copy) error_ = frame ? "CAMERA_MEMORY: no PSRAM for full JPEG" :
+      exposureFailed ? "CAMERA_EXPOSURE: exposure/gain did not settle; keep lighting steady and retry" :
+      "CAMERA_CAPTURE: no complete fresh 2592x1944 JPEG after bounded recovery; see Serial DVP counters";
   else error_ = "";
   xSemaphoreGive(mutex_);
   free(previous);
@@ -477,20 +541,77 @@ const char* AssistantCamera::focusStatus() const {
   if (raw==-2) return "NOT_INITIALIZED";
   if (raw==-1) return "UNAVAILABLE";
   if (raw==-4) return "FOCUSING";
+  if (raw==-5) return "NOT_LOCKED";
   if (raw==0x10) return "FOCUSED";
   if (raw==0x70) return "IDLE";
   return "SEARCHING";
 }
-void AssistantCamera::focusOnce() {
-  if (!autofocus_.ready()) { focusRaw_=-1; return; }
+bool AssistantCamera::focusOnce() {
+  if (!autofocus_.ready()) { focusRaw_=-1; return false; }
   focusRaw_=-4;
   const uint32_t started=millis();
-  autofocus_.pause();
-  const bool focused=autofocus_.single();
-  focusRaw_=autofocus_.status();
+  using namespace camera_settings;
+  const bool zone=autofocus_.zone(appliedSettings_[FocusX],appliedSettings_[FocusY],
+                                  appliedSettings_[Hmirror],appliedSettings_[Vflip]);
+  bool focused=zone && autofocus_.single();
+  if (!focused && zone && autofocus_.error()==autofocus::Error::Timeout && !assistant_power::tooHot()) {
+    Serial.println("CAMERA AF: bounded retry after slow native-resolution sweep");
+    focused=autofocus_.single(4000);
+  }
+  focusRaw_=focused ? autofocus_.status() : -5;
   Serial.printf("CAMERA AF single=%s status=0x%x error=%d elapsed_ms=%lu\n", focused ? "FOCUSED" : "NOT_LOCKED",
       int(focusRaw_.load()), int(autofocus_.error()), (unsigned long)(millis()-started));
+  if (!focused) {
+    auto* sensor=esp_camera_sensor_get();
+    Serial.printf("CAMERA AF diagnostic zone_ok=%d point=%d,%d ack=%d fw_status=%d\n",int(zone),
+        appliedSettings_[FocusX],appliedSettings_[FocusY],sensor ? sensor->get_reg(sensor,0x3023,0xff):-1,
+        sensor ? sensor->get_reg(sensor,0x3029,0xff):-1);
+  }
   modeAfterUs_=esp_timer_get_time(); settlingFrames_=2;
+  return focused;
+}
+
+bool AssistantCamera::settleExposure(uint32_t timeoutMs) {
+  capture_quality::ExposureSettling settling;
+  const uint32_t started=millis();
+  // AF needs an illuminated, current native frame. Focusing immediately after
+  // VGA -> 5 MP can evaluate a dark transient and lock onto the background.
+  while (!closing_ && !assistant_power::tooHot() && uint32_t(millis()-started)<timeoutMs) {
+    camera_fb_t* frame=esp_camera_fb_get();
+    if (!frame) return false;
+    const uint64_t captured=uint64_t(frame->timestamp.tv_sec)*1000000ULL+frame->timestamp.tv_usec;
+    const bool fresh=camera_transfer::freshFrame(captured,modeAfterUs_);
+    esp_camera_fb_return(frame);
+    if (!fresh) continue;
+    sensor_t* sensor=esp_camera_sensor_get();
+    if (!sensor) return false;
+    const int hi=sensor->get_reg(sensor,0x3500,0x0f), mid=sensor->get_reg(sensor,0x3501,0xff), lo=sensor->get_reg(sensor,0x3502,0xff);
+    const int gh=sensor->get_reg(sensor,0x350a,0x03), gl=sensor->get_reg(sensor,0x350b,0xff);
+    const int exposure=hi<0 || mid<0 || lo<0 ? -1:(hi<<16)|(mid<<8)|lo;
+    const int gain=gh<0 || gl<0 ? -1:(gh<<8)|gl;
+    if (settling.observe(exposure,gain)) return true;
+  }
+  Serial.println("CAMERA AF: exposure did not settle before focus");
+  return false;
+}
+
+void AssistantCamera::shutdownSensor() {
+  if (initialized_) {
+    sensor_t* sensor = esp_camera_sensor_get();
+    if (sensor) {
+      sensor->set_reg(sensor, 0x3022, 0xff, 0x08); // release lens
+      sensor->set_reg(sensor, 0x3008, 0x40, 0x40); // sensor software standby
+    }
+    autofocus_.reset();
+    esp_camera_deinit();
+    initialized_ = modeConfigured_ = false; focusRaw_ = -2;
+    Serial.println("CAMERA POWER OFF: sensor standby, XCLK/DMA stopped");
+  }
+  sensorOff_ = true;
+}
+void AssistantCamera::powerDown() {
+  disconnect();
+  suspended_ = true; powerOffRequested_ = true;
 }
 
 void AssistantCamera::clear() {
@@ -610,6 +731,8 @@ bool AssistantCamera::command(const char* line, Print& response) {
   } else if (!strcmp(line, "CAM ORIENT")) {
     response.printf("CAM ORIENT %d %d\n", settings_[camera_settings::Hmirror], settings_[camera_settings::Vflip]);
   } else if (!strcmp(line, "CAM OPEN")) {
+    if (assistant_power::tooHot()) { response.println("ERR CAMERA_TEMPERATURE: wait for cooling"); return true; }
+    renewPreviewLease();
     if (!viewing_) { previewReady_ = false; error_ = ""; previewAfterUs_ = esp_timer_get_time(); }
     viewing_ = true; closing_ = false;
     Serial.println("CAMERA PREVIEW OPEN requested");
@@ -621,6 +744,7 @@ bool AssistantCamera::command(const char* line, Print& response) {
     viewing_ = false; previewReady_ = false; response.println("OK CAM CLOSE");
   }
   else if (sscanf(line, "CAM SHOT %lu %c", &id, &extra) == 1 && id && id <= UINT32_MAX) {
+    if (assistant_power::tooHot()) { response.println("ERR CAMERA_TEMPERATURE: wait for cooling"); return true; }
     if (settingsPending_) response.println("ERR CAMERA_BUSY: applying settings");
     else if (requested_ && requested_ != id) response.println("ERR CAMERA_BUSY: finish/release current image");
     else {

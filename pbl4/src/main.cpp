@@ -1,10 +1,13 @@
 #include <Arduino.h>
+#include <esp_sleep.h>
+#include <BLEDevice.h>
 #include "assistant_config.h"
 #include "assistant_display.h"
 #include "assistant_logic.h"
 #include "assistant_bluetooth.h"
 #include "assistant_camera.h"
 #include "assistant_wifi.h"
+#include "assistant_power.h"
 #include <VietMusic.h>
 #include <VietMusicSongs.h>
 #include <VietMusicOutput.h>
@@ -20,6 +23,7 @@ AssistantCamera camera;
 AssistantWifi wifi;
 bool displayDirty = true;
 bool announcedDemo = false;
+bool powerSleepPending = false;
 
 void handleCommand(const char* line, uint32_t now, Print& response);
 void sleepAfterDisconnect(uint32_t now) {
@@ -79,6 +83,19 @@ void printStatus(Print& response) {
 }
 
 void handleCommand(const char* line, uint32_t now, Print& response) {
+  if (!strcmp(line,"POWER STATUS")) {
+    response.printf("POWER STATUS die_deci_c=%d cpu_mhz=%u camera=%s cooling=%d\n",
+        assistant_power::temperatureDeciC(),getCpuFrequencyMhz(),camera.poweredDown() ? "standby":"active",int(assistant_power::tooHot()));
+    return;
+  }
+  if (!strcmp(line, "POWER SLEEP")) {
+    if (&response != &Serial) { response.println("ERR POWER_SERIAL_ONLY"); return; }
+    powerSleepPending = true;
+    camera.powerDown(); wifi.prepareSleep();
+    buzzer.stop(); writeBuzzer();
+    response.println("OK POWER SLEEP");
+    return;
+  }
   if (!strcmp(line, "INFO")) {
 #if defined(VIETOCR_CAMERA) && VIETOCR_CAMERA
     response.printf("INFO VIETOCR_ASSISTANT %s WIFI1 CAMERA_OV5640_2592x1944 AF1\n", assistant_config::kFirmwareVersion);
@@ -191,6 +208,7 @@ void handleCommand(const char* line, uint32_t now, Print& response) {
       response.println("COMMANDS DEMO | STOP | MUTE ON/OFF | THEME DARK/LIGHT | BEEP | STATUS | PING | HELP");
       response.println("COMMANDS MUSIC LIST | MUSIC <name> | MUSIC STOP");
       response.println("INFO: firmware version and capabilities");
+      response.println("POWER SLEEP: Serial only; deep sleep until EN/RESET or USB reset (TFT LED on 3V3 stays lit)");
       response.println("One ASCII command per line (LF/CRLF). STOP sleeps; MUSIC STOP only stops audio.");
       break;
   }
@@ -242,8 +260,21 @@ void setup() {
 }
 
 void loop() {
+  if (powerSleepPending) {
+    if (camera.poweredDown() && wifi.sleeping()) {
+      display.powerDown();
+      BLEDevice::deinit(false);
+      Serial.println("POWER DEEP_SLEEP: camera/radios stopped; press EN/RESET to wake");
+      Serial.flush();
+      esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
+      esp_deep_sleep_start();
+    }
+    delay(10);
+    return;
+  }
   const uint32_t now = millis();
   pollSerial(now);
+  assistant_power::update(now, !camera.poweredDown());
   bluetooth.update(now);
   wifi.update(now);
   if (demo.active()) {

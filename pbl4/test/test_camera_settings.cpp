@@ -33,5 +33,14 @@ int main() {
   }
   settings.values[PreviewWidth] = 1920; encode(settings, bytes);
   assert(!decode(bytes, sizeof(bytes), decoded));
+  uint8_t old[12+4*20]{};
+  Settings legacy;
+  legacy.set("hmirror",1);legacy.set("preview_width",800);
+  camera_transfer::write32(old,0x43414d32);camera_transfer::write32(old+4,2);
+  for (int i=0;i<20;++i) camera_transfer::write32(old+8+i*4,legacy.values[i]);
+  camera_transfer::write32(old+sizeof(old)-4,camera_transfer::crc32(old,sizeof(old)-4));
+  assert(decode(old,sizeof(old),decoded));
+  assert(decoded[Hmirror]==1 && decoded[PreviewWidth]==800 && decoded[FocusX]==50 && decoded[FocusY]==50);
+  assert(!decode(nullptr,0,decoded));
   puts("camera_settings: OV5640 VGA/5MP/AF defaults, ranges, NVS CRC/version/truncation passed");
 }

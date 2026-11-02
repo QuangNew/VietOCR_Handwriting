@@ -1,0 +1,24 @@
+{
+  "physical_board": true,
+  "info": "INFO VIETOCR_ASSISTANT 3.2.0-focus-power WIFI1 CAMERA_OV5640_2592x1944 AF1",
+  "idle_before": "POWER STATUS die_deci_c=371 cpu_mhz=80 camera=standby cooling=0",
+  "saved_profiles_count": 1,
+  "saved_credentials_valid": true,
+  "active": "POWER STATUS die_deci_c=401 cpu_mhz=240 camera=active cooling=0",
+  "idle_after": "POWER STATUS die_deci_c=411 cpu_mhz=80 camera=standby cooling=0",
+  "idle_camera_standby": true,
+  "idle_cpu_80mhz": true,
+  "passed": true,
+  "deep_sleep_confirmed": true,
+  "serial": [
+    "INFO VIETOCR_ASSISTANT 3.2.0-focus-power WIFI1 CAMERA_OV5640_2592x1944 AF1",
+    "POWER STATUS die_deci_c=371 cpu_mhz=80 camera=standby cooling=0",
+    "POWER die_c=40.1 cpu_mhz=240 camera=active cooling=0",
+    "POWER STATUS die_deci_c=401 cpu_mhz=240 camera=active cooling=0",
+    "POWER die_c=40.1 cpu_mhz=240 camera=active cooling=0",
+    "POWER die_c=41.1 cpu_mhz=240 camera=active cooling=0",
+    "CAMERA POWER OFF: sensor standby, XCLK/DMA stopped",
+    "POWER STATUS die_deci_c=411 cpu_mhz=80 camera=standby cooling=0",
+    "POWER DEEP_SLEEP: camera/radios stopped; press EN/RESET to wake"
+  ]
+}

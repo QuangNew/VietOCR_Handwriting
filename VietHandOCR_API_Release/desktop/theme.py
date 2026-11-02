@@ -9,31 +9,46 @@ from tkinter import ttk
 from .preferences import read_preferences, update_preferences
 
 LIGHT = {
-    "bg": "#F4F7F5", "white": "#FFFFFF", "ink": "#19392E",
-    "muted": "#728178", "green": "#258362", "green_dark": "#176347",
-    "pale": "#EAF5EF", "border": "#DFE8E2", "error": "#B64545",
-    "error_bg": "#FFF1EF", "amber": "#AA742B", "on_accent": "white",
-    "preview": "#F6F8F6", "selection": "#D7EDDF", "disabled_bg": "#F0F3F1",
-    "disabled_fg": "#A0AAA4", "primary_disabled_bg": "#B7CDC1",
-    "primary_disabled_fg": "#F9FBFA", "scroll": "#D5E1D9", "shadow": "#D5E6DB",
-    "paper_border": "#C6D9CB", "paper_line": "#B6CFBF",
+    "bg": "#F3F4F6", "white": "#FFFFFF", "ink": "#18202B",
+    "muted": "#596576", "green": "#005FB8", "green_dark": "#004D96",
+    "pale": "#EBF3FC", "border": "#DDE2E8", "error": "#B42335",
+    "error_bg": "#FFF0F2", "amber": "#91600C", "on_accent": "#FFFFFE",
+    "preview": "#E9EDF2", "selection": "#DCEBFA", "disabled_bg": "#ECEFF3",
+    "disabled_fg": "#8993A0", "primary_disabled_bg": "#CAD7E5",
+    "primary_disabled_fg": "#63768B", "scroll": "#BCC5D0", "shadow": "#D6DFEA",
+    "paper_border": "#A6B7CC", "paper_line": "#8096B2",
 }
 
 DARK = {
-    "bg": "#111916", "white": "#1B2721", "ink": "#E5EEE8",
-    "muted": "#A5B7AC", "green": "#7AC99B", "green_dark": "#94D8B0",
-    "pale": "#203A2B", "border": "#35483C", "error": "#F39A92",
-    "error_bg": "#3F2726", "amber": "#E4BE81", "on_accent": "#102419",
-    "preview": "#131E18", "selection": "#315740", "disabled_bg": "#1E2D24",
-    "disabled_fg": "#7E9285", "primary_disabled_bg": "#2A4033",
-    "primary_disabled_fg": "#829A8C", "scroll": "#41614C", "shadow": "#15271C",
-    "paper_border": "#4B6D56", "paper_line": "#86A991",
+    "bg": "#1C1C1C", "white": "#252525", "ink": "#F2F4F8",
+    "muted": "#ABB3BF", "green": "#57C8FF", "green_dark": "#7ED5FF",
+    "pale": "#233342", "border": "#393B40", "error": "#FF9CA8",
+    "error_bg": "#42282E", "amber": "#EBC277", "on_accent": "#102333",
+    "preview": "#17191D", "selection": "#293F53", "disabled_bg": "#2D2E31",
+    "disabled_fg": "#7D8590", "primary_disabled_bg": "#334451",
+    "primary_disabled_fg": "#91A6B5", "scroll": "#525862", "shadow": "#181E25",
+    "paper_border": "#52657B", "paper_line": "#849BB5",
 }
 
 PALETTES = {"light": LIGHT, "dark": DARK}
 # Keep this dictionary's identity: widgets and camera import the same object.
 COLORS = DARK.copy()
 PREFERENCES_PATH = Path(__file__).resolve().parents[1] / ".desktop-preferences.json"
+
+
+def enable_crisp_scaling():
+    """Request native Windows pixels before Tk creates any windows.
+
+    System DPI awareness avoids bitmap-stretched text at 125/150% scaling.
+    Tk 8.6 uses the startup monitor's DPI; leave per-monitor DPI to a future
+    Tk upgrade rather than resize the whole widget tree while dragging windows.
+    """
+    if sys.platform == 'win32':
+        import ctypes
+        try:
+            ctypes.windll.shcore.SetProcessDpiAwareness(1)
+        except (AttributeError, OSError):
+            ctypes.windll.user32.SetProcessDPIAware()
 
 
 def _pause_windows_redraw(root):
@@ -180,6 +195,10 @@ def recolor_widgets(widget: tk.Misc, previous: dict[str, str]) -> None:
             widget.tk.call(f"{popup}.f.l", "configure", "-background", COLORS["white"],
                            "-foreground", COLORS["ink"], "-selectbackground", COLORS["selection"],
                            "-selectforeground", COLORS["ink"])
+        # Notebook/ttk containers may own ordinary Tk canvases and labels.
+        # Recolor those too, while the container itself follows its ttk theme.
+        for child in widget.winfo_children():
+            recolor_widgets(child, previous)
         return
     replacements = {value.lower(): COLORS[key] for key, value in previous.items()}
     changes = {}

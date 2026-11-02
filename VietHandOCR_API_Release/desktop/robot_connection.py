@@ -143,7 +143,7 @@ class RobotClient:
         return True
 
     def wifi(self, action, ssid='', password=''):
-        if action not in ('wifi_scan', 'wifi_join', 'wifi_status', 'wifi_state') or not self.connected.is_set():
+        if action not in ('wifi_scan', 'wifi_join', 'wifi_status', 'wifi_state', 'wifi_profiles') or not self.connected.is_set():
             return False
         with self._lock:
             if action == 'wifi_state' and any(isinstance(job, tuple) and job[0] == action for job in self._camera_jobs):
@@ -154,7 +154,7 @@ class RobotClient:
         return True
 
     def camera_settings(self, action, settings=None, *, persist=True):
-        if action not in ('settings_get', 'settings_set') or not self.connected.is_set(): return False
+        if action not in ('settings_get', 'settings_set', 'settings_focus') or not self.connected.is_set(): return False
         with self._lock:
             if len(self._camera_jobs) >= 4: return False
             self._camera_jobs.append((action, {} if action == 'settings_get' else {'settings':settings,'persist':persist}))
@@ -301,15 +301,16 @@ class RobotClient:
                             if hasattr(protocol, 'network'):
                                 value = await self._interruptible(protocol.network(camera_job, **arguments))
                             else:
-                                from .camera_settings import get_config, apply_config
-                                value = await self._interruptible(get_config(protocol) if camera_job == 'settings_get' else apply_config(protocol, **arguments))
+                                from .camera_settings import get_config, apply_config, focus_at
+                                operation={'settings_get':get_config,'settings_set':apply_config,'settings_focus':focus_at}[camera_job]
+                                value = await self._interruptible(operation(protocol, **arguments))
                         elif camera_job in ('preview', 'stream_info') or camera_job.startswith('wifi_'):
                             if hasattr(protocol, 'network'):
                                 value = await self._interruptible(protocol.network(camera_job, **arguments))
                             else:
-                                from .wifi_camera import preview, stream_info, wifi_scan, wifi_configure, wifi_check, wifi_state
+                                from .wifi_camera import preview, stream_info, wifi_scan, wifi_configure, wifi_check, wifi_state, wifi_profiles
                                 operation = {'preview': preview, 'stream_info': stream_info, 'wifi_scan': wifi_scan, 'wifi_status': wifi_check,
-                                             'wifi_join': wifi_configure, 'wifi_state': wifi_state}[camera_job]
+                                             'wifi_join': wifi_configure, 'wifi_state': wifi_state, 'wifi_profiles': wifi_profiles}[camera_job]
                                 value = await self._interruptible(operation(protocol, **arguments))
                         elif camera_job == 'capture':
                             progress = lambda received, total: self._on_camera('progress', (received, total), '')
@@ -329,7 +330,7 @@ class RobotClient:
                         if not isinstance(error, (RobotCommandRejected, ValueError)):
                             raise
                     finally:
-                        if camera_job == 'wifi_state': next_wifi = time.monotonic() + 5
+                        if camera_job == 'wifi_state': next_wifi = time.monotonic() + 3
                         elif camera_job in ('wifi_join', 'wifi_scan', 'wifi_status'): next_wifi = 0
                 if self._beep.is_set():
                     self._beep.clear()

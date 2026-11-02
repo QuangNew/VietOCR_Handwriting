@@ -1,0 +1,13 @@
+{
+  "desktop_tests": 208,
+  "desktop_result": "PASS",
+  "firmware_build": "PASS",
+  "firmware_upload": "COM8",
+  "host_tests": "PASS",
+  "weights_sha256": "644f2613046e4974c3aea5878e61d119b9100debe05cb55756b85b8241254cb2",
+  "launcher_bytes": 847364,
+  "upstream_commit": "31efeced2fc449bbd7877f87dea958d6a7ea776a",
+  "ai_team_files_match_upstream": true,
+  "board_sleep_confirmed": true,
+  "new_packages_installed": []
+}

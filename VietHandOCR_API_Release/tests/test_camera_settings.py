@@ -5,7 +5,7 @@ import threading
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
-from desktop.camera_settings import DEFAULTS,FIELDS,validate_settings,parse_config,request_config,apply_config
+from desktop.camera_settings import DEFAULTS,FIELDS,PRESETS,validate_settings,parse_config,request_config,apply_config
 from desktop.wifi_camera import WifiEndpoint
 
 def config(**changes):
@@ -14,6 +14,13 @@ def config(**changes):
     result.update(changes); return result
 
 class SettingsValidationTests(unittest.TestCase):
+    def test_document_preset_preserves_orientation_and_enables_focus(self):
+        values = {**DEFAULTS, 'hmirror':1, 'vflip':1, **PRESETS['Tài liệu OCR']}
+        validate_settings(values)
+        self.assertEqual((values['hmirror'], values['vflip'], values['autofocus']), (1,1,1))
+        self.assertGreaterEqual(values['still_quality'], 4)
+        self.assertEqual(values['special_effect'], 0)
+
     def test_ranges_and_incompatible_frame_sizes_never_get_sent(self):
         self.assertEqual(validate_settings(DEFAULTS),DEFAULTS)
         for key,(_,_,low,high,_,_) in FIELDS.items():
@@ -45,7 +52,7 @@ class ConfigHttpTests(unittest.IsolatedAsyncioTestCase):
         worker=threading.Thread(target=server.serve_forever,daemon=True);worker.start()
         endpoint=WifiEndpoint(f'127.0.0.1:{server.server_port}',token)
         values={**DEFAULTS,'brightness':2,'hmirror':1}
-        states.extend([config(revision=2,applied_revision=2,saved=False,settings=values),config(revision=2,applied_revision=2,saved=True,settings=values)])
+        states.extend([config(),config(revision=2,applied_revision=2,saved=False,settings=values),config(revision=2,applied_revision=2,saved=True,settings=values)])
         commands=[]
         async def request(command,**kwargs):commands.append(command);return 'OK '+command
         try:
@@ -53,7 +60,7 @@ class ConfigHttpTests(unittest.IsolatedAsyncioTestCase):
                 result=await apply_config(SimpleNamespace(request=request),values,persist=True)
             self.assertTrue(result['saved']);self.assertEqual(commands,['CAM CLOSE'])
             self.assertEqual(posts,[{'settings':values,'persist':True}])
-            self.assertEqual(len(calls),2);self.assertTrue(all(c[1]=='/camera/config' and c[2]=='Bearer '+token for c in calls))
+            self.assertEqual(len(calls),3);self.assertTrue(all(c[1]=='/camera/config' and c[2]=='Bearer '+token for c in calls))
         finally:
             await asyncio.to_thread(server.shutdown);server.server_close();worker.join(2)
 

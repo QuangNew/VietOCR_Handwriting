@@ -173,6 +173,44 @@ async def wifi_status(protocol):
     return await wifi_request(protocol, 'WIFI STATUS', expected_prefix='WIFI STATUS ')
 
 
+@dataclass(frozen=True)
+class SavedWifiProfile:
+    ssid: str
+    password: str = field(repr=False)
+
+
+async def wifi_profiles(protocol):
+    """Read flash profiles only on explicit user request; never log responses."""
+    try:
+        count_line = await wifi_request(protocol, 'WIFI SAVED COUNT', expected_prefix='WIFI SAVED COUNT ')
+    except RobotCommandRejected as error:
+        if error.code == 'WIFI_COMMAND':
+            raise ValueError('Nạp firmware OV5640 3.2.0 để xem các mạng và mật khẩu đã lưu.') from None
+        raise
+    try:
+        count = int(count_line.split()[-1])
+        if not 0 <= count <= 5: raise ValueError()
+        profiles = []
+        for index in range(count):
+            line = await wifi_request(protocol, f'WIFI SAVED SSID {index}', expected_prefix=f'WIFI SAVED SSID {index} ')
+            ssid = wifi_name(line.split()[-1])
+            password = bytearray()
+            for offset in range(0, 64, 24):
+                line = await wifi_request(protocol, f'WIFI SAVED PASS {index} {offset}',
+                                          expected_prefix=f'WIFI SAVED PASS {index} {offset} ')
+                value = line.split()[-1]
+                chunk = b'' if value == '-' else bytes.fromhex(value)
+                if len(chunk) > 24: raise ValueError()
+                password.extend(chunk)
+                if len(chunk) < 24: break
+            secret = password.decode('utf-8')
+            wifi_commands(ssid, secret)
+            profiles.append(SavedWifiProfile(ssid, secret))
+        return profiles
+    except (ValueError, IndexError, UnicodeError):
+        raise ValueError('Dữ liệu mạng đã lưu không hợp lệ; thử tải danh sách lại.') from None
+
+
 def http_error(endpoint, error):
     reason = getattr(error, 'reason', error)
     code = getattr(reason, 'winerror', None) or getattr(reason, 'errno', None)
@@ -301,6 +339,10 @@ async def capture_fast(protocol, on_progress=None):
                 metadata = CameraMetadata.parse(await protocol.request(f'CAM META {frame_id}', expected_prefix=f'CAM {frame_id} '), frame_id)
                 break
             except RobotCommandRejected as error:
+                if error.code == 'CAMERA_FOCUS':
+                    raise ValueError('Camera chưa khóa nét. Giữ tài liệu đứng yên, tăng ánh sáng và đặt vùng chữ ở giữa khung rồi chụp lại. (CAMERA_FOCUS)') from error
+                if error.code == 'CAMERA_EXPOSURE':
+                    raise ValueError('Ánh sáng/phơi sáng chưa ổn định. Giữ máy và nguồn sáng ổn định rồi chụp lại. (CAMERA_EXPOSURE)') from error
                 if error.code != 'CAMERA_BUSY' or time.monotonic() >= deadline:
                     raise
                 await asyncio.sleep(.15)

@@ -69,6 +69,8 @@ def main() -> int:
         return 1
     root = app = None
     try:
+        from desktop.theme import enable_crisp_scaling
+        enable_crisp_scaling()
         root = tk.Tk()
         app = Application(root, str(Path(args.weights).expanduser().resolve()), args.device, args.camera)
         if args.images:

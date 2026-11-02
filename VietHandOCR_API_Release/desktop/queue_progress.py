@@ -14,10 +14,32 @@ class QueueProgress:
         self.frame = tk.Frame(parent, bg=C['white'], highlightthickness=1, highlightbackground=C['border'])
         self.title = tk.StringVar()
         self.expanded, self.key = True, None
-        ttk.Button(self.frame, textvariable=self.title, command=self.toggle, style='Small.TButton').pack(fill='x')
+        header = tk.Frame(self.frame, bg=C['white'])
+        header.pack(fill='x')
+        ttk.Button(header, textvariable=self.title, command=self.toggle, style='Small.TButton').pack(side='left', fill='x', expand=True)
+        ttk.Button(header, text='Ẩn', command=self.hide, style='Small.TButton').pack(side='right')
         self.rows = tk.Frame(self.frame, bg=C['white'], padx=12, pady=6)
         self.rows.pack(fill='x')
         self.on_select = on_select
+        self.visible = False
+        self._hide_timer = None
+        self._batch_key = ()
+        self._dismissed = None
+        self.frame.bind('<Destroy>', self._destroyed, add='+')
+
+    def _cancel_hide(self):
+        if self._hide_timer is not None:
+            self.frame.after_cancel(self._hide_timer)
+            self._hide_timer = None
+
+    def _destroyed(self, event):
+        if event.widget is self.frame:
+            self._cancel_hide()
+
+    def hide(self):
+        self._cancel_hide()
+        self._dismissed = self._batch_key
+        self.frame.place_forget()
         self.visible = False
 
     def toggle(self):
@@ -34,6 +56,8 @@ class QueueProgress:
         if self.key == key:
             return
         self.key = key
+        self._cancel_hide()
+        self._batch_key = tuple((item.id, item.version) for item in items)
         self.title.set(f'Ảnh camera · {count}/{len(items)} hoàn tất  ▾')
         for row in self.rows.winfo_children():
             row.destroy()
@@ -53,7 +77,7 @@ class QueueProgress:
             ttk.Progressbar(row, value=fraction*100, maximum=100, style='Green.Horizontal.TProgressbar').pack(fill='x', pady=(3, 0))
         if len(pending) > 4:
             tk.Label(self.rows, text=f'Và {len(pending)-4} ảnh đang chờ', bg=C['white'], fg=C['muted']).pack(anchor='w')
-        if items and not self.visible:
+        if items and not self.visible and self._dismissed != self._batch_key:
             self.frame.place(relx=1, rely=1, x=-18, y=-86, anchor='se')
             self.visible = True
         elif not items:
@@ -61,4 +85,6 @@ class QueueProgress:
             self.visible = False
         if self.visible:
             self.frame.lift()
+            if all(item.status in ('done', 'error', 'cancelled') for item in items):
+                self._hide_timer = self.frame.after(5000, self.hide)
 

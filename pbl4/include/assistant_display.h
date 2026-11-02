@@ -6,6 +6,7 @@
 class AssistantDisplay {
  public:
   void begin();
+  void powerDown() { tft_.writecommand(0x28); tft_.writecommand(0x10); }
   void setConnectionLabel(const String& label);
   enum class CameraFrame { Waiting, Drawn, Failed };
   CameraFrame renderCamera(const uint8_t* jpeg, size_t length);

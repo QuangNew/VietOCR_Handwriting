@@ -13,11 +13,14 @@ class AssistantCamera : public BLECharacteristicCallbacks {
   void begin();
   bool command(const char* line, Print& response);
   bool viewing() const { return viewing_; }
+  void renewPreviewLease() { previewLeaseUntil_ = millis()+65000; }
   Preview takePreview();
   Preview copyPreview(uint32_t afterSequence = 0, size_t prefix=0, size_t suffix=0);
   Preview copyImage(uint32_t id);
   void previewDisplayed(bool success);
   void disconnect();
+  void powerDown();
+  bool poweredDown() const { return sensorOff_ && !powerOffRequested_; }
   String diagnostic();
   String configJson();
   bool configure(const char* json, String& error);
@@ -32,6 +35,8 @@ class AssistantCamera : public BLECharacteristicCallbacks {
  private:
   SemaphoreHandle_t mutex_ = nullptr;
   std::atomic<bool> viewing_{false}, closing_{false}, previewReady_{false};
+  std::atomic<uint32_t> previewLeaseUntil_{0};
+  uint32_t previewFrameAt_=0;
   bool initialized_ = false;
   bool previewMode_ = false;
   bool modeConfigured_ = false;
@@ -42,6 +47,8 @@ class AssistantCamera : public BLECharacteristicCallbacks {
   Ov5640Autofocus autofocus_;
   std::atomic<int> focusRaw_{-2};
   std::atomic<bool> focusPending_{false};
+  std::atomic<bool> suspended_{false}, powerOffRequested_{false}, sensorOff_{true};
+  uint32_t lastActivity_ = 0;
   uint32_t focusPollAt_ = 0;
   uint64_t modeAfterUs_ = 0;
   unsigned settlingFrames_ = 0;
@@ -63,5 +70,7 @@ class AssistantCamera : public BLECharacteristicCallbacks {
   void capture(uint32_t id);
   void clear();
   void saveSettings(const camera_settings::Settings& settings, uint32_t revision);
-  void focusOnce();
+  bool focusOnce();
+  bool settleExposure(uint32_t timeoutMs=5000);
+  void shutdownSensor();
 };

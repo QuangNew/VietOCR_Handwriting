@@ -147,7 +147,7 @@ class BLEProtocol:
                     raise RobotProtocolError("Phản hồi ESP32 quá dài.")
                 self._buffer = remainder
                 decoded = line.rstrip(b"\r").decode("ascii")
-                LOGGER.debug("RX %s", 'WIFI STATUS READY [session hidden]' if decoded.startswith('WIFI STATUS READY ') else decoded)
+                LOGGER.debug("RX %s", 'WIFI [credentials/session hidden]' if decoded.startswith(('WIFI STATUS READY ', 'WIFI SAVED PASS ')) else decoded)
                 self._lines.put_nowait(decoded)
             if len(self._buffer) > 1024:
                 raise RobotProtocolError("Phản hồi ESP32 quá dài.")

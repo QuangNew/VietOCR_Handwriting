@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string>
+#include <vector>
 
 unsigned checks = 0;
 void check(bool value) { ++checks; if (!value) { fprintf(stderr, "FAIL cache check %u\n", checks); abort(); } }
@@ -27,6 +28,22 @@ struct FakeNvs {
   std::string getString(const char* key, const char* fallback = "") {
     const auto value = !strcmp(key, "ssid") ? ssid : password;
     return value.empty() ? std::string(fallback) : value;
+  }
+};
+
+struct BookNvs: FakeNvs {
+  std::vector<uint8_t> book;
+  bool isKey(const char* key) { return !strcmp(key,"networks") ? !book.empty():FakeNvs::isKey(key); }
+  size_t getBytesLength(const char* key) { return !strcmp(key,"networks") ? book.size():FakeNvs::getBytesLength(key); }
+  size_t getBytes(const char* key, void* out, size_t capacity) {
+    if (strcmp(key,"networks")) return FakeNvs::getBytes(key,out,capacity);
+    if (failRead || capacity<book.size()) return 0;
+    memcpy(out,book.data(),book.size()); return book.size();
+  }
+  size_t putBytes(const char* key, const void* value, size_t length) {
+    if (strcmp(key,"networks")) return FakeNvs::putBytes(key,value,length);
+    ++writes; if (failWrite) return 0;
+    const auto* data=static_cast<const uint8_t*>(value);book.assign(data,data+length);return length;
   }
 };
 
@@ -80,5 +97,25 @@ int main() {
   check(!save(nvs, profile)); // Must not report success without readback.
   nvs.failRead = false;
   check(load(nvs, rebooted, modern)); check(!strcmp(rebooted.ssid, "Replacement"));
+  BookNvs all;all.ssid="Legacy WiFi";all.password="password123";
+  Book list, next;
+  check(loadBook(all,list,modern) && !modern && list.count==1);
+  for (unsigned i=0;i<6;++i) {
+    Profile entry;snprintf(entry.ssid,sizeof(entry.ssid),"Network %u",i);strcpy(entry.password,"password123");
+    list.remember(entry);
+  }
+  check(list.count==5 && !strcmp(list.profiles[0].ssid,"Network 5"));
+  check(!strcmp(list.profiles[4].ssid,"Network 1"));
+  Profile update=list.profiles[2];strcpy(update.password,"changed-password");list.remember(update);
+  check(list.count==5 && equal(list.profiles[0],update));
+  check(saveBook(all,list));check(loadBook(all,next,modern) && modern);
+  for (size_t i=0;i<list.count;++i) check(equal(list.profiles[i],next.profiles[i]));
+  all.failWrite=true;list.remember(profile);
+  check(!saveBook(all,list));check(loadBook(all,next,modern));
+  check(equal(next.profiles[0],update)); // Failed write preserved the previous record.
+  uint8_t record[kBookBytes];encodeBook(next,record);
+  for (size_t i=0;i<sizeof(record);++i) {
+    record[i]^=1;check(!decodeBook(record,sizeof(record),list));record[i]^=1;
+  }
   printf("PASS WiFi credentials: %u checks (persisted record, UTF8, bounds, truncation, corruption)\n", checks);
 }
