@@ -1,135 +1,37 @@
 {
   "platform": "Android",
-  "version": "1.9.0+14",
-  "validation_date": "2026-11-02",
-  "min_sdk": 26,
+  "version": "3.0.0+17",
+  "validation_date": "2026-11-03",
+  "apk": "dist/VietOCR-arm64.apk",
+  "apk_bytes": 21357162,
+  "apk_sha256": "3f87c918ccd25061a33f9541b5fe64ab9f4577393e98fac13b1248d048bb803e",
+  "previous_apk_bytes": 144153014,
+  "ocr": "server-only",
+  "local_models": false,
+  "onnx_runtime": false,
+  "native_ocr_service": false,
+  "google_oauth": "Supabase PKCE, system browser, Android deep link",
+  "session_storage": "Android Keystore AES256-GCM",
+  "database": "Supabase PostgreSQL + per-account RLS; local photos are account-scoped cache",
+  "quota": {
+    "daily": 1000,
+    "rolling_minute": 60,
+    "timezone": "Asia/Ho_Chi_Minh",
+    "enforcement": "atomic Postgres admission"
+  },
+  "tests_passed": 87,
   "abis": [
     "arm64-v8a"
   ],
-  "apk": "dist/VietOCR-arm64.apk",
-  "apk_bytes": 182781578,
-  "apk_sha256": "ed80c36cba896c7e73fc7f9614b1b75ee7785e85d4f1c5a1aae4c898685bba09",
-  "build": "release, debug certificate for sideload testing",
-  "same_signing_certificate_as_previous": true,
-  "apk_signature_v2_verified": true,
-  "apk_16k_zip_alignment_verified": true,
-  "native_elf_load_segment_alignment": {
+  "min_sdk": 26,
+  "signature_v2": true,
+  "alignment_16k": true,
+  "elf_alignments": {
     "lib/arm64-v8a/libapp.so": 65536,
     "lib/arm64-v8a/libdartjni.so": 16384,
     "lib/arm64-v8a/libdatastore_shared_counter.so": 16384,
-    "lib/arm64-v8a/libflutter.so": 65536,
-    "lib/arm64-v8a/libonnxruntime.so": 16384,
-    "lib/arm64-v8a/libonnxruntime4j_jni.so": 16384
+    "lib/arm64-v8a/libflutter.so": 65536
   },
-  "internet_permission": true,
-  "internet_usage": "LAN camera UDP preview and HTTP stills/configuration; OCR remains offline",
-  "ocr_private_process_verified": true,
-  "packaged_model_sha256_verified": true,
-  "models_sha256": {
-    "encoder": "5c9b526fc2edc8a9d530dd9a732ee99bdb253a857b03984a81a877ac44add724",
-    "decoder": "a869559aab9f4c754a04e10af1275aaf00b12798ef9066cad0c43899d9a62563"
-  },
-  "model_precision": "FP32 weights and compute; original verified export, no weight compression",
-  "model_bytes": 152819648,
-  "analyzer": "No issues found",
-  "unit_widget_tests_passed": 76,
-  "desktop_tests_passed": 179,
-  "mobile_tests_log": ".toolchain/ov5640-apps-mobile-tests.log",
-  "desktop_tests_log": ".toolchain/ov5640-apps-desktop-tests.log",
-  "desktop_wifi_scan_tests_passed": 9,
-  "firmware_wifi_scan_verified": true,
-  "firmware_wifi_scan_tested_version": "2.0.1-wifi (historical scan regression)",
-  "firmware_required_version": "3.0.0-ov5640",
-  "wifi_status": {
-    "automatic_after_ble_connect": true,
-    "poll_interval_seconds": 5,
-    "saved_profile_visible": true,
-    "opening_settings_does_not_scan": true,
-    "wifi_association_independent_of_camera_http": true
-  },
-  "firmware_wifi_scan_evidence": ".toolchain/firmware-wifi-scan-ble.log",
-  "java_jni_ocr_host_cases_passed": 20,
-  "r8_jni_callback_verification": {
-    "onnx_classes_preserved": 60,
-    "r8_generated_helpers_excluded": 4,
-    "jni_classes_verified_in_dex": [
-      "NodeInfo",
-      "OnnxJavaType",
-      "OnnxTensor",
-      "OrtException",
-      "OrtSession",
-      "TensorInfo",
-      "ValueInfo"
-    ],
-    "tensor_info_constructor_preserved": true
-  },
-  "camera": {
-    "sensor": "OV5640",
-    "resolution": [
-      2592,
-      1944
-    ],
-    "preview_resolution": [
-      640,
-      480
-    ],
-    "preview": "4:3 VOJ1 UDP from ESP32 :82; authenticated HTTP POST :80/stream/udp; TFT assistant only",
-    "preview_fps_limit": 30,
-    "udp": {
-      "datagram_bytes": 1200,
-      "header_bytes": 32,
-      "lease_seconds": 60,
-      "renewal_seconds": 20,
-      "maximum_incomplete_frames": 2,
-      "crc32_per_frame": true,
-      "stop_reopen_tested": true
-    },
-    "preview_width_choices": [
-      320,
-      640,
-      800,
-      1024,
-      1600,
-      2048,
-      2592
-    ],
-    "fps_limit_is_not_measured_fps": true,
-    "still_jpeg_quality": 8,
-    "preview_jpeg_quality": 18,
-    "jpeg_capacity_bytes": 2097152,
-    "sensor_frame_buffers": 2,
-    "crc32_verified": true,
-    "configuration": {
-      "schema": 2,
-      "fields": 20,
-      "endpoint": "authenticated GET/POST /camera/config",
-      "presets": [
-        "M\u01b0\u1ee3t",
-        "C\u00e2n b\u1eb1ng",
-        "Chi ti\u1ebft"
-      ],
-      "editing": "local until Apply; stop stream, validate, apply, confirm, resume",
-      "persistence": "ESP32 NVS vietocr-camera/profile5640; versioned CRC32 record, read-back verified",
-      "waits_for_applied_revision_and_saved": true,
-      "reset_requires_apply": true,
-      "physical_sensor_controls_tested": false
-    },
-    "orientation": "Horizontal mirror selected on ESP32 NVS; both apps read sensor orientation, no software double mirror",
-    "autofocus": "Enabled by default, firmware continuous preview and single focus before capture",
-    "review_seconds": 3,
-    "skip_commits_once": true,
-    "capture_page_stays_open": true,
-    "camera_queue_progress": "bottom right, collapsible",
-    "original_jpeg_preserved": true,
-    "download": "Android ACTION_CREATE_DOCUMENT, no broad storage permission",
-    "detail_view": "pinch zoom, pan and native pixel crop into a new queued image",
-    "wifi_provisioning": "BLE",
-    "image_transport": "Wi-Fi :80 required; HTTP health checked before capture",
-    "physical_camera_tested": false,
-    "stream_tests": "real local HTTP/UDP lease renewal, fragmented CRC32 frames, reorder/drop/corruption, stop/reopen; 5 MP JPEG preservation and mirror persistence",
-    "physical_camera_attempt": ".toolchain/ov5640-apps-physical.log; no COM8 or BLE advertisement available at final validation",
-    "sensor_open_preflight": "BLE WiFi readiness plus authenticated HTTP checked before CAM OPEN"
-  },
-  "native_device_test": "Not installed/run on phone; host Java/JNI cannot prove Android ARM accuracy or absence of device crashes",
-  "r8_mapping": "dist/VietOCR-1.9.0+14-mapping.txt"
+  "signing": "Existing debug certificate for sideload testing, not Play Store production signing",
+  "physical_android_and_google_account_login_tested": false
 }

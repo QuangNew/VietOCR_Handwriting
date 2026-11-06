@@ -71,9 +71,9 @@ void main() {
     () {
       for (final (width, height, expected) in [
         (1, 100, 32),
-        (100, 32, 100),
-        (101, 32, 110),
-        (4000, 32, 1024),
+        (100, 32, 200),
+        (101, 32, 210),
+        (4000, 32, 2048),
       ]) {
         final tensor = makeTensor(
           GrayImage(
@@ -83,11 +83,11 @@ void main() {
           ),
         );
         expect(tensor.width, expected);
-        expect(tensor.values.length, 3 * 32 * expected);
+        expect(tensor.values.length, 3 * 64 * expected);
         expect(tensor.values.first, closeTo(127 / 255, 1e-7));
         expect(
-          tensor.values.sublist(0, 32 * expected),
-          tensor.values.sublist(32 * expected, 64 * expected),
+          tensor.values.sublist(0, 64 * expected),
+          tensor.values.sublist(64 * expected, 128 * expected),
         );
       }
     },

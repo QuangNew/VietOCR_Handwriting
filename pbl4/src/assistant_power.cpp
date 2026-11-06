@@ -17,10 +17,13 @@ unsigned limitFps(unsigned requested) {
   if (measured.load()>=750 && (!requested || requested>10)) return 10;
   return requested;
 }
-void update(uint32_t now, bool cameraActive) {
+void update(uint32_t now, bool cameraActive, bool transferring) {
   // APB stays at 80 MHz for SPI/UART/LEDC at both CPU rates. Change CPU only
   // after the camera task confirms XCLK/DMA stopped, never during a capture.
-  const unsigned target=cameraActive ? 240:80;
+  // Keep the radio-serving idle CPU on 160 MHz. In this Arduino/IDF build,
+  // requests after dropping to 80 MHz stalled despite STA staying associated.
+  // Sensor/XCLK/DMA still shut down independently; deep sleep stops all radios.
+  const unsigned target=(cameraActive || transferring) ? 240:160;
   if (getCpuFrequencyMhz()!=target && !setCpuFrequencyMhz(target))
     Serial.println("POWER CPU frequency request failed");
   if (checked && uint32_t(now-checked)<5000) return;

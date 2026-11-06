@@ -1,0 +1,32 @@
+{
+  "time": "2026-11-03T13:09:06.287406+00:00",
+  "desktopTests": {
+    "discovered": 178,
+    "exitCode": 0,
+    "uiSubsetPassed": 38
+  },
+  "backendTests": {
+    "passed": 31,
+    "failed": 0
+  },
+  "browserTests": {
+    "passed": 4,
+    "mode": "production HTML/JS/CSS intercepted in isolated Playwright context; real loopback C# API and Supabase"
+  },
+  "apiChecks": 12,
+  "latency": {
+    "beforeMeanWallMs": 2310.8,
+    "afterMeanWallMs": 1614.935,
+    "reductionPercent": 30.113597022676142,
+    "textHashesMatch": true,
+    "auth": "temporary service key; not Google Auth HTTP"
+  },
+  "desktopBuild": {
+    "path": "VietHandOCR_API_Release\\dist\\VietOCR.exe",
+    "bytes": 847364,
+    "sha256": "bf7603dc68922ff3118b389e7e44b6359ad20d35d357f9b50b2aed1b6cefeda1"
+  },
+  "newRuntimeInstalls": [],
+  "largeDownloads": false,
+  "deployment": "user listeners on 5080/3000 left unchanged; reopen Run-Server.cmd to apply"
+}

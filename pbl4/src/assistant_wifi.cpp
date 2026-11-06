@@ -7,6 +7,7 @@
 #include <lwip/sockets.h>
 #include "assistant_config.h"
 #include "camera_udp.h"
+#include "http_image_range.h"
 #include "assistant_power.h"
 #include <cJSON.h>
 
@@ -177,7 +178,7 @@ void AssistantWifi::reconnectForBluetooth(uint32_t now) {
 }
 void AssistantWifi::startServer() {
   httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-  config.stack_size = 6144; config.max_open_sockets = 2; config.lru_purge_enable = true;
+  config.stack_size = 6144; config.max_open_sockets = 4; config.lru_purge_enable = true;
   config.send_wait_timeout = 8; config.recv_wait_timeout = 3;
   if (!server_) {
     const esp_err_t result = httpd_start(&server_, &config);
@@ -199,6 +200,7 @@ void AssistantWifi::startServer() {
   // /image responsive instead of queueing them behind an endless MJPEG GET.
   if (server_ && !streamServer_) {
     config.server_port = 81; config.ctrl_port += 1;
+    config.max_open_sockets = 2;
     config.send_wait_timeout = 8;
     const auto status = httpd_start(&streamServer_, &config);
     if (status == ESP_OK) {
@@ -219,17 +221,23 @@ void AssistantWifi::stopServers() {
   serverIp_ = IPAddress();
 }
 void AssistantWifi::tick(uint32_t now) {
-  const bool fast=!camera_->poweredDown();
+  const bool transfer=transferring();
+  const bool fast=!camera_->poweredDown() || transfer;
   if (fast!=fastRadio_) {
     // Never WIFI_PS_NONE: that aborts this runtime when BLE is enabled.
     const auto policy=fast ? WIFI_PS_MAX_MODEM:WIFI_PS_MIN_MODEM;
     const auto result=esp_wifi_set_ps(policy);
     if (result==ESP_OK) fastRadio_=fast;
   }
-  if (WiFi.status()==WL_CONNECTED && uint32_t(now-powerPolicyAt_)>=10000) {
+  const bool transferChanged=photoRadio_!=transfer;
+  if (transferChanged) {
+    photoRadio_=transfer;
+    esp_coex_preference_set((transfer || udpRadio_) ? ESP_COEX_PREFER_WIFI:ESP_COEX_PREFER_BALANCE);
+  }
+  if (WiFi.status()==WL_CONNECTED && (transferChanged || uint32_t(now-powerPolicyAt_)>=10000)) {
     powerPolicyAt_=now;
     const int rssi=WiFi.RSSI();
-    WiFi.setTxPower(rssi>-60 ? WIFI_POWER_8_5dBm:rssi>-70 ? WIFI_POWER_13dBm:WIFI_POWER_19_5dBm);
+    WiFi.setTxPower(transfer ? WIFI_POWER_17dBm:rssi>-60 ? WIFI_POWER_8_5dBm:rssi>-70 ? WIFI_POWER_13dBm:WIFI_POWER_19_5dBm);
   }
   if (joinPending_ && now - connectingSince_ >= 250) {
     joinPending_ = false; connectingSince_ = now; disconnectReason_ = 0;
@@ -398,6 +406,7 @@ bool AssistantWifi::authorized(httpd_req_t* request) {
 }
 esp_err_t AssistantWifi::health(httpd_req_t* request) {
   if (!authorized(request)) return ESP_OK;
+  const uint32_t started=millis();
   String camera = static_cast<AssistantWifi*>(request->user_ctx)->camera_->diagnostic();
   camera.replace("\\", "/"); camera.replace("\"", "'"); camera.replace("\n", " "); camera.replace("\r", " ");
   auto* self = static_cast<AssistantWifi*>(request->user_ctx);
@@ -414,7 +423,9 @@ esp_err_t AssistantWifi::health(httpd_req_t* request) {
            assistant_power::temperatureDeciC(),assistant_power::tooHot() ? "true":"false",getCpuFrequencyMhz(),
            self->camera_->maxFps(),profile[camera_settings::FocusX],profile[camera_settings::FocusY]);
   httpd_resp_set_type(request, "application/json"); httpd_resp_set_hdr(request, "Cache-Control", "no-store");
-  return httpd_resp_sendstr(request, response);
+  const auto result=httpd_resp_sendstr(request, response);
+  Serial.printf("WIFI HTTP health cpu=%u send_ms=%lu rc=%s\n",getCpuFrequencyMhz(),(unsigned long)(millis()-started),esp_err_to_name(result));
+  return result;
 }
 esp_err_t AssistantWifi::cameraConfig(httpd_req_t* request) {
   if (!authorized(request)) return ESP_OK;
@@ -481,9 +492,11 @@ esp_err_t AssistantWifi::udpControl(httpd_req_t* request) {
   portENTER_CRITICAL(&self->tokenMutex_); memcpy(token,self->tokenBytes_,33);portEXIT_CRITICAL(&self->tokenMutex_);
   // Destination is always the authenticated HTTP peer, never an arbitrary IP.
   portENTER_CRITICAL(&self->udpMutex_);
+  const bool sameLease = self->udpActive_ && value && self->udpPeer_ == peer4 &&
+      self->udpPort_ == value && !memcmp(self->udpToken_, token, 33) && int32_t(millis()-self->udpExpires_) < 0;
   self->udpActive_=value!=0; self->udpPeer_=peer4; self->udpPort_=value;
   self->udpExpires_=millis()+60000; memcpy(self->udpToken_,token,33);
-  if (!++self->udpGeneration_) self->udpGeneration_=1;
+  if (!sameLease && !++self->udpGeneration_) self->udpGeneration_=1;
   const uint32_t generation=self->udpGeneration_;
   portEXIT_CRITICAL(&self->udpMutex_);
   if (value) self->camera_->renewPreviewLease();
@@ -499,7 +512,7 @@ void AssistantWifi::udpTick(uint32_t now) {
   portENTER_CRITICAL(&tokenMutex_);valid=!memcmp(token,tokenBytes_,33);portEXIT_CRITICAL(&tokenMutex_);
   if (!active || !valid || int32_t(now-expires)>=0 || !camera_->viewing() || WiFi.status()!=WL_CONNECTED) {
     if (udpSocket_>=0) { close(udpSocket_);udpSocket_=-1; }
-    if (udpRadio_) { esp_coex_preference_set(ESP_COEX_PREFER_BALANCE);udpRadio_=false; }
+    if (udpRadio_) { esp_coex_preference_set(transferring() ? ESP_COEX_PREFER_WIFI:ESP_COEX_PREFER_BALANCE);udpRadio_=false; }
     return;
   }
   if (udpSocket_<0) {
@@ -539,7 +552,14 @@ esp_err_t AssistantWifi::jpeg(httpd_req_t* request) {
   auto* self = static_cast<AssistantWifi*>(request->user_ctx);
   if (!authorized(request)) return ESP_OK;
   AssistantCamera::Preview frame;
-  if (!strncmp(request->uri, "/image", 6)) {
+  const bool still = !strncmp(request->uri, "/image", 6);
+  struct TransferActivity {
+    std::atomic<bool>& active; std::atomic<uint32_t>& until; bool enabled;
+    TransferActivity(std::atomic<bool>& a, std::atomic<uint32_t>& u, bool e):active(a),until(u),enabled(e) { if (enabled) active=true; }
+    ~TransferActivity() { if (enabled) { until=millis()+2000; active=false; } }
+  } transfer(self->photoTransfer_,self->photoUntil_,still);
+  unsigned long imageId = 0;
+  if (still) {
     char query[48]{}, value[16]{};
     unsigned long id = 0; char extra;
     if (httpd_req_get_url_query_str(request, query, sizeof(query)) != ESP_OK ||
@@ -547,15 +567,50 @@ esp_err_t AssistantWifi::jpeg(httpd_req_t* request) {
         sscanf(value, "%lu%c", &id, &extra) != 1 || !id || id > UINT32_MAX) {
       httpd_resp_set_status(request, "400 Bad Request"); return httpd_resp_sendstr(request, "Invalid image ID");
     }
+    imageId = id;
     frame = self->camera_->copyImage(id);
   } else { self->camera_->renewPreviewLease(); frame = self->camera_->copyPreview(); }
   if (!frame.data) { httpd_resp_set_status(request, "503 Service Unavailable"); return httpd_resp_sendstr(request, "Camera not ready"); }
   httpd_resp_set_type(request, "image/jpeg"); httpd_resp_set_hdr(request, "Cache-Control", "no-store");
+  httpd_resp_set_hdr(request, "Connection", "close");
+  // Short, resumable requests let control/health run between photo chunks.
+  // Keep the exact sensor JPEG: no resize, decode or re-encode on this route.
+  http_image_range::Range range; range.length = frame.size;
+  char rangeHeader[80]{}, etag[40]{}, ifRange[40]{};
+  if (still) {
+    snprintf(etag, sizeof(etag), "\"%lu-%08lx\"", imageId,
+             (unsigned long)camera_transfer::crc32(frame.data, frame.size));
+    httpd_resp_set_hdr(request, "ETag", etag);
+    httpd_resp_set_hdr(request, "Accept-Ranges", "bytes");
+    const size_t headerSize = httpd_req_get_hdr_value_len(request, "Range");
+    const bool hasIfRange = httpd_req_get_hdr_value_len(request, "If-Range") != 0;
+    const bool match = !hasIfRange || (httpd_req_get_hdr_value_str(request, "If-Range", ifRange, sizeof(ifRange)) == ESP_OK && !strcmp(ifRange, etag));
+    if (headerSize && match) {
+      if (headerSize >= sizeof(rangeHeader) || httpd_req_get_hdr_value_str(request, "Range", rangeHeader, sizeof(rangeHeader)) != ESP_OK ||
+          !http_image_range::parse(rangeHeader, frame.size, range)) {
+        char invalid[48]; snprintf(invalid, sizeof(invalid), "bytes */%u", unsigned(frame.size));
+        httpd_resp_set_status(request, "416 Range Not Satisfiable");
+        httpd_resp_set_hdr(request, "Content-Range", invalid);
+        free(frame.data); return httpd_resp_sendstr(request, "Invalid byte range");
+      }
+    }
+  }
+  char contentRange[64];
+  if (range.partial) {
+    snprintf(contentRange, sizeof(contentRange), "bytes %u-%u/%u", unsigned(range.first),
+             unsigned(range.first + range.length - 1), unsigned(frame.size));
+    httpd_resp_set_status(request, "206 Partial Content");
+    httpd_resp_set_hdr(request, "Content-Range", contentRange);
+  }
   const uint32_t start = millis();
-  const auto result = httpd_resp_send(request, reinterpret_cast<const char*>(frame.data), frame.size);
-  Serial.printf("WIFI JPEG %s bytes=%u send_ms=%lu rc=%s\n", !strncmp(request->uri, "/image", 6) ? "shot" : "preview",
-                unsigned(frame.size), (unsigned long)(millis()-start), esp_err_to_name(result));
-  free(frame.data); return result;
+  const auto result = httpd_resp_send(request, reinterpret_cast<const char*>(frame.data + range.first), range.length);
+  Serial.printf("WIFI JPEG %s offset=%u bytes=%u total=%u send_ms=%lu rc=%s\n", still ? "shot" : "preview",
+                unsigned(range.first), unsigned(range.length), unsigned(frame.size), (unsigned long)(millis()-start), esp_err_to_name(result));
+  free(frame.data);
+  // Clients deliberately use one request per range. Release server slots even
+  // if a peer's TCP FIN is delayed/lost on a noisy LAN.
+  httpd_sess_trigger_close(request->handle, httpd_req_to_sockfd(request));
+  return result;
 }
 
 esp_err_t AssistantWifi::stream(httpd_req_t* request) {

@@ -21,6 +21,26 @@ class SettingsValidationTests(unittest.TestCase):
         self.assertGreaterEqual(values['still_quality'], 4)
         self.assertEqual(values['special_effect'], 0)
 
+class LostSettingsResponseTests(unittest.IsolatedAsyncioTestCase):
+    async def test_lost_post_is_read_back_without_replaying_flash_write(self):
+        from desktop.wifi_camera import CameraNetworkError
+        values={**DEFAULTS,'focus_x':35}
+        endpoint=WifiEndpoint('127.0.0.1','a'*32)
+        commands=[]
+        async def request(command,**kwargs):commands.append(command);return 'OK '+command
+        results=iter([config(),CameraNetworkError('response lost'),config(settings=values,revision=2,applied_revision=2)])
+        calls=[]
+        def control(endpoint,settings=None,**kwargs):
+            calls.append(settings)
+            value=next(results)
+            if isinstance(value,Exception):raise value
+            return value
+        with patch('desktop.wifi_camera.wifi_status',return_value='unused'),patch('desktop.wifi_camera.WifiEndpoint.parse',return_value=endpoint),patch('desktop.camera_settings.request_config',side_effect=control):
+            result=await apply_config(SimpleNamespace(request=request),values)
+        self.assertEqual(result['revision'],2)
+        self.assertEqual(sum(v is not None for v in calls),1)
+        self.assertEqual(commands,['CAM CLOSE'])
+
     def test_ranges_and_incompatible_frame_sizes_never_get_sent(self):
         self.assertEqual(validate_settings(DEFAULTS),DEFAULTS)
         for key,(_,_,low,high,_,_) in FIELDS.items():

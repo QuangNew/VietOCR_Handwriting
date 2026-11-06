@@ -5,7 +5,7 @@ import time
 from pathlib import Path
 
 from .domain import load_image
-from .ocr_service import RecognitionCancelled
+from .ocr_contract import RecognitionCancelled
 
 logger = logging.getLogger("vietocr_desktop.tasks")
 
@@ -45,29 +45,47 @@ def recognize_images(jobs, settings, cancel, service, events):
             raise RecognitionCancelled()
         events.put(("model_loaded",))
         events.put(("model_device", getattr(service, "device_info", None)))
-        for index, (item_id, image) in enumerate(jobs, 1):
-            if cancel.is_set():
-                break
-            events.put(("started", item_id, index, len(jobs)))
-            started = time.perf_counter()
+        def recognize_one(entry):
+            index,(item_id,image)=entry
+            if cancel.is_set(): return 0,0
+            events.put(("started",item_id,index,len(jobs)))
+            started=time.perf_counter()
             try:
-                # Queue entries are paths; decode only the active image.
-                if isinstance(image, (str, Path)):
-                    image = load_image(image)
-                result = service.recognize(image, settings, cancel,
-                                           lambda line, total, job_id=item_id: events.put(("line_progress", job_id, line, total)))
+                if isinstance(image,(str,Path)) and not getattr(service,'accepts_image_paths',False):
+                    image=load_image(image)
+                result=service.recognize(image,settings,cancel,
+                    lambda line,total:events.put(("line_progress",item_id,line,total)))
             except RecognitionCancelled:
-                events.put(("cancelled", item_id))
-                break
+                events.put(("cancelled",item_id));return 0,0
             except Exception as exc:
-                logger.exception("Recognition failed for image %s", item_id)
-                failures += 1
-                events.put(("result", item_id, "", str(exc)[:3000], time.perf_counter()-started))
+                logger.exception("Recognition failed for image %s",item_id)
+                events.put(("result",item_id,"",str(exc)[:3000],time.perf_counter()-started));return 0,1
             else:
-                successes += 1
-                events.put(("result", item_id, result, "", time.perf_counter()-started))
-            finally:
-                events.put(("model_device", getattr(service, "device_info", None)))
+                events.put(("result",item_id,result,"",time.perf_counter()-started));return 1,0
+            finally:events.put(("model_device",getattr(service,"device_info",None)))
+
+        # A bounded number of requests gives the server enough queued work to
+        # use several workers. Never submit the entire photo library at once.
+        parallel=min(4,max(1,getattr(service,'parallelism',1)))
+        if parallel==1:
+            for entry in enumerate(jobs,1):
+                if cancel.is_set():break
+                good,bad=recognize_one(entry);successes+=good;failures+=bad
+        else:
+            from concurrent.futures import ThreadPoolExecutor,wait,FIRST_COMPLETED
+            remaining=iter(enumerate(jobs,1))
+            with ThreadPoolExecutor(max_workers=parallel,thread_name_prefix='VietOCR-request') as pool:
+                pending=set()
+                def schedule():
+                    if cancel.is_set():return
+                    try:entry=next(remaining)
+                    except StopIteration:return
+                    pending.add(pool.submit(recognize_one,entry))
+                for _ in range(parallel):schedule()
+                while pending:
+                    done,_=wait(pending,return_when=FIRST_COMPLETED)
+                    for future in done:
+                        pending.remove(future);good,bad=future.result();successes+=good;failures+=bad;schedule()
     except RecognitionCancelled:
         pass
     except Exception as exc:

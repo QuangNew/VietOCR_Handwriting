@@ -24,17 +24,13 @@ def main():
     vocab = manifest['vocabulary']
     (fixtures / 'vocabulary.txt').write_text('\n'.join(vocab), encoding='utf-8')
 
-    class Vocabulary:
-        def decode(self, ids):
-            return ''.join(vocab[value] for value in ids if value > 2).strip()
-
     encoder = session(mobile / 'assets/models/vietocr_encoder.onnx', android_options=True)
     decoder = session(mobile / 'assets/models/vietocr_decoder.onnx', android_options=True)
     rows = []
     for case in json.loads((fixtures / 'fixtures.json').read_text(encoding='utf-8')):
         for line in case['tensors']:
-            image = np.fromfile(fixtures / line['file'], dtype='<f4').reshape(1, 3, 32, line['width'])
-            expected, _ = decode(encoder, decoder, image, Vocabulary())
+            image = np.fromfile(fixtures / line['file'], dtype='<f4').reshape(1, 3, manifest['image_height'], line['width'])
+            expected, _ = decode(encoder, decoder, image, vocab)
             name = line['file'] + '.expected.txt'
             (fixtures / name).write_text(expected, encoding='utf-8')
             rows.append(f"{line['file']}\t{line['width']}\t{name}")
@@ -54,7 +50,7 @@ def main():
                             check=True, capture_output=True, text=True, encoding='utf-8')
     print(result.stdout, flush=True)
     assert result.stdout.count('PASS ') == len(rows) + 1
-    report = {'date': '2026-10-27', 'runtime': 'ONNX Runtime Java/JNI 1.23.2, Windows x64',
+    report = {'date': '2026-11-03', 'runtime': 'ONNX Runtime Java/JNI 1.23.2, Windows x64',
               'production_core': str(core.relative_to(mobile)).replace('\\', '/'),
               'core_sha256': hashlib.sha256(core.read_bytes()).hexdigest(),
               'same_text_as_python_ort': True, 'tensors_checked': len(rows),

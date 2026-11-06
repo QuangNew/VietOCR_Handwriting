@@ -269,6 +269,22 @@ bool AssistantCamera::selectMode(bool preview) {
   if (persist) saveSettings(settings, revision);
   Serial.printf("CAMERA MODE %s %ux%u QS=%d mirror=%d flip=%d\n", preview ? "preview" : "still",
       width, width * 3 / 4, settings[preview ? PreviewQuality : StillQuality], settings[Hmirror], settings[Vflip]);
+  if (!preview) {
+    // Read the sensor, not just requested dimensions: catches a stale binned
+    // preview accidentally being enlarged into a nominal 5 MP JPEG.
+    const int sensorWidth = sensor->get_reg(sensor, 0x3808, 0xffff);
+    const int sensorHeight = sensor->get_reg(sensor, 0x380a, 0xffff);
+    const int xIncrement = sensor->get_reg(sensor, 0x3814, 0xff);
+    const int yIncrement = sensor->get_reg(sensor, 0x3815, 0xff);
+    const int scaler = sensor->get_reg(sensor, 0x5001, 0x20);
+    const int qs = sensor->get_reg(sensor, 0x4407, 0x3f);
+    Serial.printf("CAMERA NATIVE sensor=%dx%d increment=%02x/%02x scale=%d QS=%d\n",
+        sensorWidth, sensorHeight, xIncrement, yIncrement, scaler != 0, qs);
+    if (sensorWidth != 2592 || sensorHeight != 1944 || xIncrement != 0x11 || yIncrement != 0x11 || scaler != 0) {
+      setError("CAMERA_PROFILE: native sensor readback mismatch"); modeConfigured_ = false;
+      return false;
+    }
+  }
   return true;
 #else
   return false;
@@ -731,7 +747,7 @@ bool AssistantCamera::command(const char* line, Print& response) {
   } else if (!strcmp(line, "CAM ORIENT")) {
     response.printf("CAM ORIENT %d %d\n", settings_[camera_settings::Hmirror], settings_[camera_settings::Vflip]);
   } else if (!strcmp(line, "CAM OPEN")) {
-    if (assistant_power::tooHot()) { response.println("ERR CAMERA_TEMPERATURE: wait for cooling"); return true; }
+    if (assistant_power::tooHot()) { xSemaphoreGive(mutex_); response.println("ERR CAMERA_TEMPERATURE: wait for cooling"); return true; }
     renewPreviewLease();
     if (!viewing_) { previewReady_ = false; error_ = ""; previewAfterUs_ = esp_timer_get_time(); }
     viewing_ = true; closing_ = false;
@@ -744,7 +760,7 @@ bool AssistantCamera::command(const char* line, Print& response) {
     viewing_ = false; previewReady_ = false; response.println("OK CAM CLOSE");
   }
   else if (sscanf(line, "CAM SHOT %lu %c", &id, &extra) == 1 && id && id <= UINT32_MAX) {
-    if (assistant_power::tooHot()) { response.println("ERR CAMERA_TEMPERATURE: wait for cooling"); return true; }
+    if (assistant_power::tooHot()) { xSemaphoreGive(mutex_); response.println("ERR CAMERA_TEMPERATURE: wait for cooling"); return true; }
     if (settingsPending_) response.println("ERR CAMERA_BUSY: applying settings");
     else if (requested_ && requested_ != id) response.println("ERR CAMERA_BUSY: finish/release current image");
     else {

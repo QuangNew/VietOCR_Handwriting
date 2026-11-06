@@ -8,6 +8,7 @@ import threading
 import time
 import tkinter as tk
 from datetime import datetime
+from dataclasses import replace
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
@@ -24,10 +25,11 @@ from .image_viewer import ImageViewer, save_image_dialog
 from .queue_progress import QueueProgress
 from .diagnostics import LOG_DIRECTORY
 from .ocr_process import OCRProcessService
-from .ocr_service import OCRSettings
+from .ocr_contract import OCRSettings
+from .cloud_auth import CloudAuth
 from .preferences import read_preferences, update_preferences
 from .robot_connection import RobotClient
-from .tasks import import_images, recognize_images, warm_model
+from .tasks import import_images, recognize_images
 from .theme import (PREFERENCES_PATH, apply_titlebar, atomic_repaint, load_theme,
                     recolor_canvas, recolor_widgets, save_theme, set_palette)
 from .widgets import COLORS as C, RobotFace, ScrollableFrame, card, configure_styles, label
@@ -121,10 +123,13 @@ class Application:
         self.preferences_path = preferences_path if preferences_path is not None else PREFERENCES_PATH
         self.theme = load_theme(self.preferences_path)
         set_palette(self.theme)
-        self.settings = OCRSettings(weights, device)
+        server_preferences = read_preferences(self.preferences_path)
+        self.settings = OCRSettings(server_url=server_preferences.get('ocr_server_url') or 'http://127.0.0.1:5080',
+            allow_insecure_lan=bool(server_preferences.get('ocr_server_insecure')))
+        self.auth = CloudAuth(self.preferences_path)
         self.camera_index = camera_index
         self.batch = ImageBatch()
-        self.service = OCRProcessService()
+        self.service = OCRProcessService(auth=self.auth)
         self.events: queue.Queue = queue.Queue()
         self._shutdown = threading.Event()
         self._jobs = []
@@ -192,6 +197,8 @@ class Application:
         self._result_id: str | None = None
         self._run_total = 0
         self._run_index = 0
+        self._run_progress = {}
+        self._run_indices = {}
         self.root.title("VietOCR Handwriting · Trợ lý đọc chữ Việt")
         self.root.configure(bg=C["bg"])
         screen_width, screen_height = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
@@ -214,7 +221,7 @@ class Application:
         self.root.bind("<Control-s>", lambda _: self.save_results())
         self.root.bind("<Escape>", lambda _: self.cancel_recognition())
         self._poll_events()
-        if Path(self.settings.weights).is_file():
+        if False: # Model loading is server-side only.
             self._warm_timer = self.root.after(400, self._warm_model)
         preferences = read_preferences(self.preferences_path)
         saved_address = preferences.get("robot_ble_address")
@@ -592,7 +599,7 @@ class Application:
             self._image_viewer.sync_controls()
         self._update_camera_progress()
         self.settings_button.configure(state="disabled" if locked else "normal")
-        for button in (self.rotate_button, self.remove_button):
+        for button in (self.rotate_button, self.remove_button, self.bw_button):
             button.configure(state="normal" if selected and not locked else "disabled")
         self.clear_button.configure(state="normal" if self.batch.items and not locked else "disabled")
         self.retry_button.configure(state="normal" if selected and not locked else "disabled")
@@ -686,10 +693,10 @@ class Application:
                 # the document illustration plus two captions. Keep the action
                 # visible rather than painting text beyond the canvas bounds.
                 if height >= 24:
-                    self.preview.create_text(width/2, height/2, text='Chụp OV5640 để thêm ảnh',
+                    self.preview.create_text(width/2, height/2, text='Bấm để tải ảnh lên',
                                              fill=C['muted'], font=('Segoe UI', 9))
                 self.preview_index.configure(text='')
-                self.image_info.configure(text='Bấm Xem camera hoặc Chụp OV5640')
+                self.image_info.configure(text='Bấm vào đây để tải ảnh từ máy tính')
                 return
             scale = min(1.0, max(0.5, (height-65)/125))
             x, y = width / 2, max(50*scale+8, height/2-30*scale)
@@ -705,7 +712,7 @@ class Application:
             self.preview.create_text(x, y+101*scale, text="Tải ảnh lên hoặc chụp bằng OV5640", fill=C["muted"],
                                      font=("Segoe UI", 8 if scale < 1 else 9))
             self.preview_index.configure(text="")
-            self.image_info.configure(text="Tải ảnh từ máy tính hoặc chụp bằng OV5640")
+            self.image_info.configure(text="Bấm vào vùng này để tải ảnh từ máy tính")
             self.preview.configure(cursor="hand2")
             return
         original = item.image
@@ -717,8 +724,16 @@ class Application:
                                       fill=C["white"], outline=C["border"])
         self.preview.create_image(width/2, height/2, image=self._preview_photo)
         self.preview_index.configure(text=f"{self.batch.items.index(item)+1} / {len(self.batch.items)}")
-        self.image_info.configure(text=f"{original.width} × {original.height} px · Bấm để zoom / crop · {item.name[:24]}")
+        self.image_info.configure(text=f"{original.width} × {original.height} px · {item.image_path.stat().st_size/1024:.0f} KiB · Bấm để zoom / crop")
         self.preview.configure(cursor="hand2")
+
+    def _preview_clicked(self, _event=None):
+        if self.closing:
+            return
+        if self.batch.get(self.selected_id) is None:
+            self.import_files()
+        else:
+            self.open_image_viewer()
 
     def open_image_viewer(self):
         item = self.batch.get(self.selected_id)
@@ -1236,6 +1251,19 @@ class Application:
         self.select_item(item.id)
         self.operation_var.set("Đã xoay ảnh 90° sang trái · Nhận diện lại để cập nhật văn bản")
 
+    def create_black_white(self):
+        item = self.batch.get(self.selected_id)
+        if not item or self.locked:
+            return
+        from .image_modes import black_white
+        try:
+            variant = self.batch.add(black_white(item.image), f'{Path(item.name).stem}_BW.png', 'Đen trắng OCR')
+            self.select_item(variant.id)
+            self._refresh()
+            self.operation_var.set('Đã tạo bản đen trắng OCR · Ảnh gốc được giữ trong danh sách')
+        except (ValueError, OSError) as error:
+            messagebox.showerror('Không chuyển được ảnh', str(error), parent=self.root)
+
     def remove_selected(self):
         if self.locked or self.selected_id is None:
             return
@@ -1283,23 +1311,29 @@ class Application:
         self.cancel_event = threading.Event()
         self._run_total = len(jobs)
         self._run_index = 0
-        settings = OCRSettings(self.settings.weights, self.settings.device,
-                               "auto" if self.layout_var.get() == "Tự tách dòng" else "line")
+        self._run_progress = {item.id: 0 for item in jobs}
+        self._run_indices = {item.id: index for index,item in enumerate(jobs,1)}
+        settings = replace(self.settings, layout="auto" if self.layout_var.get() == "Tự tách dòng" else "line")
         self._sync_controls()
         self.progress.configure(mode="indeterminate")
         self.progress.start(12)
-        self.operation_var.set("Đang nạp model · Lần đầu có thể cần vài giây…")
-        self._set_assistant(AssistantState.PROCESSING, "Để mình đọc giúp bạn…", "Đang chuẩn bị mô hình nhận diện trên máy.")
+        self.operation_var.set("Đang kết nối OCR Server…" if settings.server_url else "Đang kết nối OCR Server…")
+        self._set_assistant(AssistantState.PROCESSING, "Để mình đọc giúp bạn…",
+            "Ảnh được nhận diện trên OCR Server." if settings.server_url else "Đang chuẩn bị mô hình nhận diện trên máy.")
         # Queue membership and images stay fixed until the worker finishes.
         snapshots = [(item.id, item.image_path) for item in jobs]
         self._start_background(recognize_images, (snapshots, settings, self.cancel_event, self.service, self.events), "VietOCR-OCR")
 
     def _warm_model(self):
         self._warm_timer = None
-        if self.closing or self.running or not Path(self.settings.weights).is_file(): return
-        self.operation_var.set('Đang chuẩn bị model trong nền · Bạn có thể cấu hình Wi-Fi và xem camera.')
-        self._start_background(warm_model, (self.settings, self.service, self.events, self._shutdown), 'VietOCR-model-warmup')
+        self.model_label.configure(text='OCR Server · '+self.settings.server_url)
 
+    def _set_ocr_progress(self, item_id, fraction):
+        if item_id not in self._run_progress:
+            return
+        self._run_progress[item_id] = max(self._run_progress[item_id], min(1, max(0, fraction)))
+        self.progress['value'] = sum(self._run_progress.values()) / max(1, self._run_total) * 100
+        self._publish_robot_progress()
 
     def cancel_recognition(self):
         if not self.running or self.cancel_event.is_set():
@@ -1307,7 +1341,7 @@ class Application:
         self.cancel_event.set()
         self._auto_queue_halted = True
         self._sync_controls()
-        self.operation_var.set("Đang dừng nhận diện và giải phóng model…")
+        self.operation_var.set("Đang dừng nhận diện và huỷ công việc trên server…")
         self._set_assistant(AssistantState.PROCESSING, "Mình đang dừng lại…", "Kết quả đã hoàn tất được giữ lại.")
 
     def _start_background(self, target, args, name):
@@ -1403,6 +1437,7 @@ class Application:
                     self.operation_var.set(message)
                     if self._ov_widgets:
                         self._ov_widgets['message'].set(message)
+                        self._ov_widgets['metrics'].set('Preview tạm dừng · Đang tải ảnh gốc 5 MP')
                         self._ov_widgets['progress']['value'] = received * 100 / total
                 return
             if action == 'open':
@@ -1447,7 +1482,8 @@ class Application:
             self.progress.configure(mode="determinate", value=0)
         elif kind == "model_device":
             device = data[0]
-            text = f"{device['name']} · {device['id']}" if device else device_label(self.settings.device)
+            text = (f"OCR Server · {self.settings.server_url}" if self.settings.server_url else
+                f"{device['name']} · {device['id']}" if device else 'OCR Server')
             self.model_label.configure(text=f"VietHandOCR  ·  {text}")
         elif kind == "started":
             item_id, self._run_index, total = data
@@ -1465,10 +1501,10 @@ class Application:
             item_id, line, total = data
             self._camera_progress[item_id] = line / total if total else 0
             self._update_camera_progress()
-            self.progress["value"] = (self._run_index-1 + (line-1)/total) / self._run_total * 100
-            self._publish_robot_progress()
+            self._set_ocr_progress(item_id, line/total if total else 0)
             if not self.cancel_event.is_set():
-                self.operation_var.set(f"Ảnh {self._run_index}/{self._run_total} · Đang đọc dòng {line}/{total}")
+                index = self._run_indices.get(item_id,self._run_index)
+                self.operation_var.set(f"Ảnh {index}/{self._run_total} · Đang đọc dòng {line}/{total}")
         elif kind == "result":
             item_id, text, error, seconds = data
             item = self.batch.get(item_id)
@@ -1478,8 +1514,7 @@ class Application:
                 self._render_queue()
                 if self.selected_id == item_id:
                     self._render_result()
-                self.progress["value"] = self._run_index / self._run_total * 100
-                self._publish_robot_progress()
+                self._set_ocr_progress(item_id, 1)
                 self._sync_controls()
         elif kind == "cancelled":
             item = self.batch.get(data[0])
@@ -1490,7 +1525,7 @@ class Application:
                     self._render_result()
         elif kind == "fatal":
             self._auto_queue_halted = True
-            self.operation_var.set("Không thể nạp model · Kiểm tra Cài đặt model")
+            self.operation_var.set("Không kết nối được OCR Server · Kiểm tra đăng nhập và mạng")
             messagebox.showerror("Không thể khởi động AI", data[0], parent=self.root)
         elif kind == "finished":
             successes, failures, cancelled = data
@@ -1503,8 +1538,8 @@ class Application:
                 self._set_assistant(AssistantState.AWAKE, "Đã dừng theo ý bạn", "Bạn có thể tiếp tục với các ảnh còn lại.")
             elif failures:
                 self._auto_queue_halted = True
-                self.operation_var.set(f"{successes} ảnh hoàn tất · {failures} lỗi · Kiểm tra ảnh hoặc Cài đặt model rồi thử lại")
-                self._set_assistant(AssistantState.ERROR, "Có ảnh cần thử lại", "Xem thông báo ở phần văn bản hoặc kiểm tra model.")
+                self.operation_var.set(f"{successes} ảnh hoàn tất · {failures} lỗi · Kiểm tra ảnh hoặc OCR Server rồi thử lại")
+                self._set_assistant(AssistantState.ERROR, "Có ảnh cần thử lại", "Xem thông báo ở phần văn bản hoặc kiểm tra OCR Server.")
             else:
                 pending = [item for item in self.batch.items if item.status == 'ready']
                 if pending and not self._auto_queue_halted:
@@ -1551,64 +1586,9 @@ class Application:
                 self.operation_var.set(f"Đã lưu {Path(path).name} · Văn bản UTF-8")
 
     def open_settings(self):
-        if self.locked:
-            return
-        window = tk.Toplevel(self.root)
-        window.title("VietOCR · Cài đặt model")
-        window.configure(bg=C["white"])
-        window.geometry(f'{min(900,self.root.winfo_screenwidth()-60)}x{min(640,self.root.winfo_screenheight()-80)}')
-        window.minsize(760,540)
-        window.resizable(True, True)
-        window.transient(self.root)
-        window.grab_set()
-        window.after_idle(lambda: apply_titlebar(window))
-        body = tk.Frame(window, bg=C["white"], padx=25, pady=22)
-        body.pack(fill="both", expand=True)
-        label(body, "Mô hình nhận diện cục bộ", size=18, bold=True).pack(anchor="w")
-        label(body, "Thiết lập cho phiên làm việc này. Model chỉ được nạp khi nhận diện.",
-              size=9, color=C["muted"]).pack(anchor="w", pady=(5, 20))
-        label(body, "File trọng số (.pth)", bold=True).pack(anchor="w")
-        path_row = tk.Frame(body, bg=C["white"])
-        path_row.pack(fill="x", pady=(6, 14))
-        weights_var = tk.StringVar(value=self.settings.weights)
-        ttk.Entry(path_row, textvariable=weights_var).pack(side="left", fill="x", expand=True, ipady=5)
-
-        def browse():
-            path = filedialog.askopenfilename(parent=window, title="Chọn model VietHandOCR", filetypes=[("PyTorch weights", "*.pth")])
-            if path:
-                weights_var.set(path)
-
-        ttk.Button(path_row, text="Chọn file", command=browse).pack(side="left", padx=(8, 0))
-        row = tk.Frame(body, bg=C["white"])
-        row.pack(fill="x", pady=(0, 15))
-        device_column = tk.Frame(row, bg=C["white"])
-        device_column.pack(side="left", fill="x", expand=True)
-        label(device_column, "Thiết bị xử lý", bold=True).pack(anchor="w", pady=(0, 6))
-        choices = dict(DEVICE_CHOICES)
-        if self.settings.device not in choices.values():
-            choices[self.settings.device] = self.settings.device
-        device_var = tk.StringVar(value=next(name for name, value in choices.items() if value == self.settings.device))
-        ttk.Combobox(device_column, textvariable=device_var, values=tuple(choices), state="readonly", width=38).pack(anchor="w")
-        camera_column = tk.Frame(row, bg=C["white"])
-        camera_column.pack(side="left", fill="x", expand=True)
-        label(camera_column, "Nguồn ảnh", bold=True).pack(anchor="w", pady=(0, 6))
-        label(camera_column, "Ảnh trên máy tính hoặc camera OV5640", color=C['muted']).pack(anchor='w')
-        label(body, "Tự động ưu tiên GPU rời, GPU tích hợp rồi CPU khi thiết bị không chạy được.\nThiết bị thực tế hiện ở thanh trạng thái sau khi nạp model.\nGPU tích hợp dùng DirectML và bộ ONNX tương ứng với trọng số đã chọn.",
-              size=9, color=C["muted"], justify="left").pack(anchor="w", pady=(0, 20))
-
-        def save():
-            path = Path(weights_var.get()).expanduser()
-            if not path.is_file():
-                messagebox.showwarning("Chưa tìm thấy model", "Hãy chọn một file trọng số .pth có sẵn.", parent=window)
-                return
-            self.settings = OCRSettings(str(path.resolve()), choices[device_var.get()])
-            self.model_label.configure(text=f"VietHandOCR  ·  {device_label(self.settings.device)}")
-            self.operation_var.set("Đã cập nhật cài đặt · Model sẽ được nạp ở lượt nhận diện tiếp theo")
-            window.destroy()
-
-        ttk.Button(body, text="Lưu cài đặt", style="Primary.TButton", command=save).pack(side="right")
-        ttk.Button(body, text="Đóng", command=window.destroy).pack(side="right", padx=10)
-        window.bind("<Escape>", lambda _: window.destroy())
+        if self.locked: return
+        from .server_settings import open_server_settings
+        open_server_settings(self, self.root)
 
     def close(self, reason='window_close'):
         if self.closing:

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
 import '../services/ble_assistant.dart';
+import '../services/wifi_camera.dart' show SavedWifiProfile;
 
 class WifiDialog extends StatefulWidget {
   const WifiDialog({super.key, required this.assistant});
@@ -14,6 +15,8 @@ class _WifiDialogState extends State<WifiDialog> {
   List<String> networks = [];
   bool busy = false;
   bool nameEdited = false;
+  List<SavedWifiProfile>? saved;
+  bool showPasswords = false;
   String message = 'Chọn Wi-Fi 2.4 GHz. Điện thoại và ESP32 cần cùng mạng LAN.';
   @override
   void initState() {
@@ -77,7 +80,7 @@ class _WifiDialogState extends State<WifiDialog> {
           ),
           const SizedBox(height: 8),
           const Text(
-            'Trạng thái tự cập nhật mỗi 5 giây. Quét mạng chỉ khi cần đổi Wi-Fi.',
+            'Trạng thái tự cập nhật mỗi 3 giây. Quét mạng chỉ khi cần đổi Wi-Fi.',
           ),
           const SizedBox(height: 12),
           Text(message),
@@ -124,6 +127,44 @@ class _WifiDialogState extends State<WifiDialog> {
               helperText: 'Được lưu trên ESP32; để trống với mạng mở.',
             ),
           ),
+          const SizedBox(height: 12),
+          OutlinedButton.icon(
+            onPressed: busy
+                ? null
+                : () => run(() async {
+                    final profiles = await widget.assistant.readWifiProfiles();
+                    if (mounted) setState(() => saved = profiles);
+                    return 'Đã đọc ${profiles.length} mạng lưu trên flash ESP32.';
+                  }),
+            icon: const Icon(Icons.router_outlined),
+            label: const Text('Mạng đã lưu trên ESP32'),
+          ),
+          if (saved != null) ...[
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Hiện mật khẩu'),
+              value: showPasswords,
+              onChanged: (v) => setState(() => showPasswords = v),
+            ),
+            for (final profile in saved!)
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                title: Text(profile.ssid),
+                subtitle: SelectableText(
+                  showPasswords
+                      ? (profile.password.isEmpty
+                            ? 'Mạng mở'
+                            : profile.password)
+                      : '••••••••',
+                ),
+                trailing: const Icon(Icons.arrow_outward),
+                onTap: () {
+                  ssid.text = profile.ssid;
+                  password.text = profile.password;
+                  nameEdited = true;
+                },
+              ),
+          ],
           if (busy)
             const Padding(
               padding: EdgeInsets.only(top: 12),
@@ -142,10 +183,6 @@ class _WifiDialogState extends State<WifiDialog> {
                 return 'Tìm thấy ${rows.length} mạng. Chọn hoặc nhập tên Wi-Fi.';
               }),
         child: const Text('Quét mạng'),
-      ),
-      TextButton(
-        onPressed: busy ? null : () => run(widget.assistant.wifiStatus),
-        child: const Text('Kiểm tra LAN'),
       ),
       FilledButton(
         onPressed: busy

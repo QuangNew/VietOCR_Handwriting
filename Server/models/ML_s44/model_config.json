@@ -1,0 +1,75 @@
+{
+ "format": "viethandocr-lite-v1",
+ "name": "ML_s44",
+ "weights_file": "ml_s44_fp16.pth",
+ "weights_sha256": "644f2613046e4974c3aea5878e61d119b9100debe05cb55756b85b8241254cb2",
+ "vocab": "aAàÀảẢãÃáÁạẠăĂằẰẳẲẵẴắẮặẶâÂầẦẩẨẫẪấẤậẬbBcCdDđĐeEèÈẻẺẽẼéÉẹẸêÊềỀểỂễỄếẾệỆfFgGhHiIìÌỉỈĩĨíÍịỊjJkKlLmMnNoOòÒỏỎõÕóÓọỌôÔồỒổỔỗỖốỐộỘơƠờỜởỞỡỠớỚợỢpPqQrRsStTuUùÙủỦũŨúÚụỤưƯừỪửỬữỮứỨựỰvVwWxXyYỳỲỷỶỹỸýÝỵỴzZ0123456789!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~ ",
+ "image_height": 64,
+ "image_min_width": 32,
+ "image_max_width": 2048,
+ "cnn": {
+  "hidden": 256,
+  "ks": [
+   [
+    2,
+    2
+   ],
+   [
+    2,
+    2
+   ],
+   [
+    2,
+    1
+   ],
+   [
+    2,
+    1
+   ],
+   [
+    2,
+    1
+   ]
+  ],
+  "ss": [
+   [
+    2,
+    2
+   ],
+   [
+    2,
+    2
+   ],
+   [
+    2,
+    1
+   ],
+   [
+    2,
+    1
+   ],
+   [
+    2,
+    1
+   ]
+  ]
+ },
+ "transformer": {
+  "d_model": 256,
+  "dim_feedforward": 2048,
+  "max_seq_length": 1024,
+  "nhead": 8,
+  "num_decoder_layers": 6,
+  "num_encoder_layers": 6,
+  "pos_dropout": 0.1,
+  "trans_dropout": 0.1
+ },
+ "source": {
+  "run_id": "p3_7_ml_s44_v1_20261101",
+  "checkpoint_sha256": "02a0aa07ac09d935b94d25395b2be2b103e38d43bb2dfdaeca7cfdd9ca7b0d29",
+  "seed": 44,
+  "steps": 8000,
+  "selection": "lowest validation CER of ML seeds 42/43/44 on V2c and on raw images",
+  "stored_as": "float16; BatchNorm running stats and positional table float32"
+ }
+}

@@ -24,7 +24,7 @@ def read_camera(index, stop, frames, errors):
             capture.release()
             capture = cv2.VideoCapture(index)
         if not capture.isOpened():
-            raise RuntimeError("Không mở được webcam. Kiểm tra quyền camera hoặc chọn camera khác trong Cài đặt model.")
+            raise RuntimeError("Không mở được webcam. Kiểm tra quyền camera và thiết bị camera đã chọn.")
         capture.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
         capture.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
         while not stop.is_set():

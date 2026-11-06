@@ -58,6 +58,8 @@ def main():
     output = ROOT / '.toolchain/compact-models'
     output.mkdir(parents=True, exist_ok=True)
     manifest = json.loads((assets / 'manifest.json').read_text(encoding='utf-8'))
+    if manifest.get('image_height') != 32 or manifest.get('preprocessing') == 'v2c':
+        raise RuntimeError('Tool nén lịch sử chỉ hỗ trợ model 32px. ML_s44 64px/V2c đang dùng FP32; không thay assets bằng cấu hình cũ.')
     if manifest.get('compression') and not backup.exists():
         raise RuntimeError('Original FP32 backup missing; export the original models first.')
     sources = {}

@@ -6,6 +6,54 @@ import 'camera_transfer.dart';
 
 typedef WifiRequest = Future<String> Function(String command, String? prefix);
 
+class SavedWifiProfile {
+  const SavedWifiProfile(this.ssid, this.password);
+  final String ssid, password;
+  @override
+  String toString() => ssid;
+}
+
+Future<List<SavedWifiProfile>> readSavedWifiProfiles(
+  WifiRequest request,
+) async {
+  final count = int.parse(
+    (await request('WIFI SAVED COUNT', 'WIFI SAVED COUNT ')).split(' ').last,
+  );
+  if (count < 0 || count > 5) {
+    throw const FormatException('Sai số mạng đã lưu.');
+  }
+  final rows = <SavedWifiProfile>[];
+  for (var i = 0; i < count; i++) {
+    final name = wifiName(
+      (await request(
+        'WIFI SAVED SSID $i',
+        'WIFI SAVED SSID $i ',
+      )).split(' ').last,
+    );
+    final password = <int>[];
+    for (var offset = 0; offset < 64; offset += 24) {
+      final hex = (await request(
+        'WIFI SAVED PASS $i $offset',
+        'WIFI SAVED PASS $i $offset ',
+      )).split(' ').last;
+      if (hex == '-') break;
+      if (!RegExp(r'^(?:[0-9a-fA-F]{2}){1,24}$').hasMatch(hex)) {
+        throw const FormatException('Sai dữ liệu mạng đã lưu.');
+      }
+      final part = [
+        for (var j = 0; j < hex.length; j += 2)
+          int.parse(hex.substring(j, j + 2), radix: 16),
+      ];
+      password.addAll(part);
+      if (part.length < 24) break;
+    }
+    final secret = utf8.decode(password);
+    wifiCommands(name, secret);
+    rows.add(SavedWifiProfile(name, secret));
+  }
+  return rows;
+}
+
 List<String> wifiCommands(String ssid, String password) {
   final name = utf8.encode(ssid), secret = utf8.encode(password);
   if (name.isEmpty || name.length > 32 || name.contains(0)) {
@@ -144,6 +192,25 @@ String wifiUnavailableMessage(String line) {
 }
 
 Future<void> checkCameraHttp(WifiEndpoint endpoint) async {
+  for (var attempt = 0; attempt < 2; attempt++) {
+    try {
+      await _checkCameraHttpOnce(endpoint);
+      return;
+    } on CameraNetworkException {
+      if (attempt == 1) rethrow;
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+    }
+  }
+}
+
+class CameraNetworkException implements Exception {
+  const CameraNetworkException(this.message);
+  final String message;
+  @override
+  String toString() => message;
+}
+
+Future<void> _checkCameraHttpOnce(WifiEndpoint endpoint) async {
   final client = HttpClient()
     ..connectionTimeout = const Duration(seconds: 3)
     ..findProxy = (_) => 'DIRECT';
@@ -176,11 +243,13 @@ Future<void> checkCameraHttp(WifiEndpoint endpoint) async {
       );
     }
   } on SocketException catch (error) {
-    throw StateError(
+    throw CameraNetworkException(
       'Không tới được camera ${endpoint.ip}:80 (socket ${error.osError?.errorCode ?? 'unknown'}). Kiểm tra cùng mạng LAN.',
     );
   } on TimeoutException {
-    throw StateError('Camera ${endpoint.ip}:80 quá hạn. Kiểm tra Wi-Fi.');
+    throw CameraNetworkException(
+      'Camera ${endpoint.ip}:80 phản hồi chậm. Kiểm tra tín hiệu Wi-Fi.',
+    );
   } finally {
     client.close(force: true);
   }
@@ -191,60 +260,129 @@ Future<Uint8List> fetchCameraJpeg(
   String path, {
   void Function(double)? progress,
 }) async {
-  final client = HttpClient()
-    ..connectionTimeout = const Duration(seconds: 4)
-    ..findProxy = (_) => 'DIRECT';
+  final still = path.startsWith('/image?');
   final deadline = Stopwatch()..start();
-  try {
-    final request = await client
-        .getUrl(Uri.parse('http://${endpoint.ip}$path'))
-        .timeout(const Duration(seconds: 5));
-    request.followRedirects = false;
-    request.headers.set(
-      HttpHeaders.authorizationHeader,
-      'Bearer ${endpoint.token}',
-    );
-    final response = await request.close().timeout(const Duration(seconds: 8));
-    if (response.statusCode != 200) {
-      throw StateError(
-        'Camera HTTP ${response.statusCode}. Kiểm tra Wi-Fi, mở lại camera hoặc kết nối lại BLE.',
+  final data = BytesBuilder(copy: false);
+  int? total;
+  String? etag;
+  var resumable = false, failures = 0;
+  while (total == null || data.length < total) {
+    final client = HttpClient()
+      ..connectionTimeout = const Duration(seconds: 4)
+      ..findProxy = (_) => 'DIRECT';
+    try {
+      if (deadline.elapsed > Duration(seconds: still ? 90 : 8)) {
+        throw TimeoutException('download deadline');
+      }
+      final request = await client
+          .getUrl(Uri.parse('http://${endpoint.ip}$path'))
+          .timeout(const Duration(seconds: 5));
+      request.followRedirects = false;
+      request.persistentConnection = false;
+      if (still) {
+        request.headers.set(
+          HttpHeaders.rangeHeader,
+          'bytes=${data.length}-${data.length + 128 * 1024 - 1}',
+        );
+        if (etag != null) request.headers.set(HttpHeaders.ifRangeHeader, etag);
+      }
+      request.headers.set(
+        HttpHeaders.authorizationHeader,
+        'Bearer ${endpoint.token}',
       );
-    }
-    final size = response.contentLength;
-    if (size < 4 ||
-        size > 2 * 1024 * 1024 ||
-        response.headers.contentType?.mimeType != 'image/jpeg') {
-      throw const FormatException('Camera trả ảnh quá lớn hoặc sai JPEG.');
-    }
-    final data = BytesBuilder(copy: false);
-    await for (final chunk in response.timeout(const Duration(seconds: 5))) {
-      if (deadline.elapsed > const Duration(seconds: 20) ||
-          data.length + chunk.length > size) {
-        throw const FormatException(
-          'Ảnh Wi-Fi quá hạn hoặc vượt kích thước khai báo.',
+      final response = await request.close().timeout(
+        const Duration(seconds: 8),
+      );
+      if (response.statusCode != 200 && response.statusCode != 206) {
+        throw StateError(
+          'Camera HTTP ${response.statusCode}. Kiểm tra Wi-Fi, mở lại camera hoặc kết nối lại BLE.',
         );
       }
-      data.add(chunk);
-      progress?.call(data.length / size);
+      final size = response.contentLength;
+      if (size < 1 ||
+          size > 2 * 1024 * 1024 ||
+          response.headers.contentType?.mimeType != 'image/jpeg') {
+        throw const FormatException('Camera trả ảnh quá lớn hoặc sai JPEG.');
+      }
+      if (response.statusCode == 206) {
+        final match = RegExp(r'^bytes (\d+)-(\d+)/(\d+)$').firstMatch(
+          response.headers.value(HttpHeaders.contentRangeHeader) ?? '',
+        );
+        if (!still || match == null) {
+          throw const FormatException('Sai byte range ảnh.');
+        }
+        final first = int.parse(match[1]!),
+            last = int.parse(match[2]!),
+            whole = int.parse(match[3]!);
+        final nextEtag = response.headers.value(HttpHeaders.etagHeader);
+        if (first != data.length ||
+            last - first + 1 != size ||
+            first > last ||
+            last >= whole ||
+            whole < 4 ||
+            whole > 2 * 1024 * 1024 ||
+            (total != null && total != whole) ||
+            nextEtag == null ||
+            (etag != null && etag != nextEtag)) {
+          throw const FormatException(
+            'Ảnh trên ESP32 thay đổi hoặc sai phạm vi.',
+          );
+        }
+        total = whole;
+        etag = nextEtag;
+        resumable = true;
+      } else {
+        data.clear();
+        total = size;
+        resumable = false;
+      }
+      var received = 0;
+      await for (final chunk in response.timeout(const Duration(seconds: 8))) {
+        if (deadline.elapsed > Duration(seconds: still ? 90 : 8)) {
+          throw TimeoutException('download deadline');
+        }
+        if (received + chunk.length > size) {
+          throw const FormatException(
+            'Ảnh Wi-Fi quá hạn hoặc vượt kích thước khai báo.',
+          );
+        }
+        data.add(chunk);
+        received += chunk.length;
+        progress?.call(data.length / total);
+      }
+      if (received != size) throw const HttpException('Truncated JPEG');
+    } catch (error) {
+      if (error is! SocketException &&
+          error is! TimeoutException &&
+          error is! HttpException) {
+        rethrow;
+      }
+      failures++;
+      if (!still ||
+          failures > 2 ||
+          deadline.elapsed > const Duration(seconds: 90)) {
+        throw CameraNetworkException(
+          'Tải ảnh ${endpoint.ip}:80 gián đoạn · ${data.length}/${total ?? 0} byte. Ảnh chưa được đưa vào OCR.',
+        );
+      }
+      if (!resumable) {
+        data.clear();
+        total = null;
+      }
+      await Future<void>.delayed(Duration(milliseconds: 200 * failures));
+    } finally {
+      client.close(force: true);
     }
-    final bytes = data.takeBytes();
-    if (bytes.length != size ||
-        bytes[0] != 255 ||
-        bytes[1] != 216 ||
-        bytes[size - 2] != 255 ||
-        bytes[size - 1] != 217) {
-      throw const FormatException('Ảnh Wi-Fi bị thiếu dữ liệu. Hãy chụp lại.');
-    }
-    return bytes;
-  } on SocketException {
-    throw StateError(
-      'Không tới được camera. Điện thoại và ESP32 cần cùng mạng LAN; tắt cách ly thiết bị trên router.',
-    );
-  } on TimeoutException {
-    throw StateError('Nhận ảnh Wi-Fi quá hạn. Kiểm tra tín hiệu rồi thử lại.');
-  } finally {
-    client.close(force: true);
   }
+  final bytes = data.takeBytes(), size = bytes.length;
+  if (size < 4 ||
+      bytes[0] != 255 ||
+      bytes[1] != 216 ||
+      bytes[size - 2] != 255 ||
+      bytes[size - 1] != 217) {
+    throw const FormatException('Ảnh Wi-Fi bị thiếu dữ liệu. Hãy chụp lại.');
+  }
+  return bytes;
 }
 
 Future<CameraPhoto> captureWifiPhoto({

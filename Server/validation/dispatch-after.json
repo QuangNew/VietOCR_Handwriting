@@ -1,0 +1,131 @@
+{
+  "devices": [
+    {
+      "id": "cuda:0",
+      "name": "NVIDIA GeForce RTX 4050 Laptop GPU \u00b7 CUDA",
+      "kind": "discrete",
+      "available": true,
+      "reason": null
+    },
+    {
+      "id": "directml:0",
+      "name": "Intel(R) UHD Graphics",
+      "kind": "integrated",
+      "available": true,
+      "reason": null
+    },
+    {
+      "id": "directml:2",
+      "name": "Intel(R) UHD Graphics",
+      "kind": "integrated",
+      "available": true,
+      "reason": null
+    },
+    {
+      "id": "directml:3",
+      "name": "Intel(R) UHD Graphics",
+      "kind": "integrated",
+      "available": true,
+      "reason": null
+    },
+    {
+      "id": "cpu",
+      "name": "CPU \u00b7 PyTorch",
+      "kind": "cpu",
+      "available": true,
+      "reason": null
+    }
+  ],
+  "checks": [
+    "invalid device rejected; CPU/DirectML are selected explicitly",
+    "serial arrivals rotate across all idle workers",
+    "concurrent clients use all ready workers",
+    "CPU/GPU text matches original model baseline"
+  ],
+  "hardware": [
+    {
+      "device": "cpu",
+      "loadMs": 3967.3376999999164,
+      "id": "57d7625e137d4ed5bb5b59e13dd2b75d",
+      "workerId": "w-c83ba005",
+      "inferenceMs": 826.13610000044,
+      "queueMs": 358.076,
+      "totalMs": 1444.337
+    },
+    {
+      "device": "directml:0",
+      "loadMs": 4777.476499999466,
+      "id": "0bfa5b20f1ed4218b2f5a563566a070b",
+      "workerId": "w-5393aaef",
+      "inferenceMs": 1055.44020000161,
+      "queueMs": 320.083,
+      "totalMs": 1626.609
+    }
+  ],
+  "clientId": "7bd067e41ce64040a3cc4c9d20356901",
+  "sequential": [
+    {
+      "id": "99d2b63f5e364eebbaf442588b13244b",
+      "workerId": "w-f65148bc",
+      "inferenceMs": 236.592400000518,
+      "queueMs": 433.486,
+      "totalMs": 887.588
+    },
+    {
+      "id": "b385b3c8863642e099f79043955cd5b5",
+      "workerId": "w-21fd2f66",
+      "inferenceMs": 238.617800001521,
+      "queueMs": 283.676,
+      "totalMs": 756.038
+    },
+    {
+      "id": "e2d88ca0c78e486dbbcf4ed19fe9d402",
+      "workerId": "w-f65148bc",
+      "inferenceMs": 233.141700002307,
+      "queueMs": 248.876,
+      "totalMs": 697.886
+    },
+    {
+      "id": "b37331d355b943c4931065b893924725",
+      "workerId": "w-21fd2f66",
+      "inferenceMs": 195.514200000616,
+      "queueMs": 303.273,
+      "totalMs": 723.859
+    }
+  ],
+  "sequentialByWorker": {
+    "w-f65148bc": 2,
+    "w-21fd2f66": 2
+  },
+  "concurrent": [
+    {
+      "id": "e87887e90e6747a09364f8f69769e3cf",
+      "workerId": "w-21fd2f66",
+      "inferenceMs": 265.561399999569,
+      "queueMs": 317.532,
+      "totalMs": 805.871
+    },
+    {
+      "id": "c590bf6ef4824e85aff5f438e899e436",
+      "workerId": "w-f65148bc",
+      "inferenceMs": 297.174400002405,
+      "queueMs": 342.07,
+      "totalMs": 869.317
+    },
+    {
+      "id": "ee774264c66b45a48d1ae706f064e78f",
+      "workerId": "w-f65148bc",
+      "inferenceMs": 223.615700000664,
+      "queueMs": 272.485,
+      "totalMs": 715.002
+    },
+    {
+      "id": "ca07d9600c424baf9989ebafe079e058",
+      "workerId": "w-21fd2f66",
+      "inferenceMs": 214.890899998863,
+      "queueMs": 245.131,
+      "totalMs": 698.274
+    }
+  ],
+  "concurrentWallMs": 3262.1651999979804
+}

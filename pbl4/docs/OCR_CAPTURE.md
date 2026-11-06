@@ -1,5 +1,11 @@
 # OV5640: lấy ảnh phục vụ OCR — 02/11/2026
 
+**Cập nhật 03/11:** firmware **3.2.1-resume** thay mức CPU nghỉ 80 MHz bên dưới bằng
+**160 MHz**, giữ 240 MHz trong lúc truyền ảnh. JPEG có Range/ETag để tải tiếp;
+native sensor được đọc lại để xác nhận không binning/scaler.
+Xem [kết quả mới](../../VietHandOCR_API_Release/docs/REVIEW_2026-11-03.md).
+Phần số đo 3.1.0/3.2.0 bên dưới giữ làm lịch sử; bản Android mới đã được build.
+
 Firmware `3.1.0-ocr`, bo N16R8 qua COM8. Không thay chân, camera driver, PSRAM/DMA hay tải toolchain mới.
 
 ## Nguồn đã đối chiếu

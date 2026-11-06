@@ -23,6 +23,7 @@ $fakeInclude = "-I$projectRoot/test/fakes"
 Invoke-HostTest 'music_output_core2' $driverSources @($fakeInclude)
 Invoke-HostTest 'music_output_core3' $driverSources @($fakeInclude, '-DESP_ARDUINO_VERSION_MAJOR=3')
 Invoke-HostTest 'camera_transfer' @("$projectRoot/test/test_camera_transfer.cpp")
+Invoke-HostTest 'http_image_range' @("$projectRoot/test/test_http_image_range.cpp")
 Invoke-HostTest 'camera_udp' @("$projectRoot/test/test_camera_udp.cpp")
 Invoke-HostTest 'camera_settings' @("$projectRoot/test/test_camera_settings.cpp")
 Invoke-HostTest 'capture_quality' @("$projectRoot/test/test_capture_quality.cpp")

@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -58,49 +57,28 @@ void main() {
     },
   );
   test(
-    'native error details are captured once and clear resets native log',
+    'server-only logging never calls the removed native OCR channel',
     () async {
-      var clears = 0;
-      messenger.setMockMethodCallHandler(native, (call) async {
-        if (call.method == 'clearNativeLogs') {
-          clears++;
-          return null;
-        }
-        return jsonEncode({
-          'time': 123,
-          'pid': 42,
-          'stage': 'error',
-          'level': 'ERROR',
-          'detail': 'OrtException: bad tensor',
-        });
+      var nativeCalls = 0;
+      messenger.setMockMethodCallHandler(native, (_) async {
+        nativeCalls++;
+        throw StateError('removed native service');
       });
       final log = AppLog(persist: false);
+      log.add(
+        'OCR Server',
+        'Quota exceeded',
+        level: 'ERROR',
+        error: 'daily_quota',
+      );
       await log.captureNative();
-      await log.captureNative();
-      expect(log.entries.length, 1);
-      expect(log.entries.single.detail, contains('OrtException'));
+      expect(log.entries.single.detail, contains('daily_quota'));
       await log.clear();
-      expect(clears, 1);
       expect(log.entries, isEmpty);
+      expect(nativeCalls, 0);
       log.dispose();
     },
   );
-  test('a long native history is not duplicated on every poll', () async {
-    messenger.setMockMethodCallHandler(
-      native,
-      (_) async => List.generate(
-        400,
-        (i) =>
-            jsonEncode({'time': i, 'pid': 42, 'stage': 'ready', 'detail': ''}),
-      ).join('\n'),
-    );
-    final log = AppLog(persist: false);
-    await log.captureNative();
-    expect(log.entries.length, 250);
-    await log.captureNative();
-    expect(log.entries.length, 250);
-    log.dispose();
-  });
   testWidgets(
     'log tab shows error details and filters events on small screens',
     (tester) async {

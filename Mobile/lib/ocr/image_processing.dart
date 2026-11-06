@@ -49,6 +49,63 @@ Uint8List normalizePhoto(Uint8List bytes) {
   return Uint8List.fromList(img.encodePng(image, level: 3));
 }
 
+Uint8List normalizeDerivative(Uint8List bytes) {
+  final image = decodePhoto(bytes);
+  if (image.width * image.height > 12000000) {
+    throw const FormatException('Ảnh chỉnh sửa vượt 12 MP.');
+  }
+  return Uint8List.fromList(img.encodePng(image, level: 3));
+}
+
+// Optional local threshold, lossless PNG, original dimensions. Running column
+// sums avoid a full-image integral buffer on phones with limited RAM.
+Uint8List blackWhitePhoto(Uint8List bytes, {int rotation = 0}) {
+  var image = decodePhoto(bytes);
+  if (rotation % 4 != 0) {
+    image = img.copyRotate(image, angle: (rotation % 4) * 90);
+  }
+  final w = image.width, h = image.height;
+  if (w * h > 12000000) {
+    throw const FormatException(
+      'Ảnh đen trắng hỗ trợ đến 12 MP. Hãy crop vùng chữ trước.',
+    );
+  }
+  final gray = Uint8List(w * h);
+  for (final p in image) {
+    gray[p.y * w + p.x] =
+        ((p.r * .299 + p.g * .587 + p.b * .114) * p.aNormalized +
+                255 * (1 - p.aNormalized))
+            .round()
+            .clamp(0, 255);
+  }
+  final sums = Uint32List(w);
+  const radius = 15;
+  for (var y = 0; y <= math.min(radius, h - 1); y++) {
+    for (var x = 0; x < w; x++) {
+      sums[x] += gray[y * w + x];
+    }
+  }
+  for (var y = 0; y < h; y++) {
+    var sum = 0;
+    for (var x = 0; x <= math.min(radius, w - 1); x++) {
+      sum += sums[x];
+    }
+    final rows = math.min(h - 1, y + radius) - math.max(0, y - radius) + 1;
+    for (var x = 0; x < w; x++) {
+      final columns = math.min(w - 1, x + radius) - math.max(0, x - radius) + 1;
+      final v = gray[y * w + x] < sum / (rows * columns) - 8 ? 0 : 255;
+      image.setPixelRgba(x, y, v, v, v, 255);
+      if (x - radius >= 0) sum -= sums[x - radius];
+      if (x + radius + 1 < w) sum += sums[x + radius + 1];
+    }
+    for (var x = 0; x < w; x++) {
+      if (y - radius >= 0) sums[x] -= gray[(y - radius) * w + x];
+      if (y + radius + 1 < h) sums[x] += gray[(y + radius + 1) * w + x];
+    }
+  }
+  return Uint8List.fromList(img.encodePng(image, level: 3));
+}
+
 class GrayImage {
   const GrayImage(this.width, this.height, this.pixels);
   final int width, height;
@@ -405,9 +462,124 @@ List<GrayImage> splitLines(GrayImage source) {
   return lines;
 }
 
-LineTensor makeTensor(GrayImage image) {
-  final rawWidth = (32 * image.width / image.height).floor();
-  final width = ((rawWidth / 10).ceil() * 10).clamp(32, 1024);
+const modelImageHeight = 64;
+const modelMaxWidth = 2048;
+
+// ML_s44 was trained with V2c margins: a tight ink box extended to retain
+// nearby connected accents, resized to 2032px, then padded by 8px on each side.
+GrayImage normalizeMargins(GrayImage image) {
+  final threshold = otsu(image.pixels), w = image.width, h = image.height;
+  final columns = List<int>.filled(w, 0), rows = List<int>.filled(h, 0);
+  final background = List<int>.filled(256, 0);
+  for (var y = 0; y < h; y++) {
+    for (var x = 0; x < w; x++) {
+      final v = image.pixels[y * w + x];
+      if (v <= threshold) {
+        columns[x]++;
+        rows[y]++;
+      } else {
+        background[v]++;
+      }
+    }
+  }
+  final xs = [
+    for (var x = 0; x < w; x++)
+      if (columns[x] >= math.max(2, (.01 * h).floor())) x,
+  ];
+  final ys = [
+    for (var y = 0; y < h; y++)
+      if (rows[y] >= math.max(2, (.005 * w).floor())) y,
+  ];
+  if (xs.isEmpty || ys.isEmpty) return image;
+  var left = xs.first,
+      right = xs.last + 1,
+      top = ys.first,
+      bottom = ys.last + 1;
+  final pad = ((bottom - top) * .25).ceil();
+  final nl = math.max(0, left - pad),
+      nr = math.min(w, right + pad),
+      nt = math.max(0, top - pad),
+      nb = math.min(h, bottom + pad);
+  final visited = Uint8List(w * h), work = Int32List(w * h);
+  for (var at = 0; at < visited.length; at++) {
+    if (visited[at] != 0 || image.pixels[at] > threshold) continue;
+    var head = 0, tail = 1;
+    work[0] = at;
+    visited[at] = 1;
+    var cl = w, cr = 0, ct = h, cb = 0;
+    var nearby = false;
+    while (head < tail) {
+      final i = work[head++], x = i % w, y = i ~/ w;
+      cl = math.min(cl, x);
+      cr = math.max(cr, x + 1);
+      ct = math.min(ct, y);
+      cb = math.max(cb, y + 1);
+      if (x >= nl && x < nr && y >= nt && y < nb) nearby = true;
+      for (var dy = -1; dy <= 1; dy++) {
+        for (var dx = -1; dx <= 1; dx++) {
+          final nx = x + dx, ny = y + dy;
+          if (nx < 0 || nx >= w || ny < 0 || ny >= h) continue;
+          final n = ny * w + nx;
+          if (visited[n] == 0 && image.pixels[n] <= threshold) {
+            visited[n] = 1;
+            work[tail++] = n;
+          }
+        }
+      }
+    }
+    if (nearby && tail >= 4) {
+      left = math.min(left, cl);
+      right = math.max(right, cr);
+      top = math.min(top, ct);
+      bottom = math.max(bottom, cb);
+    }
+  }
+  var count = background.fold<int>(0, (a, b) => a + b);
+  if (count == 0) {
+    for (final value in image.pixels) {
+      background[value]++;
+    }
+    count = image.pixels.length;
+  }
+  // Match numpy.median including even-sized backgrounds.
+  int percentile(int index) {
+    var n = 0;
+    for (var i = 0; i < 256; i++) {
+      n += background[i];
+      if (n > index) return i;
+    }
+    return 255;
+  }
+
+  final bg = ((percentile((count - 1) ~/ 2) + percentile(count ~/ 2)) / 2)
+      .floor();
+  final crop = image.crop(left, top, right, bottom);
+  const contentWidth = 2032, margin = 8;
+  final rawHeight = crop.height * contentWidth / crop.width;
+  // Python round uses ties-to-even.
+  var ch = rawHeight.round();
+  if ((rawHeight - rawHeight.floor()) == .5 && ch.isOdd) ch--;
+  ch = math.max(1, ch);
+  if (ch > 4096) {
+    throw const FormatException(
+      'Vùng ảnh quá cao cho model đọc dòng. Hãy crop một dòng chữ ngang.',
+    );
+  }
+  final content = resizeGray(crop, contentWidth, ch);
+  final pixels = Uint8List(2048 * (ch + 16))
+    ..fillRange(0, 2048 * (ch + 16), bg);
+  for (var y = 0; y < ch; y++) {
+    pixels.setRange(
+      (y + margin) * 2048 + margin,
+      (y + margin) * 2048 + margin + contentWidth,
+      content.pixels,
+      y * contentWidth,
+    );
+  }
+  return GrayImage(2048, ch + 16, pixels);
+}
+
+GrayImage resizeGray(GrayImage image, int width, int height) {
   List<List<(int, double)>> weights(int from, int to) {
     final scale = from / to, filterScale = math.max(1.0, scale);
     return List.generate(to, (output) {
@@ -435,7 +607,7 @@ LineTensor makeTensor(GrayImage image) {
     });
   }
 
-  final xs = weights(image.width, width), ys = weights(image.height, 32);
+  final xs = weights(image.width, width), ys = weights(image.height, height);
   final horizontal = Uint8List(width * image.height);
   for (var y = 0; y < image.height; y++) {
     for (var x = 0; x < width; x++) {
@@ -446,17 +618,29 @@ LineTensor makeTensor(GrayImage image) {
       horizontal[y * width + x] = value.round().clamp(0, 255);
     }
   }
-  final tensor = Float32List(3 * 32 * width);
-  for (var y = 0; y < 32; y++) {
+  final pixels = Uint8List(height * width);
+  for (var y = 0; y < height; y++) {
     for (var x = 0; x < width; x++) {
       var value = 0.0;
       for (final (input, weight) in ys[y]) {
         value += horizontal[input * width + x] * weight;
       }
-      value = value.round().clamp(0, 255) / 255;
-      for (var channel = 0; channel < 3; channel++) {
-        tensor[channel * 32 * width + y * width + x] = value;
-      }
+      pixels[y * width + x] = value.round().clamp(0, 255);
+    }
+  }
+  return GrayImage(width, height, pixels);
+}
+
+LineTensor makeTensor(GrayImage source) {
+  final image = normalizeMargins(source);
+  final rawWidth = (modelImageHeight * image.width / image.height).floor();
+  final width = ((rawWidth / 10).ceil() * 10).clamp(32, modelMaxWidth);
+  final resized = resizeGray(image, width, modelImageHeight);
+  final plane = width * modelImageHeight;
+  final tensor = Float32List(plane * 3);
+  for (var i = 0; i < plane; i++) {
+    for (var c = 0; c < 3; c++) {
+      tensor[c * plane + i] = resized.pixels[i] / 255;
     }
   }
   return LineTensor(width, tensor);

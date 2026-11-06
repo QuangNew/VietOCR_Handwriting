@@ -1,7 +1,7 @@
 name: vietocr_mobile
-description: VietOCR Handwriting offline, with a Bluetooth desk assistant.
+description: VietOCR server client with Google login and a Bluetooth camera assistant.
 publish_to: none
-version: 1.9.0+14
+version: 3.0.0+17
 
 environment:
   sdk: ^3.11.1
@@ -17,6 +17,7 @@ dependencies:
   permission_handler: 12.0.1
   share_plus: ^13.3.1
   shared_preferences: ^2.5.4
+  supabase_flutter: ^2.18.3
 
 dev_dependencies:
   flutter_test:
@@ -28,5 +29,6 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   assets:
-    - assets/models/
-    - assets/samples/
+    - assets/config/
+    - assets/samples/test.jpg
+    - assets/samples/test2.jpg

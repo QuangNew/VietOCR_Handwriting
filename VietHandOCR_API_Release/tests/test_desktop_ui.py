@@ -21,7 +21,7 @@ from desktop.domain import AssistantState
 from desktop.preferences import read_preferences
 from desktop.bluetooth_radio import RadioResult
 from desktop.ocr_process import OCRProcessService
-from desktop.ocr_service import OCRSettings, RecognitionCancelled
+from desktop.ocr_contract import OCRSettings, RecognitionCancelled
 from ocr_fixtures import ProcessEngine
 from test_robot_connection import FakeBLE
 
@@ -66,6 +66,29 @@ class UiCameraStream:
 
 
 class DesktopWorkflowTests(unittest.TestCase):
+    def test_out_of_order_parallel_results_cannot_finish_or_rewind_global_progress(self):
+        self.app._run_total=4
+        self.app._run_progress={str(i):0 for i in range(4)}
+        self.app._set_ocr_progress('3',1)
+        self.assertEqual(float(self.app.progress['value']),25)
+        self.app._set_ocr_progress('1',.5)
+        self.assertEqual(float(self.app.progress['value']),37.5)
+        self.app._set_ocr_progress('3',.2)
+        self.app._set_ocr_progress('stale previous batch',1)
+        self.assertEqual(float(self.app.progress['value']),37.5)
+        for key in self.app._run_progress:self.app._set_ocr_progress(key,1)
+        self.assertEqual(float(self.app.progress['value']),100)
+
+    def test_empty_original_image_and_its_caption_accept_upload_clicks(self):
+        with patch.object(self.app,'import_files') as upload,patch.object(self.app,'open_image_viewer') as viewer:
+            self.assertTrue(self.app.preview.bind('<Button-1>'))
+            self.assertTrue(self.app.image_info.bind('<Button-1>'))
+            self.app._preview_clicked()
+            upload.assert_called_once();viewer.assert_not_called()
+            item=self.app.batch.add(self.image,'photo.png');self.app.select_item(item.id)
+            self.app._preview_clicked()
+            viewer.assert_called_once();upload.assert_called_once()
+
     def test_wifi_status_arrives_on_connect_without_opening_settings_or_scan(self):
         with FakeBLE() as radio:
             self.app.connect_robot(radio.address)
@@ -368,40 +391,6 @@ class DesktopWorkflowTests(unittest.TestCase):
             self.pump_until(lambda: not self.app.running)
         error.assert_called_once()
         self.assertEqual(self.app.robot.state, AssistantState.ERROR)
-        self.assertFalse(self.app.recognize_button.instate(["disabled"]))
-
-    def test_ai_process_crash_preserves_window_and_same_job_can_retry(self):
-        weights = Path(self.preferences.name) / "crash-load.pth"
-        weights.write_bytes(b"fixture")
-        self.app.service = OCRProcessService(engine_factory=ProcessEngine,
-                                             log_directory=Path(self.preferences.name) / "logs")
-        self.app.settings = OCRSettings(str(weights))
-        self.app.batch.add(self.image, "camera.png")
-        with patch("desktop.application.messagebox.showerror") as error:
-            self.app.start_recognition()
-            self.pump_until(lambda: not self.app.running)
-        error.assert_called_once()
-        self.assertTrue(self.root.winfo_exists())
-        self.assertEqual(self.app.robot.state, AssistantState.ERROR)
-        self.app.start_recognition()
-        self.pump_until(lambda: not self.app.running)
-        self.assertEqual(self.app.batch.items[0].status, "done")
-        self.assertIn("Tiếng Việt", self.app.batch.items[0].text)
-
-    def test_cancel_while_loading_model_returns_ui_to_ready(self):
-        weights = Path(self.preferences.name) / "slow.pth"
-        weights.write_bytes(b"fixture")
-        self.app.service = OCRProcessService(engine_factory=ProcessEngine,
-                                             log_directory=Path(self.preferences.name) / "logs")
-        self.app.settings = OCRSettings(str(weights))
-        self.app.batch.add(self.image, "camera.png")
-        with patch("desktop.application.messagebox.showerror") as error:
-            self.app.start_recognition()
-            self.pump_until(lambda: weights.with_suffix(".started").is_file())
-            self.app.cancel_recognition()
-            self.pump_until(lambda: not self.app.running)
-        error.assert_not_called()
-        self.assertIsNone(self.app.service._process)
         self.assertFalse(self.app.recognize_button.instate(["disabled"]))
 
     def test_event_callback_error_does_not_stop_ocr_result_polling(self):

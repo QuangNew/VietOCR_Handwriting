@@ -16,6 +16,10 @@ class AssistantWifi {
   void endSession();
   void prepareSleep() { sleepRequested_ = true; }
   bool sleeping() const { return sleeping_; }
+  bool transferring() const {
+    const uint32_t until = photoUntil_.load();
+    return photoTransfer_.load() || (until && int32_t(millis()-until)<0);
+  }
   void bluetoothConnected() { bluetoothWake_ = true; }
  private:
   AssistantCamera* camera_ = nullptr;
@@ -38,6 +42,9 @@ class AssistantWifi {
   uint32_t lastServerAttempt_ = 0;
   uint32_t powerPolicyAt_ = 0;
   bool fastRadio_ = true;
+  std::atomic<bool> photoTransfer_{false};
+  std::atomic<uint32_t> photoUntil_{0};
+  bool photoRadio_ = false;
   portMUX_TYPE udpMutex_=portMUX_INITIALIZER_UNLOCKED;
   bool udpActive_=false, udpRadio_=false;
   uint32_t udpPeer_=0, udpGeneration_=0, udpExpires_=0, udpSequence_=0, udpAt_=0;

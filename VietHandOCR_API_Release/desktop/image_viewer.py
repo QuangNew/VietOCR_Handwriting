@@ -10,6 +10,7 @@ from PIL import Image, ImageTk
 
 from .theme import apply_titlebar
 from .widgets import COLORS as C
+from .shape_crop import outline, rotate_points, crop_shape
 
 
 @dataclass
@@ -50,6 +51,7 @@ class ImageViewer:
         self.image = item.image
         self.viewport = ImageViewport(*self.image.size)
         self.fit_mode, self.selection, self.drag = True, None, None
+        self.stroke = []
         self.photo = None
         self.window = tk.Toplevel(root)
         self.window.title(f'Ảnh chi tiết · {item.name}')
@@ -73,7 +75,14 @@ class ImageViewer:
         for text, command in (('Lưu ảnh', self.save), ('Lưu ảnh gốc', lambda: self.save(original=True)),
                               ('Khôi phục ảnh gốc', self.restore), ('Đóng', self.close)):
             ttk.Button(tools, text=text, command=command, style='Small.TButton').pack(side='left', padx=(0, 6))
-        tk.Label(self.window, text='Cuộn chuột để zoom · Kéo để di chuyển · Bật chọn vùng rồi kéo để crop tự do',
+        crop_tools=tk.Frame(self.window,bg=C['bg'],padx=12,pady=6);crop_tools.pack(side='top',fill='x')
+        self.crop_shape=tk.StringVar(value='Chữ nhật');self.crop_angle=tk.DoubleVar(value=0)
+        picker=ttk.Combobox(crop_tools,textvariable=self.crop_shape,values=('Chữ nhật','Elip','Tự vẽ'),state='readonly',width=12)
+        picker.pack(side='left',padx=(0,12));picker.bind('<<ComboboxSelected>>',self._reset_selection)
+        tk.Label(crop_tools,text='Xoay vùng:',bg=C['bg'],fg=C['ink']).pack(side='left')
+        ttk.Scale(crop_tools,from_=-180,to=180,variable=self.crop_angle,command=lambda _:self.draw()).pack(side='left',fill='x',expand=True,padx=8)
+        ttk.Button(crop_tools,text='0°',style='Small.TButton',command=lambda:(self.crop_angle.set(0),self.draw())).pack(side='right')
+        tk.Label(self.window, text='Cuộn để zoom · Bật crop rồi kéo/vẽ vùng kín · Xoay vùng chọn để căn chữ · Ngoài vùng là nền trắng',
                  bg=C['bg'], fg=C['muted']).pack(anchor='w', padx=12, pady=(0, 8))
         self.canvas = tk.Canvas(self.window, bg=C['preview'], highlightthickness=0)
         self.canvas.pack(fill='both', expand=True, padx=12)
@@ -115,6 +124,7 @@ class ImageViewer:
             start = self.viewport.point(event.x, event.y)
             self.drag = ('crop', start)
             self.selection = (start, start)
+            self.stroke = [start];self.crop_angle.set(0)
         else:
             self.fit_mode = False
             self.drag = ('pan', event.x, event.y, self.viewport.x, self.viewport.y)
@@ -123,7 +133,13 @@ class ImageViewer:
         if self.drag is None:
             return
         if self.drag[0] == 'crop':
-            self.selection = (self.drag[1], self.viewport.point(event.x, event.y))
+            point=self.viewport.point(event.x,event.y)
+            if self.crop_shape.get()=='Tự vẽ':
+                if math.dist(point,self.stroke[-1])>=max(.5,2/self.viewport.scale): self.stroke.append(point)
+                if len(self.stroke)>4096:self.stroke=self.stroke[::2]
+                self.selection=((min(p[0] for p in self.stroke),min(p[1] for p in self.stroke)),
+                                (max(p[0] for p in self.stroke),max(p[1] for p in self.stroke)))
+            else:self.selection = (self.drag[1],point)
         else:
             _, x, y, ox, oy = self.drag
             self.viewport.x, self.viewport.y = ox + event.x - x, oy + event.y - y
@@ -134,7 +150,7 @@ class ImageViewer:
         self.drag = None
 
     def draw(self):
-        self.canvas.delete('all')
+        self.canvas.delete('selection')
         v = self.viewport
         # Render only the visible source rectangle: even 1600% zoom stays bounded
         # by the screen size, rather than allocating a huge enlarged 3 MP image.
@@ -142,23 +158,39 @@ class ImageViewer:
         left, top = max(0, math.floor(-v.x/v.scale)), max(0, math.floor(-v.y/v.scale))
         right = min(v.width, math.ceil((width-v.x)/v.scale))
         bottom = min(v.height, math.ceil((height-v.y)/v.scale))
-        if right > left and bottom > top:
+        render_key=(id(self.image),v.scale,v.x,v.y,width,height)
+        if right > left and bottom > top and getattr(self,'_render_key',None)!=render_key:
             visible = self.image.crop((left, top, right, bottom))
             visible = visible.resize((max(1, round((right-left)*v.scale)), max(1, round((bottom-top)*v.scale))), Image.Resampling.BICUBIC)
             self.photo = ImageTk.PhotoImage(visible, master=self.window)
-            self.canvas.create_image(v.x+left*v.scale, v.y+top*v.scale, image=self.photo, anchor='nw')
+            self.canvas.delete('photo')
+            self.canvas.create_image(v.x+left*v.scale, v.y+top*v.scale, image=self.photo, anchor='nw',tags='photo')
+            self._render_key=render_key
+        elif right<=left or bottom<=top:
+            self.canvas.delete('photo');self._render_key=None
         crop = v.crop_box(*self.selection) if self.selection else None
-        if self.selection:
-            (x1, y1), (x2, y2) = self.selection
-            self.canvas.create_rectangle(v.x+x1*v.scale, v.y+y1*v.scale, v.x+x2*v.scale, v.y+y2*v.scale,
-                                         outline=C['green'], width=2, dash=(6, 3))
+        points=self._selection_points()
+        if len(points)>=2:
+            rotated=rotate_points(points,self.crop_angle.get())
+            coords=[value for x,y in rotated for value in (v.x+x*v.scale,v.y+y*v.scale)]
+            if len(points)>2:self.canvas.create_polygon(*coords,fill='',outline=C['green'],width=2,dash=(6,3),tags='selection')
+            else:self.canvas.create_line(*coords,fill=C['green'],width=2,tags='selection')
         self.sync_controls()
+
+    def _reset_selection(self,_=None):
+        self.selection=None;self.stroke=[];self.crop_angle.set(0);self.crop_mode.set(True);self.draw()
+
+    def _selection_points(self):
+        box=self.viewport.crop_box(*self.selection) if self.selection else None
+        if not box:return []
+        if self.crop_shape.get()=='Tự vẽ':return self.stroke
+        return outline(box,'ellipse' if self.crop_shape.get()=='Elip' else 'rectangle')
 
     def sync_controls(self):
         v = self.viewport
         crop = v.crop_box(*self.selection) if self.selection else None
-        self.apply_button.configure(state='normal' if crop and self.can_edit() else 'disabled')
-        detail = f' · Crop {crop[2]-crop[0]} × {crop[3]-crop[1]}' if crop else ''
+        self.apply_button.configure(state='normal' if crop and len(self._selection_points())>=3 and self.can_edit() else 'disabled')
+        detail = f' · Crop {crop[2]-crop[0]} × {crop[3]-crop[1]} · {self.crop_angle.get():.0f}°' if crop else ''
         waiting = ' · Đợi nhận diện xong để áp dụng crop' if not self.can_edit() else ''
         self.info.set(f'{self.image.width} × {self.image.height} px · Zoom {v.scale:.0%}{detail}{waiting}')
 
@@ -166,7 +198,8 @@ class ImageViewer:
         box = self.viewport.crop_box(*self.selection) if self.selection else None
         if box is None or not self.can_edit():
             return
-        self._replace(self.image.crop(box))
+        try:self._replace(crop_shape(self.image,self._selection_points(),self.crop_angle.get()))
+        except ValueError as error:messagebox.showerror('Không crop được ảnh',str(error),parent=self.window)
 
     def restore(self):
         if not self.can_edit() or self.item.original_path is None:
@@ -183,6 +216,7 @@ class ImageViewer:
         self.image = self.item.image
         self.viewport = ImageViewport(*self.image.size)
         self.selection = None
+        self.stroke=[];self.crop_angle.set(0)
         self.fit()
         self.on_change(self.item)
 

@@ -47,8 +47,3 @@ android {
 flutter {
     source = "../.."
 }
-
-dependencies {
-    // Same runtime family as the Python conversion checks. Only :ocr loads JNI.
-    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.23.2")
-}

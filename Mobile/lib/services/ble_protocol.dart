@@ -30,7 +30,11 @@ class CommandRejected implements Exception {
 }
 
 class CommandQueue {
-  CommandQueue(this.write, {this.timeout = const Duration(seconds: 3), this.onSend});
+  CommandQueue(
+    this.write, {
+    this.timeout = const Duration(seconds: 3),
+    this.onSend,
+  });
   final void Function(String)? onSend;
   final Future<void> Function(List<int>) write;
   final Duration timeout;
@@ -56,7 +60,11 @@ class CommandQueue {
     }
     final operation = _tail.then((_) async {
       if (_closed) throw StateError('Bluetooth đã ngắt kết nối.');
-      onSend?.call(command.startsWith('WIFI SSID ') || command.startsWith('WIFI PASS ') ? 'WIFI credentials [hidden]' : command);
+      onSend?.call(
+        command.startsWith('WIFI SSID ') || command.startsWith('WIFI PASS ')
+            ? 'WIFI credentials [hidden]'
+            : command,
+      );
       _expected = command == 'PING' ? 'PONG' : 'OK $command';
       _prefix = expectedPrefix;
       final reply = Completer<String>();

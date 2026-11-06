@@ -58,7 +58,7 @@ class UdpReassembler:
 def control_preview(endpoint, port):
     from .wifi_camera import _NoRedirect, http_error
     request = Request(f'http://{endpoint.ip}/stream/udp', data=json.dumps({'port':port}).encode(),
-                      headers={'Authorization':f'Bearer {endpoint.token}','Content-Type':'application/json'})
+                      headers={'Authorization':f'Bearer {endpoint.token}','Content-Type':'application/json','Connection':'close'})
     try:
         with build_opener(ProxyHandler({}),_NoRedirect()).open(request,timeout=4) as response:
             data = response.read(1025)
@@ -118,16 +118,23 @@ class UdpCameraStream:
             decoder=UdpReassembler(stream)
             # Firmware sends from :82. Open the matching local return flow.
             sock.sendto(b'VOJ1',(ip,self.source_port))
-            renewed=last_frame=time.monotonic(); self.stage='đợi JPEG UDP đầu tiên'
+            renewed=last_frame=time.monotonic(); next_renew=renewed+self.renew_seconds; self.stage='đợi JPEG UDP đầu tiên'
             while not self.stopped.is_set():
                 now=time.monotonic()
                 if now-last_frame>(self.idle_timeout if count else self.first_timeout):
                     raise TimeoutError('Không nhận được JPEG UDP hợp lệ. Kiểm tra cùng Wi-Fi và cổng UDP 82.')
-                if now-renewed>=self.renew_seconds:
-                    stream=self._activate(sock.getsockname()[1])
-                    if stream is None: return
-                    decoder=UdpReassembler(stream);renewed=time.monotonic()
-                    sock.sendto(b'VOJ1',(ip,self.source_port))
+                if now>=next_renew:
+                    from .wifi_camera import CameraNetworkError
+                    try:
+                        stream=self._activate(sock.getsockname()[1])
+                        if stream is None: return
+                        if stream != decoder.stream: decoder=UdpReassembler(stream)
+                        renewed=time.monotonic(); next_renew=renewed+self.renew_seconds
+                        sock.sendto(b'VOJ1',(ip,self.source_port))
+                    except CameraNetworkError:
+                        if now-renewed>=50: raise
+                        next_renew=time.monotonic()+2
+                        LOGGER.warning('UDP lease renewal delayed; keep receiving the current stream')
                 try: packet,peer=sock.recvfrom(2048)
                 except socket.timeout: continue
                 if peer!=(ip,self.source_port): continue

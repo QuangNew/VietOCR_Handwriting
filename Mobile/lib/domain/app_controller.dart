@@ -6,7 +6,10 @@ import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../ocr/decoder.dart';
-import '../ocr/offline_engine.dart';
+import '../ocr/engine.dart';
+import '../ocr/remote_engine.dart';
+import '../services/cloud_session.dart';
+import '../services/vietocr_remote.dart';
 import '../services/session_store.dart';
 import '../services/app_log.dart';
 import 'document.dart';
@@ -14,9 +17,17 @@ import 'document.dart';
 class AppController extends ChangeNotifier {
   AppController({SessionStore? store, OcrEngine? engine})
     : store = store ?? SessionStore(),
-      engine = engine ?? OfflineEngine();
+      engine = engine ?? UnavailableServerEngine(),
+      _managedEngine = engine == null;
   final SessionStore store;
-  final OcrEngine engine;
+  OcrEngine engine;
+  final bool _managedEngine;
+  final cloud = CloudSession.instance;
+  String? _accountId;
+  String? get accountEmail => cloud.email;
+  String serverUrl = 'http://127.0.0.1:5080';
+  bool get serverMode => true;
+  bool serverInsecureLan = false;
   final _picker = ImagePicker();
   final List<Document> _documents = [];
   List<Document> get documents => UnmodifiableListView(_documents);
@@ -48,6 +59,20 @@ class AppController extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       dark = prefs.getBool('dark') ?? true;
       splitLines = prefs.getBool('splitLines') ?? true;
+      serverUrl = prefs.getString('ocrServerUrl') ?? serverUrl;
+      serverInsecureLan = prefs.getBool('ocrServerInsecure') ?? false;
+      if (_managedEngine) {
+        await cloud.initialize();
+        _accountId = cloud.userId;
+        store.setAccount(_accountId);
+        cloud.addListener(_authChanged);
+        engine = RemoteEngine(
+          serverUrl,
+          '',
+          allowInsecureLan: serverInsecureLan,
+          tokenProvider: cloud.accessToken,
+        );
+      }
       _documents.addAll(await store.load());
       if (_disposed) return;
       if (_documents.isNotEmpty) {
@@ -84,6 +109,65 @@ class AppController extends ChangeNotifier {
       message = 'Chưa lưu được giao diện. Thử lại khi bộ nhớ còn trống.';
       _notify();
     }
+  }
+
+  Future<void> configureServer({
+    required String origin,
+    required bool allowInsecureLan,
+  }) async {
+    if (busy || importing) {
+      throw StateError('Dừng nhận diện trước khi đổi server.');
+    }
+    final next = RemoteEngine(
+      origin.trim(),
+      '',
+      allowInsecureLan: allowInsecureLan,
+      tokenProvider: cloud.accessToken,
+    );
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('ocrServerUrl', origin.trim());
+    await prefs.setBool('ocrServerInsecure', allowInsecureLan);
+    await prefs.remove('ocrServerEnabled');
+    await engine.close();
+    engine = next;
+    serverUrl = origin.trim();
+    serverInsecureLan = allowInsecureLan;
+    message = 'Nhận diện trên OCR Server. Không có model trên điện thoại.';
+    _notify();
+  }
+
+  Future<void> _authWork = Future.value();
+  void _authChanged() {
+    _authWork = _authWork.then((_) => _switchAccount()).catchError((
+      Object error,
+    ) {
+      message = 'Không đổi được phiên tài khoản: ${readableError(error)}';
+      _notify();
+    });
+  }
+
+  Future<void> _switchAccount() async {
+    final id = cloud.userId;
+    if (_disposed || id == _accountId) {
+      _notify();
+      return;
+    }
+    cancel();
+    if (_running != null) {
+      try {
+        await _running;
+      } catch (_) {}
+    }
+    await flush();
+    _documents.clear();
+    selectedIndex = 0;
+    _accountId = id;
+    store.setAccount(id);
+    _documents.addAll(await store.load());
+    message = id == null
+        ? 'Đã đăng xuất Google.'
+        : 'Đã đăng nhập ${cloud.email}.';
+    _notify();
   }
 
   Future<void> setSplit(bool value) async {
@@ -169,13 +253,21 @@ class AppController extends ChangeNotifier {
     }
   }
 
-  Future<int> _importRows(List<(Uint8List, String)> rows) async {
+  Future<int> _importRows(
+    List<(Uint8List, String)> rows, {
+    bool preserveResolution = false,
+  }) async {
     var added = 0;
     for (final (bytes, name) in rows) {
       if (_disposed) break;
       final id =
           '${DateTime.now().microsecondsSinceEpoch}_${_documents.length}';
-      final document = await store.import(bytes, name, id);
+      final document = await store.import(
+        bytes,
+        name,
+        id,
+        preserveResolution: preserveResolution,
+      );
       if (_disposed) {
         await store.remove(document);
         break;
@@ -193,12 +285,16 @@ class AppController extends ChangeNotifier {
   Future<void> importImages(
     List<(Uint8List, String)> rows, {
     bool enqueue = false,
+    bool preserveResolution = false,
   }) async {
     if ((busy && !enqueue) || importing || _disposed || rows.isEmpty) return;
     importing = true;
     _notify();
     try {
-      final count = await _importRows(rows);
+      final count = await _importRows(
+        rows,
+        preserveResolution: preserveResolution,
+      );
       message = 'Đã nhận $count ảnh. Sẵn sàng nhận diện.';
     } catch (error) {
       message = 'Không thêm được ảnh: ${readableError(error)}';
@@ -316,7 +412,7 @@ class AppController extends ChangeNotifier {
         AppLog.instance.add(
           'AI CHECK',
           'Chẩn đoán',
-          error: await OfflineEngine.diagnostics(),
+          error: 'server-only; origin=$serverUrl',
         );
       } catch (_) {}
     } finally {
@@ -328,11 +424,7 @@ class AppController extends ChangeNotifier {
         if (file != null && await file.exists()) await file.delete();
       } catch (_) {}
       await AppLog.instance.captureNative();
-      if (_background && engine is OfflineEngine) {
-        try {
-          await (engine as OfflineEngine).releaseMemory();
-        } catch (_) {}
-      }
+
       _notify();
     }
   }
@@ -444,24 +536,17 @@ class AppController extends ChangeNotifier {
             AppLog.instance.add(
               'OCR',
               'Thông tin sau lỗi',
-              error: await OfflineEngine.diagnostics(),
+              error: 'server-only; origin=$serverUrl',
             );
           } catch (_) {}
           active.status = DocumentStatus.error;
           active.error = readableError(error);
           failed++;
-          if (error is PlatformException &&
-              [
-                'OCR_PROCESS_DIED',
-                'OCR_TIMEOUT',
-                'OCR_BIND',
-                'OCR_MEMORY',
-                'OCR_MODEL',
-                'OCR_NATIVE',
-              ].contains(error.code)) {
+          if (error is RemoteOcrException &&
+              [401, 403, 429, 503].contains(error.status)) {
             workerStopped = true;
             _queueHalted = true;
-            break; // Do not repeatedly reload a crashed worker for every queued image.
+            break; // Keep remaining photos queued when login/quota/server needs attention.
           }
         }
         await flush();
@@ -469,7 +554,7 @@ class AppController extends ChangeNotifier {
       }
       assistant = failed == 0 ? AssistantState.done : AssistantState.error;
       message = workerStopped
-          ? 'Hàng đợi đã dừng do AI gặp lỗi. Kết quả được giữ lại; mở Log để xem lỗi gốc rồi nhấn nhận diện để thử lại.'
+          ? 'Hàng đợi đã tạm dừng. Kiểm tra đăng nhập, hạn mức hoặc server; các ảnh còn lại được giữ để thử tiếp.'
           : failed == 0
           ? 'Đã đọc xong $completed ảnh. Bạn có thể sửa và sao chép văn bản.'
           : 'Đã đọc $completed ảnh; $failed ảnh cần thử lại.';
@@ -502,11 +587,7 @@ class AppController extends ChangeNotifier {
       progressLabel = '';
       await flush();
       await AppLog.instance.captureNative();
-      if (_background && engine is OfflineEngine) {
-        try {
-          await (engine as OfflineEngine).releaseMemory();
-        } catch (_) {}
-      }
+
       _notify();
     }
   }
@@ -540,11 +621,6 @@ class AppController extends ChangeNotifier {
     _background = true;
     if (!_picking) cancel();
     await flush();
-    if (!busy && engine is OfflineEngine) {
-      try {
-        await (engine as OfflineEngine).releaseMemory();
-      } catch (_) {}
-    }
   }
 
   void foreground() {
@@ -570,6 +646,7 @@ class AppController extends ChangeNotifier {
 
   @override
   void dispose() {
+    cloud.removeListener(_authChanged);
     _disposed = true;
     _saveTimer?.cancel();
     _cancel?.cancel();

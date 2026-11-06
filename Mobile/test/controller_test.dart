@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -9,8 +8,9 @@ import 'package:vietocr_mobile/domain/app_controller.dart';
 import 'package:vietocr_mobile/domain/document.dart';
 import 'package:vietocr_mobile/main.dart';
 import 'package:vietocr_mobile/ocr/decoder.dart';
-import 'package:vietocr_mobile/ocr/offline_engine.dart';
+import 'package:vietocr_mobile/ocr/engine.dart';
 import 'package:vietocr_mobile/services/session_store.dart';
+import 'package:vietocr_mobile/services/vietocr_remote.dart';
 
 class FakeEngine implements OcrEngine {
   int calls = 0;
@@ -33,7 +33,7 @@ class FakeEngine implements OcrEngine {
     await gate?.future;
     cancel.check();
     if (workerDies) {
-      throw PlatformException(code: 'OCR_PROCESS_DIED', message: 'AI đã dừng');
+      throw const RemoteOcrException('Server chưa sẵn sàng', status: 503);
     }
     if (failFirst && calls == 1) throw StateError('Thử lại ảnh');
     return result ?? 'Tiếng Việt $calls';
@@ -196,7 +196,7 @@ void main() {
     },
   );
   test(
-    'a dead AI process stops the batch, preserves text and can be retried',
+    'unavailable server stops the batch, preserves text and can be retried',
     () async {
       await app.importImages([(bytes, 'one.png'), (bytes, 'two.png')]);
       app.edit(app.documents.first.id, 'Văn bản đã sửa');
@@ -206,7 +206,7 @@ void main() {
       expect(app.busy, isFalse);
       expect(app.documents.first.text, 'Văn bản đã sửa');
       expect(app.documents.last.status, DocumentStatus.ready);
-      expect(app.message, contains('AI gặp lỗi'));
+      expect(app.message, contains('Hàng đợi đã tạm dừng'));
       engine.workerDies = false;
       await app.recognize();
       expect(

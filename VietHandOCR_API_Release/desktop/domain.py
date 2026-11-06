@@ -57,7 +57,7 @@ class ImageItem:
 
     def replace_image(self, image: Image.Image) -> None:
         if self.original_path is None:
-            self.original_path = self.image_path.with_suffix('.original.png')
+            self.original_path = self.image_path.with_name(self.image_path.stem + '.original' + self.image_path.suffix)
             copyfile(self.image_path, self.original_path)
         prepared = prepare_image(image)
         target = self.image_path.with_suffix('.png')

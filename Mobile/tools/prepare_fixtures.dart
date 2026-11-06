@@ -2,6 +2,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
+import 'package:image/image.dart' as img;
 import 'package:vietocr_mobile/ocr/image_processing.dart';
 
 void main(List<String> args) {
@@ -29,7 +30,23 @@ void main(List<String> args) {
           File(
             '${output.path}/$name',
           ).writeAsBytesSync(bytes.buffer.asUint8List());
-          tensors.add({'file': name, 'width': tensor.width});
+          final gray = img.Image(
+            width: lines[line].width,
+            height: lines[line].height,
+            numChannels: 1,
+          );
+          for (final p in gray) {
+            final v = lines[line].pixels[p.y * gray.width + p.x];
+            p.setRgb(v, v, v);
+          }
+          File(
+            '${output.path}/$name.png',
+          ).writeAsBytesSync(img.encodePng(gray));
+          tensors.add({
+            'file': name,
+            'width': tensor.width,
+            'height': modelImageHeight,
+          });
         }
         rows.add({
           'source': path,

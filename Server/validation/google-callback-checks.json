@@ -1,0 +1,17 @@
+{
+  "googleProviderEnabled": true,
+  "anonymousLoginEnabled": false,
+  "callbackChecks": [
+    {
+      "requestedCallback": "http://127.0.0.1:47821/auth/callback",
+      "supabaseSelectedCallback": "http://127.0.0.1:47821/auth/callback",
+      "matches": true
+    },
+    {
+      "requestedCallback": "vn.pbl4.vietocr://auth/callback",
+      "supabaseSelectedCallback": "vn.pbl4.vietocr://auth/callback",
+      "matches": true
+    }
+  ],
+  "interactiveLoginTested": false
+}

@@ -6,6 +6,7 @@ import logging
 import re
 import secrets
 import time
+from http.client import IncompleteRead
 from dataclasses import dataclass, field, replace
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, ProxyHandler, HTTPRedirectHandler, build_opener
@@ -14,6 +15,12 @@ from .camera_transfer import MAX_BYTES, CameraMetadata, verify_jpeg
 from .bluetooth_transport import RobotCommandRejected
 
 LOGGER = logging.getLogger('vietocr_desktop.camera')
+PHOTO_CHUNK_BYTES = 128 * 1024
+PHOTO_DOWNLOAD_SECONDS = 90
+
+
+class CameraNetworkError(ValueError):
+    """A transient transport failure; distinct from invalid image/config data."""
 WIFI_FIRMWARE_REQUIRED = (
     'ESP32 đang chạy firmware chưa hỗ trợ Wi-Fi camera. '
     'Nạp profile esp32-s3-cam-ov5640 mới trong pbl4, rồi kết nối BLE lại. '
@@ -228,25 +235,30 @@ def http_error(endpoint, error):
     elif code in (10061, 111):
         detail = 'Thiết bị từ chối kết nối: cổng HTTP camera chưa mở. Nạp firmware 2.1.0-wifi rồi kiểm tra Wi-Fi.'
     elif isinstance(reason, TimeoutError) or code in (10060, 110):
-        detail = 'Kết nối HTTP quá hạn. Kiểm tra IP ESP32, VPN/route và cách ly thiết bị của router.'
+        detail = 'ESP32 chưa trả lời HTTP kịp thời. Nếu preview vẫn chạy, đường Wi-Fi đang chậm hoặc máy đang bận truyền ảnh.'
     elif code in (10051, 10065, 101, 113):
         detail = 'Máy chưa có đường mạng tới IP ESP32. Kiểm tra subnet/gateway và VPN.'
     else:
         detail = f'{type(reason).__name__}: {str(reason)[:180]}'
     LOGGER.warning('Camera HTTP failed: target=%s code=%s reason=%s', target, code, reason)
-    return ValueError(f'Camera {target} · {code or type(reason).__name__}: {detail}')
+    kind = ValueError if isinstance(error, HTTPError) else CameraNetworkError
+    return kind(f'Camera {target} · {code or type(reason).__name__}: {detail}')
 
 
-def check_http(endpoint, *, timeout=3):
-    request = Request(f'http://{endpoint.ip}/health', headers={'Authorization': f'Bearer {endpoint.token}'})
-    try:
-        with build_opener(ProxyHandler({}), _NoRedirect()).open(request, timeout=timeout) as response:
-            data = json.loads(response.read(1024))
-            if data.get('http') is not True or data.get('ip') != endpoint.ip:
-                raise ValueError('Phản hồi kiểm tra camera không khớp IP ESP32.')
-            return data
-    except (URLError, OSError, TimeoutError) as error:
-        raise http_error(endpoint, error) from None
+def check_http(endpoint, *, timeout=5):
+    request = Request(f'http://{endpoint.ip}/health', headers={'Authorization': f'Bearer {endpoint.token}', 'Connection':'close'})
+    for attempt in range(2):
+        try:
+            with build_opener(ProxyHandler({}), _NoRedirect()).open(request, timeout=timeout) as response:
+                data = json.loads(response.read(4096))
+                if data.get('http') is not True or data.get('ip') != endpoint.ip:
+                    raise ValueError('Phản hồi kiểm tra camera không khớp IP ESP32.')
+                return data
+        except HTTPError as error:
+            raise http_error(endpoint, error) from None
+        except (URLError, OSError, IncompleteRead) as error:
+            if attempt: raise http_error(endpoint, error) from None
+            time.sleep(.2)
 
 
 async def wifi_check(protocol):
@@ -259,30 +271,60 @@ async def wifi_check(protocol):
 
 
 def fetch_jpeg(endpoint, path, on_progress=None):
-    request = Request(f'http://{endpoint.ip}{path}', headers={'Authorization': f'Bearer {endpoint.token}', 'Cache-Control': 'no-cache'})
-    try:
-        # Ignore system HTTP proxies for a direct camera LAN connection.
-        started = time.monotonic()
-        with build_opener(ProxyHandler({}), _NoRedirect()).open(request, timeout=3 if path == '/preview' else 5) as response:
-            total = int(response.headers.get('Content-Length', 0))
-            if not 4 <= total <= MAX_BYTES or response.headers.get_content_type() != 'image/jpeg':
-                raise ValueError('Camera trả JPEG quá lớn hoặc sai định dạng.')
-            result = bytearray()
-            deadline = time.monotonic() + 20
-            while len(result) < total:
-                if time.monotonic() > deadline: raise TimeoutError()
-                chunk = response.read1(min(65536, total - len(result)))
-                if not chunk:
-                    raise ValueError('Ảnh Wi-Fi bị ngắt giữa chừng; hãy chụp lại.')
-                result.extend(chunk)
-                if on_progress:
-                    on_progress(len(result), total)
-            if not result.startswith(b'\xff\xd8') or not result.endswith(b'\xff\xd9'):
-                raise ValueError('Camera trả JPEG chưa hoàn chỉnh.')
-            LOGGER.debug('Camera HTTP JPEG target=%s path=%s bytes=%s seconds=%.3f', endpoint.ip, path, total, time.monotonic()-started)
-            return bytes(result)
-    except (URLError, OSError, TimeoutError) as error:
-        raise http_error(endpoint, error) from None
+    # Read-only retries always address the SAME immutable photo ID. A chunked
+    # download also gives the firmware's HTTP control task time between reads.
+    still = path.startswith('/image?')
+    started = time.monotonic(); deadline = started + (PHOTO_DOWNLOAD_SECONDS if still else 8)
+    result = bytearray(); total = None; etag = None; resumable = False; failures = 0
+    while total is None or len(result) < total:
+        headers = {'Authorization': f'Bearer {endpoint.token}', 'Cache-Control':'no-cache', 'Connection':'close'}
+        if still:
+            headers['Range'] = f'bytes={len(result)}-{len(result)+PHOTO_CHUNK_BYTES-1}'
+            if etag: headers['If-Range'] = etag
+        request = Request(f'http://{endpoint.ip}{path}', headers=headers)
+        try:
+            if time.monotonic() >= deadline: raise TimeoutError('download deadline')
+            with build_opener(ProxyHandler({}), _NoRedirect()).open(request, timeout=min(8, max(.1, deadline-time.monotonic()))) as response:
+                length = int(response.headers.get('Content-Length', 0))
+                if not 1 <= length <= MAX_BYTES or response.headers.get_content_type() != 'image/jpeg':
+                    raise ValueError('Camera trả JPEG quá lớn hoặc sai định dạng.')
+                status = getattr(response, 'status', 200)
+                if status == 206:
+                    match = re.fullmatch(r'bytes (\d+)-(\d+)/(\d+)', response.headers.get('Content-Range',''))
+                    if not still or not match: raise ValueError('Sai phạm vi dữ liệu ảnh.')
+                    first, last, whole = map(int, match.groups())
+                    next_etag = response.headers.get('ETag')
+                    if (first != len(result) or last-first+1 != length or not 0 <= first <= last < whole <= MAX_BYTES
+                            or whole < 4 or (total is not None and total != whole) or not next_etag
+                            or (etag is not None and etag != next_etag)):
+                        raise ValueError('Ảnh trên ESP32 đã thay đổi hoặc sai byte range.')
+                    total = whole; etag = next_etag; resumable = True
+                elif status == 200:
+                    # Backward compatibility: old firmware ignores Range.
+                    result.clear(); total = length; resumable = False
+                else: raise ValueError(f'Camera HTTP {status}.')
+                remaining = length
+                while remaining:
+                    if time.monotonic() >= deadline: raise TimeoutError('download deadline')
+                    chunk = response.read1(min(65536, remaining))
+                    if not chunk: raise IncompleteRead(b'', remaining)
+                    result.extend(chunk); remaining -= len(chunk)
+                    if on_progress: on_progress(len(result), total)
+        except HTTPError as error:
+            raise http_error(endpoint, error) from None
+        except (URLError, OSError, IncompleteRead) as error:
+            failures += 1
+            if not still or failures > 2 or time.monotonic() >= deadline:
+                if not result: raise http_error(endpoint, error) from None
+                raise CameraNetworkError(f'Tải ảnh {endpoint.ip}:80 bị gián đoạn · {len(result):,}/{total or 0:,} byte. '
+                                         'Ảnh chưa đưa vào OCR; hãy kiểm tra tín hiệu Wi-Fi.') from error
+            LOGGER.warning('Retry same photo download: target=%s offset=%s total=%s reason=%s', endpoint.ip, len(result), total, type(error).__name__)
+            if not resumable: result.clear(); total = None
+            time.sleep(.2 * failures)
+    if not result.startswith(b'\xff\xd8') or not result.endswith(b'\xff\xd9'):
+        raise ValueError('Camera trả JPEG chưa hoàn chỉnh.')
+    LOGGER.info('Camera HTTP JPEG target=%s bytes=%s seconds=%.3f retries=%d', endpoint.ip, total, time.monotonic()-started, failures)
+    return bytes(result)
 
 
 async def preview(protocol):

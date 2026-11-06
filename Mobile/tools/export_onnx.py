@@ -24,7 +24,7 @@ ROOT = Path(__file__).resolve().parents[2]
 API = ROOT / "VietHandOCR_API_Release"
 sys.path.insert(0, str(API))
 from AI import VietHandOCR
-from vietocr.tool.translate import process_input
+from viethandocr_lite import prepare_image, V2C_MARGIN_PX, V2C_WIDTH_PX
 
 
 def attention(module, query, key, value, causal=False):
@@ -52,7 +52,9 @@ class Encoder(nn.Module):
     def forward(self, image):
         # Explicit positive axes avoid legacy export of permute(-1, 0, 1).
         backbone = self.cnn.model
-        conv = backbone.last_conv_1x1(backbone.dropout(backbone.features(image)))
+        features = backbone.features(image)
+        if hasattr(backbone, 'dropout'): features = backbone.dropout(features)
+        conv = backbone.last_conv_1x1(features)
         features = conv.transpose(2, 3).flatten(2).permute(2, 0, 1)
         x = self.language.pos_enc(features * math.sqrt(self.language.d_model))
         encoder = self.language.transformer.encoder
@@ -98,18 +100,18 @@ def session(path, *, android_options=False):
 def decode(encoder, decoder, image, vocab):
     memory = encoder.run(None, {"image": image})[0]
     tokens = [1]
-    for _ in range(129):
+    for _ in range(257):
         _, predicted = decoder.run(None, {"tokens": np.asarray(tokens, dtype=np.int64)[:, None], "memory": memory})
         token = int(predicted[0])
         tokens.append(token)
         if token == 2:
             break
-    return vocab.decode(tokens), tokens
+    return ''.join(vocab[token] for token in tokens[1:] if token != 2).strip(), tokens
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--weights", type=Path, default=API / "vgg_transformer_final.pth")
+    parser.add_argument("--weights", type=Path, default=API / "model/ml_s44_fp16.pth")
     parser.add_argument("--output", type=Path, default=ROOT / "Mobile/assets/models")
     parser.add_argument("--verify-only", action="store_true")
     args = parser.parse_args()
@@ -126,16 +128,19 @@ def main():
     engine = VietHandOCR(str(args.weights), device="cpu")
     if engine.predictor is None:
         raise RuntimeError(f"Cannot load original weights: {engine.load_error}")
-    model = engine.predictor.model.eval()
+    recognizer = engine.predictor.recognizer
+    model = recognizer.model.eval()
+    height, max_width = recognizer.height, recognizer.max_width
+    vocabulary = [recognizer._chars[index] for index in range(len(recognizer._chars))]
     encoder, decoder = Encoder(model).eval(), Decoder(model).eval()
     encoder_path, decoder_path = args.output / "vietocr_encoder.onnx", args.output / "vietocr_decoder.onnx"
-    image = torch.rand(1, 3, 32, 128)
+    image = torch.rand(1, 3, height, 128)
     with torch.inference_mode():
         reference_memory = model.transformer.forward_encoder(model.cnn(image))
         custom_memory = encoder(image)
         np.testing.assert_allclose(custom_memory.numpy(), reference_memory.numpy(), atol=2e-5, rtol=2e-4)
         tokens = torch.tensor([[1], [5], [10]], dtype=torch.long)
-        original_logits = model.transformer.forward_decoder(tokens, reference_memory)[0][:, -1]
+        original_logits = model.transformer.forward_decoder(tokens, reference_memory)[:, -1]
         custom_logits = decoder(tokens, custom_memory)[0]
         np.testing.assert_allclose(custom_logits.numpy(), original_logits.numpy(), atol=3e-5, rtol=3e-4)
         if not args.verify_only:
@@ -153,15 +158,15 @@ def main():
     # Verify shapes other than the export example, including the first decoding step.
     maximum_error = 0.0
     with torch.inference_mode():
-        for width in (32, 90, 256, 510, 1024):
-            tensor = torch.rand(1, 3, 32, width)
+        for width in (32, 90, 256, 510, 1024, 2048):
+            tensor = torch.rand(1, 3, height, width)
             original = model.transformer.forward_encoder(model.cnn(tensor))
             converted = encoder_session.run(None, {"image": tensor.numpy()})[0]
             maximum_error = max(maximum_error, float(np.abs(original.numpy() - converted).max()))
             np.testing.assert_allclose(converted, original.numpy(), atol=1e-4, rtol=1e-3)
             for count in (1, 2, 8, 17):
                 ids = torch.ones(count, 1, dtype=torch.long)
-                reference = model.transformer.forward_decoder(ids, original)[0][:, -1]
+                reference = model.transformer.forward_decoder(ids, original)[:, -1]
                 actual = decoder_session.run(None, {"tokens": ids.numpy(), "memory": converted})[0]
                 np.testing.assert_allclose(actual, reference.numpy(), atol=2e-4, rtol=1e-3)
     results = []
@@ -172,10 +177,11 @@ def main():
         from desktop.domain import load_image
         bgr = np.asarray(load_image(path))[:, :, ::-1].copy()
         gray = engine.dip.process_image(bgr)
-        prepared = process_input(Image.fromarray(gray), 32, 32, 1024).numpy()
+        ready = prepare_image(Image.fromarray(gray))[0]
+        prepared = (np.asarray(recognizer.input_image(ready)).transpose(2,0,1) / 255).astype(np.float32)[None]
         expected = engine.predictor.predict(Image.fromarray(gray))
         started = time.monotonic()
-        actual, ids = decode(encoder_session, decoder_session, prepared, engine.predictor.vocab)
+        actual, ids = decode(encoder_session, decoder_session, prepared, vocabulary)
         if actual != expected:
             raise AssertionError(f"Converted model differs for {filename}: {expected!r} != {actual!r}")
         results.append({"sample": filename, "same_text": True, "seconds": round(time.monotonic()-started, 3)})
@@ -187,15 +193,16 @@ def main():
         if index < 2:
             (samples / filename).write_bytes(path.read_bytes())
     manifest = {
-        "version": 1, "architecture": "vgg19_bn_transformer", "opset": 17,
-        "source_sha256": digest(args.weights), "image_height": 32, "min_width": 32, "max_width": 1024,
-        "width_multiple": 10, "max_tokens": 129, "sos": 1, "eos": 2,
-        "vocabulary": [engine.predictor.vocab.i2c[index] for index in range(len(engine.predictor.vocab))],
+        "version": 2, "name":"ML_s44", "precision":"FP32", "architecture": "vgg19_bn_transformer", "opset": 17,
+        "source_sha256": digest(args.weights), "image_height": height, "min_width": 32, "max_width": max_width,
+        "preprocessing":"v2c", "margin_px":V2C_MARGIN_PX, "reference_width":V2C_WIDTH_PX,
+        "width_multiple": 10, "max_tokens": 257, "sos": 1, "eos": 2,
+        "vocabulary": vocabulary,
         "models": {"encoder": {"file": encoder_path.name, "bytes": encoder_path.stat().st_size, "sha256": digest(encoder_path)},
                    "decoder": {"file": decoder_path.name, "bytes": decoder_path.stat().st_size, "sha256": digest(decoder_path)}},
     }
     (args.output / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
-    report = {"dynamic_widths": [32, 90, 256, 510, 1024], "token_lengths": [1, 2, 8, 17],
+    report = {"dynamic_widths": [32, 90, 256, 510, 1024, 2048], "token_lengths": [1, 2, 8, 17],
               "max_encoder_absolute_error": maximum_error, "samples": results,
               "total_model_bytes": sum(value["bytes"] for value in manifest["models"].values())}
     (args.output / "verification.json").write_text(json.dumps(report, indent=2), encoding="utf-8")

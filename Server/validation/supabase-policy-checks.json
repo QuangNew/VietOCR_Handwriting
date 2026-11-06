@@ -1,0 +1,18 @@
+{
+  "database": "https://rrdxhztiikizgogxtlhu.supabase.co",
+  "checks": [
+    "70 concurrent admissions: exactly 60 accepted, 10 denied; quota stored atomically",
+    "idempotent retries return one job and consume one daily credit",
+    "daily limit persists separately from result retention; reset uses Vietnam timezone",
+    "editing or locking a client preserves identity and immediately blocks new jobs",
+    "anonymous cannot read results/hashes or execute privileged backend RPC",
+    "runtime settings and admin changes are durable in Supabase audit"
+  ],
+  "passed": 6,
+  "concurrency": {
+    "attempts": 70,
+    "accepted": 60,
+    "limited": 10
+  },
+  "googleEnabled": true
+}

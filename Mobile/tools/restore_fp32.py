@@ -8,6 +8,9 @@ root = Path(__file__).resolve().parents[2]
 source = root / '.toolchain/fp32-models'
 assets = root / 'Mobile/assets/models'
 original = json.loads((source / 'manifest.json').read_text(encoding='utf-8'))
+current = json.loads((assets / 'manifest.json').read_text(encoding='utf-8'))
+if (original.get('source_sha256'),original.get('image_height')) != (current.get('source_sha256'),current.get('image_height')):
+    raise RuntimeError('Bản backup FP32 thuộc model cũ. Không ghi đè ML_s44. Dùng export_onnx.py để xuất lại checkpoint hiện tại.')
 for role, model in original['models'].items():
     path = source / model['file']
     with path.open('rb') as stream:

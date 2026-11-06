@@ -17,11 +17,21 @@ bool _validateNativeJpeg(Uint8List bytes) {
 }
 
 class SessionStore {
-  SessionStore({Directory? directory}) : _directory = directory;
+  SessionStore({Directory? directory})
+    : _directory = directory,
+      _baseDirectory = directory;
   Directory? _directory;
+  final Directory? _baseDirectory;
+  void setAccount(String? id) {
+    _directory = null;
+    _accountId = id?.replaceAll(RegExp('[^a-fA-F0-9-]'), '');
+  }
+
+  String? _accountId;
+
   Future<void> _saving = Future.value();
   Future<Directory> get directory async => _directory ??= Directory(
-    '${(await getApplicationSupportDirectory()).path}/documents',
+    '${_baseDirectory?.path ?? (await getApplicationSupportDirectory()).path}/documents/${_accountId ?? 'guest'}',
   );
 
   Future<List<Document>> load() async {
@@ -41,7 +51,12 @@ class SessionStore {
     return result;
   }
 
-  Future<Document> import(Uint8List bytes, String name, String id) async {
+  Future<Document> import(
+    Uint8List bytes,
+    String name,
+    String id, {
+    bool preserveResolution = false,
+  }) async {
     final nativeCamera =
         bytes.length <= cameraMaxBytes &&
         const [(2592, 1944), (2048, 1536)].contains(cameraJpegSize(bytes));
@@ -53,7 +68,10 @@ class SessionStore {
       // Keep the received JPEG byte-for-byte; no PNG conversion/recompression.
       normalized = bytes;
     } else {
-      normalized = await compute(normalizePhoto, bytes);
+      normalized = await compute(
+        preserveResolution ? normalizeDerivative : normalizePhoto,
+        bytes,
+      );
     }
     final folder = await directory;
     await folder.create(recursive: true);

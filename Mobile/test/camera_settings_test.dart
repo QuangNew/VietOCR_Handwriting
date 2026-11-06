@@ -35,6 +35,43 @@ Future<void> until(bool Function() predicate) async {
 
 void main() {
   test(
+    'lost config response is read back without replaying the POST',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final radio = fixture.FakeRadio()..ready();
+      final settings = {...cameraDefaults, 'focus_x': 35};
+      var posts = 0, reads = 0;
+      final ble = BleAssistant(
+        radioClient: radio,
+        permissionCheck: (_) async => true,
+        cameraSettingsRequest: (endpoint, values, persist) async {
+          if (values != null) {
+            posts++;
+            throw const CameraNetworkException('response lost');
+          }
+          reads++;
+          return CameraConfig.parse(
+            response(settings: settings, revision: 2, applied: 2),
+          );
+        },
+      );
+      try {
+        await ble.initialize();
+        await ble.connect('camera', 'VietOCR');
+        await until(() => ble.connected);
+        final result = await ble.configureCamera(settings);
+        expect(result.settings, settings);
+        expect(posts, 1);
+        expect(reads, 1);
+        expect(ble.connected, true);
+        await ble.disconnect();
+      } finally {
+        ble.dispose();
+        await radio.close();
+      }
+    },
+  );
+  test(
     'OV3660 rejects unsupported quality, crop ratios, types and missing fields',
     () {
       expect(validateCameraSettings(cameraDefaults), cameraDefaults);

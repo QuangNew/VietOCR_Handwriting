@@ -5,7 +5,7 @@
 
 // The TFT's SPI pins and ILI9341 driver are configured in platformio.ini.
 namespace assistant_config {
-constexpr char kFirmwareVersion[] = "3.2.0-focus-power";
+constexpr char kFirmwareVersion[] = "3.2.1-resume";
 #ifndef ASSISTANT_BUZZER_PIN
 #define ASSISTANT_BUZZER_PIN 5
 #endif

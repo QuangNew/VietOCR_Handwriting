@@ -1,17 +1,6 @@
-vietocr>=0.3.12
-torch
-torchvision
-# ML_s44 (viethandocr_lite.py): the V2c margin crop uses scipy.ndimage.
-scipy>=1.13
-# Windows iGPU / non-CUDA GPU inference; includes CPUExecutionProvider too.
-onnxruntime-directml==1.24.4; sys_platform == 'win32'
-opencv-python
+# Desktop server client only. Install server/worker requirements separately.
 Pillow>=10.0.0
+opencv-python
+numpy>=1.26.4,<3
 bleak>=3.0.2,<4.0
 winrt-Windows.Devices.Radios>=3.2.1,<4.0; sys_platform == 'win32'
-# VietOCR's imgaug dependency uses NumPy APIs removed in NumPy 2.0.
-numpy>=1.26.4,<2.0
-# VietOCR 0.3.12/0.3.13 requires this exact gdown version.
-gdown==4.4.0
-# gdown 4.4.0 imports pkg_resources, removed in setuptools 82.
-setuptools<82

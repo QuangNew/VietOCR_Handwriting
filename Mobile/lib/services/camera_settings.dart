@@ -94,6 +94,20 @@ const cameraFields = <String, CameraField>{
     0: 'Tắt',
     1: 'Bật',
   }),
+  'focus_x': CameraField(
+    'Điểm lấy nét ngang · % từ trái',
+    'Ánh sáng',
+    0,
+    100,
+    50,
+  ),
+  'focus_y': CameraField(
+    'Điểm lấy nét dọc · % từ trên',
+    'Ánh sáng',
+    0,
+    100,
+    50,
+  ),
 };
 final cameraDefaults = {
   for (final entry in cameraFields.entries) entry.key: entry.value.initial,
@@ -102,6 +116,25 @@ const cameraPresets = {
   'Mượt': {'preview_width': 640, 'preview_quality': 24, 'max_fps': 30},
   'Cân bằng': {'preview_width': 640, 'preview_quality': 18, 'max_fps': 30},
   'Chi tiết': {'preview_width': 1024, 'preview_quality': 10, 'max_fps': 15},
+  'Tài liệu OCR': {
+    'preview_width': 640,
+    'preview_quality': 18,
+    'max_fps': 30,
+    'still_quality': 6,
+    'brightness': 0,
+    'contrast': 0,
+    'saturation': 0,
+    'sharpness': 0,
+    'denoise': 0,
+    'wb_mode': 0,
+    'special_effect': 0,
+    'aec': 1,
+    'ae_level': 0,
+    'agc': 1,
+    'lenc': 1,
+    'autofocus': 1,
+  },
+  'Thang xám OCR': {'special_effect': 2, 'still_quality': 6, 'autofocus': 1},
 };
 
 Map<String, int> validateCameraSettings(Object? value) {
@@ -145,6 +178,13 @@ class CameraConfig {
         'Cần firmware OV5640 3.0.0 để chỉnh cấu hình.',
       );
     }
+    for (final section in ['settings', 'defaults']) {
+      final values = value[section];
+      if (values is Map) {
+        values.putIfAbsent('focus_x', () => 50);
+        values.putIfAbsent('focus_y', () => 50);
+      }
+    }
     if (value['revision'] is! int ||
         value['applied_revision'] is! int ||
         (value['revision'] as int) < 0 ||
@@ -169,6 +209,26 @@ Future<CameraConfig> requestCameraConfig(
   Map<String, int>? settings,
   bool persist = false,
 }) async {
+  for (var attempt = 0; attempt < (settings == null ? 2 : 1); attempt++) {
+    try {
+      return await _requestCameraConfigOnce(
+        endpoint,
+        settings: settings,
+        persist: persist,
+      );
+    } on CameraNetworkException {
+      if (settings != null || attempt == 1) rethrow;
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+    }
+  }
+  throw StateError('Không đọc được cấu hình.');
+}
+
+Future<CameraConfig> _requestCameraConfigOnce(
+  WifiEndpoint endpoint, {
+  Map<String, int>? settings,
+  bool persist = false,
+}) async {
   final client = HttpClient()
     ..connectionTimeout = const Duration(seconds: 4)
     ..findProxy = (_) => 'DIRECT';
@@ -178,6 +238,7 @@ Future<CameraConfig> requestCameraConfig(
         .openUrl(settings == null ? 'GET' : 'POST', uri)
         .timeout(const Duration(seconds: 5));
     request.followRedirects = false;
+    request.persistentConnection = false;
     request.headers.set(
       HttpHeaders.authorizationHeader,
       'Bearer ${endpoint.token}',
@@ -216,9 +277,13 @@ Future<CameraConfig> requestCameraConfig(
     }
     return CameraConfig.parse(jsonDecode(utf8.decode(data)));
   } on SocketException {
-    throw StateError('Không tới được camera. Kiểm tra cùng mạng LAN.');
+    throw const CameraNetworkException(
+      'Không tới được camera. Kiểm tra cùng mạng LAN.',
+    );
   } on TimeoutException {
-    throw StateError('Cấu hình camera quá hạn. Tải lại trước khi thử tiếp.');
+    throw const CameraNetworkException(
+      'Cấu hình camera quá hạn. Tải lại trước khi thử tiếp.',
+    );
   } finally {
     client.close(force: true);
   }

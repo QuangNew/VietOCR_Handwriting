@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 
 class LogEntry {
@@ -25,12 +24,9 @@ class LogEntry {
 class AppLog extends ChangeNotifier {
   AppLog({this.persist = true, this.directory});
   static final instance = AppLog();
-  static const _native = MethodChannel('vietocr/ocr');
   final bool persist;
   final Directory? directory;
   final List<LogEntry> _entries = [];
-  final Set<String> _nativeIds = {};
-  final List<String> _nativeOrder = [];
   List<LogEntry> get entries => List.unmodifiable(_entries);
   Future<void>? _initializing;
   Future<void> _writes = Future.value();
@@ -122,49 +118,12 @@ class AppLog extends ChangeNotifier {
   Future<void> flush() => _writes;
   String get text => _entries.map((entry) => entry.text).join('\n\n');
 
-  Future<void> captureNative() async {
-    try {
-      final raw = await _native.invokeMethod<String>('nativeLogs');
-      if (raw == null) return;
-      // Read a bounded tail smaller than the deduplication window. Re-reading a
-      // longer history would evict IDs while iterating and duplicate every poll.
-      final tail = const LineSplitter()
-          .convert(raw)
-          .reversed
-          .take(250)
-          .toList()
-          .reversed;
-      for (final line in tail) {
-        try {
-          final row = jsonDecode(line) as Map<String, dynamic>;
-          final id = '${row['time']}:${row['pid']}:${row['stage']}';
-          if (!_nativeIds.add(id)) continue;
-          _nativeOrder.add(id);
-          if (_nativeOrder.length > 300) {
-            _nativeIds.remove(_nativeOrder.removeAt(0));
-          }
-          add(
-            'OCR native',
-            row['stage'].toString(),
-            level: row['level']?.toString() ?? 'INFO',
-            error: row['detail'],
-            time: DateTime.fromMillisecondsSinceEpoch(row['time'] as int),
-          );
-        } catch (_) {}
-      }
-    } catch (_) {
-      /* A previous APK or a unit test may not expose this method. */
-    }
-  }
+  // OCR runs on the server. There is no Android :ocr process to poll.
+  Future<void> captureNative() async {}
 
   Future<void> clear() async {
     await flush();
     _entries.clear();
-    _nativeIds.clear();
-    _nativeOrder.clear();
-    try {
-      await _native.invokeMethod<void>('clearNativeLogs');
-    } catch (_) {}
     if (_file != null) {
       try {
         await _file!.writeAsString('');

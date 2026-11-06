@@ -6,6 +6,41 @@ import 'package:vietocr_mobile/services/session_store.dart';
 
 void main() {
   test(
+    'full-resolution derived PNG stays native after importing and restoring',
+    () async {
+      final directory = await Directory.systemTemp.createTemp(
+        'vietocr_derived_',
+      );
+      try {
+        final original = img.Image(width: 2592, height: 1944)
+          ..clear(img.ColorRgb8(255, 255, 255));
+        img.fillRect(
+          original,
+          x1: 2500,
+          y1: 1800,
+          x2: 2580,
+          y2: 1900,
+          color: img.ColorRgb8(0, 0, 0),
+        );
+        final png = Uint8List.fromList(img.encodePng(original));
+        final store = SessionStore(directory: directory);
+        final item = await store.import(
+          png,
+          'BW.png',
+          'derived',
+          preserveResolution: true,
+        );
+        await store.save([item]);
+        final restored = (await store.load()).single;
+        final image = img.decodePng(await File(restored.path).readAsBytes())!;
+        expect((image.width, image.height), (2592, 1944));
+        expect(image.getPixel(2550, 1850).r, 0);
+      } finally {
+        await directory.delete(recursive: true);
+      }
+    },
+  );
+  test(
     '5 MP mirrored camera JPEG keeps resolution, pixels and original bytes through session restore',
     () async {
       final directory = await Directory.systemTemp.createTemp('vietocr_5mp_');

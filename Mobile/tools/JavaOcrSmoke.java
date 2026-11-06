@@ -12,7 +12,7 @@ public class JavaOcrSmoke {
     public static void main(String[] args) throws Exception {
         Path folder = Path.of(args[2]);
         List<String> vocabulary = Files.readAllLines(folder.resolve("vocabulary.txt"), StandardCharsets.UTF_8);
-        try (OnnxRecognizer ocr = new OnnxRecognizer(args[0], args[1], vocabulary, 129, (stage, detail) -> { })) {
+        try (OnnxRecognizer ocr = new OnnxRecognizer(args[0], args[1], vocabulary, 257, (stage, detail) -> { })) {
             for (String row : Files.readAllLines(folder.resolve("java-cases.tsv"), StandardCharsets.UTF_8)) {
                 String[] fields = row.split("\t");
                 byte[] values = Files.readAllBytes(folder.resolve(fields[0]));

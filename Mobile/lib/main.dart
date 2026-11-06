@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'domain/app_controller.dart';
 import 'services/ble_assistant.dart';
 import 'services/app_log.dart';
-import 'ocr/offline_engine.dart';
 import 'ui/home_page.dart';
 
 void main() {
@@ -37,7 +36,7 @@ void main() {
   unawaited(() async {
     await log.initialize();
     try {
-      log.add('App', 'Khởi động', error: await OfflineEngine.diagnostics());
+      log.add('App', 'Khởi động', error: 'OCR mode: server-only');
       await log.captureNative();
     } catch (error, stack) {
       log.add(
@@ -139,7 +138,7 @@ class _VietOcrAppState extends State<VietOcrApp> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) {
     final colors = ColorScheme.fromSeed(
-      seedColor: const Color(0xff88d577),
+      seedColor: const Color(0xff0087bb),
       brightness: app.dark ? Brightness.dark : Brightness.light,
     );
     return MaterialApp(
@@ -154,13 +153,36 @@ class _VietOcrAppState extends State<VietOcrApp> with WidgetsBindingObserver {
             .apply(bodyColor: colors.onSurface, displayColor: colors.onSurface),
         colorScheme: colors,
         scaffoldBackgroundColor: app.dark
-            ? const Color(0xff101410)
-            : const Color(0xfff4f7f1),
+            ? const Color(0xff14171b)
+            : const Color(0xfff5f7fa),
+        appBarTheme: AppBarTheme(
+          centerTitle: false,
+          backgroundColor: colors.surface,
+          foregroundColor: colors.onSurface,
+          scrolledUnderElevation: 0,
+        ),
+        navigationBarTheme: NavigationBarThemeData(
+          height: 72,
+          backgroundColor: colors.surface,
+          indicatorColor: colors.primaryContainer,
+          labelTextStyle: WidgetStateProperty.all(
+            const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+          ),
+        ),
+        filledButtonTheme: FilledButtonThemeData(
+          style: FilledButton.styleFrom(
+            minimumSize: const Size(48, 48),
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+            ),
+          ),
+        ),
         cardTheme: CardThemeData(
           elevation: 0,
           margin: EdgeInsets.zero,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(24),
+            borderRadius: BorderRadius.circular(18),
           ),
         ),
         inputDecorationTheme: const InputDecorationTheme(

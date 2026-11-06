@@ -13,6 +13,8 @@ from export_onnx import decode, session, ROOT
 def main():
     directory = ROOT / 'Mobile/build/verification'
     manifest = json.loads((ROOT / 'Mobile/assets/models/manifest.json').read_text(encoding='utf-8'))
+    if manifest.get('image_height') != 32:
+        raise RuntimeError('Đây là so sánh nén lịch sử cho model 32px. Kiểm tra ML_s44 bằng verify_mobile_pipeline.py và verify_java_pipeline.py trên 5 ảnh/20 trường hợp mới.')
     vocab = manifest['vocabulary']
     class Vocabulary:
         def decode(self, ids):

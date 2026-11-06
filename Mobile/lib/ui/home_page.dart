@@ -6,12 +6,12 @@ import 'package:share_plus/share_plus.dart';
 import '../domain/app_controller.dart';
 import '../domain/document.dart';
 import '../services/ble_assistant.dart';
-import '../ocr/offline_engine.dart';
 import 'assistant_face.dart';
 import 'log_page.dart';
 import 'wifi_dialog.dart';
 import 'camera_page.dart';
 import 'image_detail_page.dart';
+import 'server_dialog.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key, required this.app, this.ble});
@@ -81,6 +81,17 @@ class _HomePageState extends State<HomePage> {
         style: TextStyle(fontWeight: FontWeight.w800),
       ),
       actions: [
+        IconButton(
+          tooltip: app.accountEmail == null
+              ? 'Đăng nhập Google & OCR Server'
+              : 'Tài khoản ${app.accountEmail}',
+          onPressed: app.busy ? null : () => showServerDialog(context, app),
+          icon: Icon(
+            app.accountEmail == null
+                ? Icons.account_circle_outlined
+                : Icons.account_circle,
+          ),
+        ),
         IconButton(
           tooltip: app.dark ? 'Giao diện sáng' : 'Giao diện tối',
           onPressed: app.toggleTheme,
@@ -679,7 +690,7 @@ class _HomePageState extends State<HomePage> {
     final box = buttonContext.findRenderObject()! as RenderBox;
     final origin = box.localToGlobal(Offset.zero) & box.size;
     try {
-      final report = await OfflineEngine.diagnostics();
+      final report = 'OCR server-only; no native model';
       final folder = await getTemporaryDirectory();
       final file = File('${folder.path}/VietOCR-diagnostic.json');
       await file.writeAsString(report, flush: true);

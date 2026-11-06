@@ -1,0 +1,6 @@
+{
+  "desktop_no_torch_or_local_worker": true,
+  "dart_real_http_multipart_and_poll": true,
+  "identical_vietnamese_result": true,
+  "text_sha256": "55a7e6a5925a0fffeff249e87df8fee907eb4e74a9e781cc1c88ef329f83b594"
+}

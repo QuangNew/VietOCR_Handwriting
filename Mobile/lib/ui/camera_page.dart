@@ -18,7 +18,7 @@ class _CameraPageState extends State<CameraPage> {
   late final CaptureReview review;
   final transform = TransformationController();
   Future<void>? _capture;
-  bool closing = false, canPop = false, expanded = false;
+  bool closing = false, canPop = false, expanded = false, queueHidden = false;
 
   @override
   void initState() {
@@ -29,6 +29,7 @@ class _CameraPageState extends State<CameraPage> {
           throw StateError('Đang thêm ảnh khác. Bấm Bỏ qua để thử lại.');
         }
         final name = 'OV5640_${photo.metadata.id}.jpg';
+        if (mounted) setState(() => queueHidden = false);
         await widget.app.importImages([(photo.bytes, name)], enqueue: true);
         if (!widget.app.documents.any((item) => item.name == name)) {
           throw StateError(widget.app.message);
@@ -252,7 +253,7 @@ class _CameraPageState extends State<CameraPage> {
                     ),
                   ],
                 ),
-                if (documents.isNotEmpty)
+                if (documents.isNotEmpty && !queueHidden)
                   Positioned(
                     right: 12,
                     bottom: 92,
@@ -273,8 +274,21 @@ class _CameraPageState extends State<CameraPage> {
                                     setState(() => expanded = !expanded),
                                 child: Padding(
                                   padding: const EdgeInsets.all(8),
-                                  child: Text(
-                                    'Ảnh camera · ${documents.where((item) => item.status == DocumentStatus.done).length}/${documents.length} hoàn tất  ${expanded ? '▾' : '▴'}',
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Flexible(
+                                        child: Text(
+                                          'Ảnh camera · ${documents.where((item) => item.status == DocumentStatus.done).length}/${documents.length} hoàn tất  ${expanded ? '▾' : '▴'}',
+                                        ),
+                                      ),
+                                      IconButton(
+                                        tooltip: 'Ẩn tiến trình',
+                                        onPressed: () =>
+                                            setState(() => queueHidden = true),
+                                        icon: const Icon(Icons.close, size: 18),
+                                      ),
+                                    ],
                                   ),
                                 ),
                               ),

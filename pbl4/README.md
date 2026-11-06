@@ -1,9 +1,15 @@
 # Trợ lý VietOCR — ESP32-S3
 
-**Hiện tại (02/11/2026): OV5640 autofocus, firmware `3.2.0-focus-power`.**
+**Hiện tại (03/11/2026): OV5640 autofocus, firmware `3.2.1-resume`.**
+Tải JPEG có `Range`/`ETag`, có thể tải tiếp đúng ảnh nếu TCP gián đoạn.
+Đã kiểm thử luồng desktop **BLE → UDP preview → ảnh 5 MP → nghỉ 13s → mở lại**
+qua COM8 và LAN; xem [báo cáo](docs/validation/production-camera-2026-11-03/result.json).
+Thanh ghi xác nhận native **2592×1944, increment 0x11/0x11, scaler tắt**.
 Quy trình chụp mới chờ khóa AF và phơi sáng ổn định trước khi trả ảnh 5 MP.
 Xem nghiên cứu, giới hạn và số đo thật trong [OCR_CAPTURE.md](docs/OCR_CAPTURE.md).
-Camera tự vào standby sau 10 giây không preview/chụp, CPU hạ 80 MHz khi nghỉ.
+Camera tự vào standby sau 10 giây không preview/chụp, CPU hạ **160 MHz** khi nghỉ.
+Không hạ 80 MHz ở bản này: đã gặp HTTP đứng sau khi chuyển về mức đó.
+Khi tải ảnh, CPU giữ 240 MHz và Wi-Fi được ưu tiên; hết lượt tải tự trả về chế độ nghỉ.
 Serial `POWER STATUS` đọc nhiệt độ trong chip/trạng thái nguồn. BLE giảm nhịp
 khi không có dữ liệu; Wi-Fi giữ modem sleep và tự chọn TX theo RSSI.
 Lưu tối đa 5 mạng/mật khẩu trong NVS, desktop đọc được danh sách qua BLE.
@@ -24,7 +30,7 @@ pio device monitor --port COM8 --baud 115200
 Preview **UDP đã đo 18,5–21,8 FPS tại máy nhận**, kể cả khi BLE cùng kết nối;
 MJPEG qua TCP vẫn có để tương thích nhưng chậm hơn. Chạy công cụ xem IoT
 `tools/camera_check.py --udp --show`. Đây là số đo trước trên hotspot; mạng/ánh sáng khác có thể chậm hơn.
-Lượt hiện tại chỉ cập nhật IoT và desktop, bỏ qua Android.
+Bản Android tương ứng: **2.0.0+15**, [Mobile](../Mobile/README.md).
 
 Serial: `CAM OPEN`, `CAM CLOSE`, `CAM FOCUS`, `CAM AF STATUS`, `CAM CONFIG`,
 `CAM SET preview_width 640`, `CAM SAVE`. Xem luồng HTTP và chụp kiểm tra bằng

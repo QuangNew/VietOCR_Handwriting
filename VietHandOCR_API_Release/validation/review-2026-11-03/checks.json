@@ -1,0 +1,69 @@
+{
+  "date": "2026-11-03",
+  "desktop_tests_passed": 215,
+  "mobile_tests_passed": 85,
+  "desktop_ui_tests_passed": 38,
+  "analyzer": "No issues found",
+  "firmware_host_tests": "passed",
+  "firmware_version": "3.2.1-resume",
+  "firmware_uploaded": "COM8",
+  "phone_tested": false,
+  "packages_installed": [],
+  "model_export": "local checkpoint ML_s44 -> FP32 ONNX, 64px/V2c",
+  "java_jni_cases_passed": 20,
+  "artifacts": {
+    "Mobile/dist/VietOCR-arm64.apk": {
+      "bytes": 144021710,
+      "sha256": "e35824947ae202fa6dffe1036bb80b8584ea4b68a9bda436649bb3a55e3bad49"
+    },
+    "VietHandOCR_API_Release/dist/VietOCR.exe": {
+      "bytes": 847364,
+      "sha256": "173efd9b7912e26b9818add95680043819051e86c6c88d9530b0e54c476ad219"
+    },
+    "pbl4/.pio/build/esp32-s3-cam-ov5640/firmware.bin": {
+      "bytes": 1514864,
+      "sha256": "86f547a4d26c955cbe0d6eda3711e2088addef099b5e4228708802d9b14497d8"
+    }
+  },
+  "ai_team_files_unchanged": {
+    "AI.py": true,
+    "desktop/lite_predictor.py": true,
+    "viethandocr_lite.py": true,
+    "model/model_config.json": true
+  },
+  "physical_camera": {
+    "preview": [
+      {
+        "cycle": 1,
+        "dimensions": [
+          640,
+          480
+        ],
+        "frames": 42,
+        "steady_fps": 6.8,
+        "first_frame_seconds": 7.219
+      },
+      {
+        "cycle": 2,
+        "dimensions": [
+          640,
+          480
+        ],
+        "frames": 46,
+        "steady_fps": 7.44,
+        "first_frame_seconds": 7.219
+      }
+    ],
+    "capture": {
+      "dimensions": [
+        2592,
+        1944
+      ],
+      "bytes": 471085,
+      "crc32_verified": true,
+      "capture_and_download_seconds": 11.25
+    },
+    "idle_http_seconds": 0.89,
+    "deep_sleep_confirmed": true
+  }
+}

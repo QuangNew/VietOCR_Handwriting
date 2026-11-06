@@ -18,12 +18,22 @@ class MainActivity : FlutterActivity() {
     private var pendingSave: MethodChannel.Result? = null
     private var saveSource: File? = null
     private val imageIo = Executors.newSingleThreadExecutor()
-    private var ocrBridge: OcrBridge? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        ocrBridge = OcrBridge(applicationContext)
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "vietocr/ocr").setMethodCallHandler(ocrBridge)
+        val credentials = ServerCredentials(applicationContext)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "vietocr/credentials").setMethodCallHandler { call, result ->
+            imageIo.execute {
+                try {
+                    val value: Any? = when(call.method) {
+                        "readServerKey" -> credentials.read()
+                        "writeServerKey" -> { credentials.write(call.argument<String>("key") ?: ""); null }
+                        else -> { runOnUiThread { result.notImplemented() }; return@execute }
+                    }
+                    runOnUiThread { result.success(value) }
+                } catch (_: Exception) { runOnUiThread { result.error("CREDENTIAL_STORE", "Không lưu được API key an toàn.", null) } }
+            }
+        }
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "vietocr/device")
             .setMethodCallHandler { call, result ->
                 when (call.method) {
@@ -113,7 +123,6 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun onDestroy() {
-        ocrBridge?.close(); ocrBridge = null
         pendingEnable?.error("CLOSED", "Cửa sổ ứng dụng đã đóng.", null)
         pendingEnable = null
         pendingSave?.error("CLOSED", "Cửa sổ ứng dụng đã đóng.", null)

@@ -274,7 +274,7 @@ void loop() {
   }
   const uint32_t now = millis();
   pollSerial(now);
-  assistant_power::update(now, !camera.poweredDown());
+  assistant_power::update(now, !camera.poweredDown(), wifi.transferring());
   bluetooth.update(now);
   wifi.update(now);
   if (demo.active()) {

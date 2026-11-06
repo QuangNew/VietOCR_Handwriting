@@ -289,8 +289,9 @@ class BleAssistant extends ChangeNotifier {
                 for (final line in framer.add(bytes)) {
                   AppLog.instance.add(
                     'BLE RX',
-                    line.startsWith('WIFI STATUS READY ')
-                        ? 'WIFI STATUS READY [session hidden]'
+                    line.startsWith('WIFI STATUS READY ') ||
+                            line.startsWith('WIFI SAVED PASS ')
+                        ? 'WIFI [credentials/session hidden]'
                         : line,
                     level: 'DEBUG',
                   );
@@ -332,7 +333,7 @@ class BleAssistant extends ChangeNotifier {
       unawaited(_sync());
       unawaited(refreshWifiState());
       _wifiPoll?.cancel();
-      _wifiPoll = Timer.periodic(const Duration(seconds: 5), (_) {
+      _wifiPoll = Timer.periodic(const Duration(seconds: 3), (_) {
         if (connected && !cameraBusy) unawaited(refreshWifiState());
       });
     } catch (error) {
@@ -516,7 +517,17 @@ class BleAssistant extends ChangeNotifier {
       Future<CameraConfig> request(Map<String, int>? values) =>
           cameraSettingsRequest?.call(endpoint, values, persist) ??
           requestCameraConfig(endpoint, settings: values, persist: persist);
-      var config = await request(settings);
+      CameraConfig config;
+      try {
+        config = await request(settings);
+      } on CameraNetworkException {
+        config = await request(null);
+        if (settings.entries.any((e) => config.settings[e.key] != e.value)) {
+          throw StateError(
+            'Chưa xác nhận cấu hình sau lỗi mạng. Tải lại để kiểm tra; không tự gửi lại thay đổi.',
+          );
+        }
+      }
       check();
       final revision = config.revision, watch = Stopwatch()..start();
       while (true) {
@@ -563,6 +574,16 @@ class BleAssistant extends ChangeNotifier {
     _previewSubscription = null;
     unawaited(_cancelSubscription(subscription));
     previewBytes = null;
+  }
+
+  Future<List<SavedWifiProfile>> readWifiProfiles() async {
+    final queue = _commands;
+    if (!connected || queue == null) {
+      throw StateError('Kết nối Bluetooth trước.');
+    }
+    return readSavedWifiProfiles(
+      (command, prefix) => _wifiSend(queue, command, expectedPrefix: prefix),
+    );
   }
 
   Future<String> _wifiSend(

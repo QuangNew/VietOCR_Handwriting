@@ -1,0 +1,9 @@
+{
+  "checks": [
+    "bounded queue returns 429 with Retry-After",
+    "MySQL jobs and image spool survive coordinator restart",
+    "recovered queue can be cancelled and input images removed"
+  ],
+  "count": 3,
+  "database": "XAMPP MariaDB 10.4.32"
+}

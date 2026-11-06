@@ -9,14 +9,6 @@ import threading
 from pathlib import Path
 
 
-def default_weights(base: Path) -> Path:
-    """Installed ML_s44 release first, then the legacy checkpoints (compact FP16 before the FP32 original)."""
-    from desktop.lite_predictor import release_weights
-    release = release_weights(base)
-    candidates = [release, base / "vgg_transformer_compact.pth", base / "vgg_transformer_final.pth"]
-    return next((path for path in candidates if path is not None and path.is_file()), release or candidates[2])
-
-
 def run_mainloop(root, app):
     """Ctrl+C requests the same cleanup as closing the window, without a traceback."""
     requested = threading.Event()
@@ -48,10 +40,6 @@ def main() -> int:
     base = Path(__file__).resolve().parent
     parser = argparse.ArgumentParser(description="VietOCR Handwriting desktop · Camera OV5640 và hàng đợi OCR")
     parser.add_argument("images", nargs="*", help=argparse.SUPPRESS)
-    parser.add_argument("--weights", default=str(default_weights(base)), help="File trọng số .pth")
-    from desktop.compute_devices import validate_device
-    parser.add_argument("--device", type=validate_device, default="auto",
-                        help="auto: GPU rời → GPU tích hợp → CPU; hoặc cpu, integrated, cuda[:N], directml[:N]")
     parser.add_argument("--camera", type=int, default=0, help="Chỉ số webcam, mặc định 0")
     args = parser.parse_args()
     if not 0 <= args.camera <= 9:
@@ -59,7 +47,7 @@ def main() -> int:
     from desktop.diagnostics import LOG_DIRECTORY, configure_logging
     configure_logging()
     logger = logging.getLogger("vietocr_desktop")
-    logger.info("Starting desktop: Python %s, device=%s", sys.version, args.device)
+    logger.info("Starting server-only desktop: Python %s", sys.version)
     try:
         import tkinter as tk
         from desktop.application import Application
@@ -72,7 +60,7 @@ def main() -> int:
         from desktop.theme import enable_crisp_scaling
         enable_crisp_scaling()
         root = tk.Tk()
-        app = Application(root, str(Path(args.weights).expanduser().resolve()), args.device, args.camera)
+        app = Application(root, "", "server", args.camera)
         if args.images:
             root.after(200, lambda: app.import_files(args.images))
         run_mainloop(root, app)

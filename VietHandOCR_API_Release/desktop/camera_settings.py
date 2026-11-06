@@ -31,7 +31,8 @@ FIELDS = {
     'focus_y': ('Điểm lấy nét dọc · % từ trên', 'Ánh sáng', 0, 100, 50, None),
 }
 DEFAULTS = {key: field[4] for key,field in FIELDS.items()}
-PRESETS = {'Mượt': {'preview_width':640,'preview_quality':24,'max_fps':30},
+PRESETS = {'Thang xám OCR': {'special_effect':2,'still_quality':6,'autofocus':1},
+           'Mượt': {'preview_width':640,'preview_quality':24,'max_fps':30},
            'Cân bằng': {'preview_width':640,'preview_quality':18,'max_fps':30},
            'Chi tiết': {'preview_width':1024,'preview_quality':10,'max_fps':15},
            # Keep orientation chosen by the user. Avoid aggressive sharpening,
@@ -72,10 +73,19 @@ def parse_config(data):
     return data
 
 def request_config(endpoint, settings=None, *, persist=False):
+    from .wifi_camera import CameraNetworkError
+    for attempt in range(2 if settings is None else 1):
+        try: return _request_config_once(endpoint, settings, persist=persist)
+        except CameraNetworkError:
+            if settings is not None or attempt: raise
+            time.sleep(.2)
+
+
+def _request_config_once(endpoint, settings=None, *, persist=False):
     from .wifi_camera import _NoRedirect, http_error
     body = None if settings is None else json.dumps({'settings':validate_settings(settings,partial=True),'persist':bool(persist)}, separators=(',',':')).encode()
     request = Request(f'http://{endpoint.ip}/camera/config', data=body,
-                      headers={'Authorization':f'Bearer {endpoint.token}','Content-Type':'application/json','Cache-Control':'no-cache'})
+                      headers={'Authorization':f'Bearer {endpoint.token}','Content-Type':'application/json','Cache-Control':'no-cache','Connection':'close'})
     try:
         with build_opener(ProxyHandler({}), _NoRedirect()).open(request, timeout=5) as response:
             raw = response.read(4097)
@@ -106,7 +116,15 @@ async def apply_config(protocol, settings, persist=True):
             raise ValueError('Nạp firmware OV5640 3.2.0 để chọn điểm lấy nét.')
         settings={key:value for key,value in settings.items() if key not in ('focus_x','focus_y')}
     await protocol.request('CAM CLOSE',timeout=5)
-    result=await asyncio.to_thread(request_config,endpoint,settings,persist=persist)
+    from .wifi_camera import CameraNetworkError
+    try:
+        result=await asyncio.to_thread(request_config,endpoint,settings,persist=persist)
+    except CameraNetworkError:
+        # The POST may have succeeded despite a lost response. Read it back;
+        # replaying it can change revisions or write flash a second time.
+        result=await asyncio.to_thread(request_config,endpoint)
+        if result['revision'] <= current['revision'] or any(result['settings'].get(k)!=v for k,v in settings.items()):
+            raise ValueError('Chưa xác nhận cấu hình sau lỗi mạng. Bấm Tải lại để kiểm tra; không tự gửi lại thay đổi.') from None
     revision=result['revision']; deadline=time.monotonic()+20; ping=time.monotonic()
     while True:
         if result['error']: raise ValueError(result['error'])

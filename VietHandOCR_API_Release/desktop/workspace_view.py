@@ -24,7 +24,7 @@ def build_workspace(self):
 
     # Reserve utilities and assistant before the scrolling image queue.
     utilities = tk.Frame(sidebar, bg=C['white']); utilities.pack(side='bottom', fill='x', padx=14, pady=14)
-    self.settings_button = ttk.Button(utilities, text='Cài đặt model', style='Small.TButton', command=self.open_settings)
+    self.settings_button = ttk.Button(utilities, text='OCR Server', style='Small.TButton', command=self.open_settings)
     self.settings_button.pack(fill='x', pady=(0, 7))
     self.theme_button = ttk.Button(utilities, text=self._theme_button_text(), style='Small.TButton', width=18, command=self.toggle_theme)
     self.theme_button.pack(fill='x')
@@ -100,6 +100,8 @@ def build_workspace(self):
     preview_header = tk.Frame(preview_card, bg=C['white']); preview_header.pack(fill='x', padx=18, pady=16)
     label(preview_header, 'Ảnh gốc', size=11, bold=True).pack(side='left')
     self.preview_index = label(preview_header, '', size=9, color=C['muted']); self.preview_index.pack(side='right')
+    self.bw_button = ttk.Button(preview_header, text='Đen trắng OCR', style='Small.TButton', command=self.create_black_white)
+    self.bw_button.pack(side='right', padx=6)
     tools = tk.Frame(preview_card, bg=C['white']); tools.pack(side='bottom', fill='x', padx=12, pady=12)
     self.rotate_button = ttk.Button(tools, text='Xoay trái', style='Small.TButton', command=self.rotate_selected)
     self.rotate_button.pack(side='left')
@@ -112,7 +114,9 @@ def build_workspace(self):
     self.preview = tk.Canvas(preview_card, bg=C['preview'], highlightthickness=0, width=1, height=1)
     self.preview.pack(fill='both', expand=True, padx=12)
     self.preview.bind('<Configure>', self._schedule_preview)
-    self.preview.bind('<Button-1>', lambda _: self.open_image_viewer())
+    self.preview.bind('<Button-1>', self._preview_clicked)
+    self.image_info.bind('<Button-1>', self._preview_clicked)
+    self.image_info.configure(cursor='hand2')
 
     result_header = tk.Frame(result_card, bg=C['white']); result_header.pack(fill='x', padx=18, pady=(16, 8))
     label(result_header, 'Văn bản', size=11, bold=True).pack(side='left')
@@ -160,5 +164,5 @@ def build_workspace(self):
     self.operation_label = label(status, textvariable=self.operation_var, size=8, color=C['muted'], anchor='w', justify='left')
     self.operation_label.pack(fill='x')
     status.bind('<Configure>', lambda e: self.operation_label.configure(wraplength=max(100,e.width-12)))
-    self.model_label = label(status, f'Xử lý trên máy  ·  {device_label(self.settings.device)}', size=8, color=C['muted'], anchor='w')
+    self.model_label = label(status, f'OCR Server · {self.settings.server_url}', size=8, color=C['muted'], anchor='w')
     self.model_label.pack(fill='x', pady=(4, 0))

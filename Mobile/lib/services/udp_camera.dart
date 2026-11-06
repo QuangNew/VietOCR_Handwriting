@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'camera_transfer.dart';
 import 'mjpeg_stream.dart';
+import 'wifi_camera.dart' show CameraNetworkException;
 
 class _Parts {
   _Parts(int size, this.crc, this.width, this.height)
@@ -127,6 +128,7 @@ class UdpCameraConnection extends MjpegConnection {
           .postUrl(Uri.parse('http://${endpoint.ip}/stream/udp'))
           .timeout(const Duration(seconds: 4));
       request.followRedirects = false;
+      request.persistentConnection = false;
       request.headers.set(
         HttpHeaders.authorizationHeader,
         'Bearer ${endpoint.token}',
@@ -200,7 +202,10 @@ class UdpCameraConnection extends MjpegConnection {
       if (_closed) return;
       socket.send(utf8.encode('VOJ1'), peer, sourcePort);
       final watch = Stopwatch()..start();
-      var lastFrame = Duration.zero, received = false, renewing = false;
+      var lastFrame = Duration.zero,
+          lastRenew = Duration.zero,
+          received = false,
+          renewing = false;
       _watchdog = Timer.periodic(const Duration(seconds: 1), (_) {
         if (watch.elapsed - lastFrame >
             (received ? idleTimeout : firstTimeout)) {
@@ -216,13 +221,22 @@ class UdpCameraConnection extends MjpegConnection {
         try {
           final id = await _activate(socket!.port);
           if (!_closed) {
-            decoder = UdpJpegAssembler(id);
+            if (id != decoder.stream) decoder = UdpJpegAssembler(id);
+            lastRenew = watch.elapsed;
             socket.send(utf8.encode('VOJ1'), peer, sourcePort);
           }
         } catch (error) {
           if (!_closed) {
-            failure = error;
-            socket?.close();
+            final transient =
+                error is SocketException ||
+                error is TimeoutException ||
+                error is HttpException ||
+                error is CameraNetworkException;
+            if (!transient ||
+                watch.elapsed - lastRenew >= const Duration(seconds: 50)) {
+              failure = error;
+              socket?.close();
+            }
           }
         } finally {
           renewing = false;
