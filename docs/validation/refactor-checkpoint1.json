@@ -4,6 +4,7 @@
   "baselineCommit": "e26faae",
   "armBuildCommit": "53b9fea468ac58cf54f60cfebafec1514c03d2fd",
   "ciRun": "https://github.com/QuangNew/VietOCR_Handwriting/actions/runs/42511537290",
+  "policyFollowUpCiRun": "https://github.com/QuangNew/VietOCR_Handwriting/actions/runs/42514420436",
   "tests": {
     "rustWindowsAndArm64": 24,
     "csharpWindows": 36,

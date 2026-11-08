@@ -14,6 +14,7 @@ Branch: [`refactor`](https://github.com/QuangNew/VietOCR_Handwriting/tree/refact
 - Additive SQL migrations for capped policy, current Google session verification and v2 intent/reservation/commit/release. Existing identities/history/usage retained, lower limits retained, idempotent credits and fenced generations; transitional v1 admissions also count v2 holds.
 - Restricted database procedures/roles: gateway cannot commit; compute cannot reserve; anon/ordinary authenticated users cannot mutate v2 jobs/limits.
 - ARM64 CI bundle, ephemeral PostgreSQL race suite and Raspberry systemd templates. [CI run 42511537290](https://github.com/QuangNew/VietOCR_Handwriting/actions/runs/42511537290) passed build, tests, format and Clippy on Linux ARM64.
+- Follow-up policy/Google-AMR checkpoint `3ea162c` also passed [CI run 42514420436](https://github.com/QuangNew/VietOCR_Handwriting/actions/runs/42514420436), including all database tests and a fresh ARM64 release build. The capture broker code measured on Pi is unchanged in that follow-up.
 - New C# coordinator readiness checks the migrated 500/30 database policy once on initialization; it cannot silently accept the old 1000/60 database policy while reporting new caps. Database rollout/recovery is documented in [REFACTOR_DB_ROLLOUT.md](REFACTOR_DB_ROLLOUT.md).
 
 ## Verification completed locally
