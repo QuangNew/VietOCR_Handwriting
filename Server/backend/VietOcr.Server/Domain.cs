@@ -8,6 +8,9 @@ public sealed class ServerOptions
     public string SupabaseUrl { get; set; } = "https://rrdxhztiikizgogxtlhu.supabase.co";
     public string SupabasePublishableKey { get; set; } = "";
     public string SupabaseServiceKey { get; set; } = "";
+    // Only the hash is configured on the server; the Pi keeps the random machine credential.
+    public string GatewayTelemetryKeySha256 { get; set; } = "";
+    public string ServerId { get; set; } = "compute-1";
     public bool AcceptingRequests { get; set; } = true;
     public bool DispatchPaused { get; set; }
     public string Python { get; set; } = "../VietHandOCR_API_Release/.venv/Scripts/python.exe";
@@ -41,8 +44,8 @@ public sealed class ServerOptions
 
 public sealed record AdminUser(string Id, string Username, string PasswordHash);
 public sealed record ApiClient(string Id, string Name, string Prefix, int RatePerMinute, bool Enabled, DateTime CreatedAt,
-    int DailyLimit=1000,string? UserId=null,string? Email=null,string? OcrId=null,int UsedToday=0);
-public sealed record NewClient(string Name, int RatePerMinute = 60,int DailyLimit=1000);
+    int DailyLimit=AccountPolicy.DailyImageCap,string? UserId=null,string? Email=null,string? OcrId=null,int UsedToday=0);
+public sealed record NewClient(string Name, int RatePerMinute = AccountPolicy.MinuteRequestCap,int DailyLimit=AccountPolicy.DailyImageCap);
 public sealed record UpdateClient(string Name,int RatePerMinute,int DailyLimit,bool Enabled);
 public sealed record NewWorker(string Device="auto");
 public sealed record WorkerDevice(string Id,string Name,string Kind,bool Available=true,string? Reason=null);

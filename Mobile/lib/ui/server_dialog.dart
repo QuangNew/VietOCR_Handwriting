@@ -90,7 +90,7 @@ Future<void> showServerDialog(BuildContext context, AppController app) async {
                     ),
                     const SizedBox(height: 8),
                     const Text(
-                      'Một định danh cố định cho mỗi tài khoản. Tối đa 1.000 ảnh/ngày và 60 request trong 60 giây, dùng chung trên mọi thiết bị.',
+                      'Một định danh cố định cho mỗi tài khoản. Tối đa 500 ảnh/ngày và 30 request trong 60 giây, dùng chung trên mọi thiết bị.',
                     ),
                     const SizedBox(height: 14),
                     Wrap(

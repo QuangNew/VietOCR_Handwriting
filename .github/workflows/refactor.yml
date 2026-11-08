@@ -1,0 +1,69 @@
+name: Refactor foundation
+on:
+  push:
+    branches: [refactor]
+    paths:
+      - Cargo.toml
+      - Cargo.lock
+      - Gateway/**
+      - Contracts/**
+      - supabase/migrations/**
+      - .github/workflows/refactor.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: refactor-foundation-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  gateway-arm64:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: vietocr_refactor_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Rust toolchain (build on GitHub, not on the 4 GB Pi)
+        run: rustup toolchain install 1.94.0 --profile minimal --component rustfmt,clippy
+      - run: cargo +1.94.0 fmt --all --check
+      - run: cargo +1.94.0 test --workspace --locked
+      - run: cargo +1.94.0 clippy --workspace --all-targets --locked -- -D warnings
+      - name: Database contracts and native PostgreSQL races
+        working-directory: Contracts/tests
+        env:
+          VIETOCR_TEST_PG_URL: postgresql://postgres:postgres@127.0.0.1:5432/vietocr_refactor_test
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm test
+          npm run test:native
+      - run: cargo +1.94.0 build --release --locked -p vietocr-gateway
+      - run: cargo +1.94.0 build --release --locked -p vietocr-gateway --example camera_probe
+      - name: Small ARM64 runtime bundle
+        run: |
+          mkdir -p bundle
+          cp target/release/vietocr-gateway Gateway/config.example.json Gateway/README.md bundle/
+          cp target/release/examples/camera_probe bundle/
+          cp -r infra/raspberry bundle/
+          tar -czf vietocr-gateway-linux-arm64.tar.gz -C bundle .
+          sha256sum vietocr-gateway-linux-arm64.tar.gz > vietocr-gateway-linux-arm64.tar.gz.sha256
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: vietocr-gateway-linux-arm64
+          path: |
+            vietocr-gateway-linux-arm64.tar.gz
+            vietocr-gateway-linux-arm64.tar.gz.sha256
+          retention-days: 3
+          if-no-files-found: error

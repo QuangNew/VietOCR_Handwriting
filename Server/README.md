@@ -21,7 +21,7 @@ Tài khoản quản trị hiện có đã chuyển sang Supabase. Thông tin đ�
 - **WorkerSpace**: chọn Tự động, GPU rời, GPU tích hợp DirectML hoặc CPU cho từng worker; đo RAM/VRAM thực. Tự động ưu tiên GPU rời → GPU tích hợp → CPU; mọi lần thêm đều kiểm tra tài nguyên.
 - **Hàng đợi / Nhật ký**: xem lỗi gốc, trạng thái/kết quả, huỷ job, tra thay đổi quản trị.
 
-Mỗi tài khoản có mã OCR cố định; request dùng phiên Google có thời hạn. Giới hạn **1.000 ảnh/ngày, 60 request OCR trong 60 giây**, dùng chung mọi thiết bị. Tăng bộ đếm và ghi job là một transaction PostgreSQL; không thể vượt bằng request đồng thời hoặc restart server. Chi tiết OAuth, callbacks, schema, quota và quyền admin tại [SUPABASE.md](docs/SUPABASE.md).
+Mỗi tài khoản có mã OCR cố định; request dùng phiên Google có thời hạn. Giới hạn **500 ảnh/ngày, 30 request OCR trong 60 giây**, dùng chung mọi thiết bị. Tăng bộ đếm và ghi job là một transaction PostgreSQL; không thể vượt bằng request đồng thời hoặc restart server. Chi tiết OAuth, callbacks, schema, quota và quyền admin tại [SUPABASE.md](docs/SUPABASE.md).
 
 ## Model và tài nguyên
 

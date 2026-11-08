@@ -67,8 +67,8 @@ public sealed class Store : IAsyncDisposable
     public async Task<List<ApiClient>> Clients()=>(await Call<List<ApiClient>>("clients"))!;
     public static void ValidateClient(string name,int rate,int daily)
     {
-        if(string.IsNullOrWhiteSpace(name)||name.Trim().Length>80||rate is <1 or >60||daily is <1 or >1000)
-            throw new ArgumentException("Tên: 1–80 ký tự; hạn mức: 1–60 request/phút và 1–1.000 ảnh/ngày.");
+        if(string.IsNullOrWhiteSpace(name)||name.Trim().Length>80||rate is <1 or >AccountPolicy.MinuteRequestCap||daily is <1 or >AccountPolicy.DailyImageCap)
+            throw new ArgumentException("Tên: 1–80 ký tự; hạn mức: 1–30 request/phút và 1–500 ảnh/ngày.");
     }
     public async Task<(ApiClient Client,string Key)> CreateClient(NewClient request,string actor="system")
     {
@@ -102,7 +102,14 @@ public sealed class Store : IAsyncDisposable
     public Task Cleanup()=>Rpc("cleanup",new{hours=options.RetentionHours});
     public async Task<List<Job>> Window(DateTime since)=>(await Call<List<Job>>("window",new{since}))!;
     public async Task<WindowTotals> Totals(DateTime since)=>(await Call<WindowTotals>("totals",new{since}))!;
-    public async Task<RuntimeSettings> Settings(CancellationToken ct=default)=>(await Call<RuntimeSettings>("settings",ct:ct))!;
+    public async Task<RuntimeSettings> Settings(CancellationToken ct=default)
+    {
+        var settings=(await Call<RuntimeSettings>("settings",ct:ct))!;
+        // Forward-compatible startup while an operator is applying the additive 500/30 migration.
+        // The database migration remains necessary for atomic quota enforcement on existing accounts.
+        return settings with {DefaultDailyLimit=Math.Min(AccountPolicy.DailyImageCap,settings.DefaultDailyLimit),
+            DefaultRatePerMinute=Math.Min(AccountPolicy.MinuteRequestCap,settings.DefaultRatePerMinute)};
+    }
     public Task SaveSettings(RuntimeSettings value,string actor)=>Rpc("saveSettings",new{value,actor});
     public Task<JsonElement> Audit()=>Rpc("audit");
     public Task RecordAudit(string actor,string action,string? id=null)=>Rpc("recordAudit",new{actor,name=action,id});

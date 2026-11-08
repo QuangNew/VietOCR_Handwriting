@@ -8,3 +8,7 @@ __pycache__/
 /VietHandOCR_API_Release/.logs/
 /.toolchain/
 /Mobile/assets/models/*.onnx
+/target/
+/Gateway/config.local.json
+/Gateway/secrets/
+/Gateway/runtime/

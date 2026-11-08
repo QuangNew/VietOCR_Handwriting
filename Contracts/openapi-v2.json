@@ -1,0 +1,142 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "VietOCR Client / Raspberry / Compute v2",
+    "version": "2.0.0-draft.1",
+    "description": "Approved architecture; each operation declares x-implementation. Foundation currently runs Google session verification, native Pi camera and read-only server telemetry. Planned OCR endpoints are not advertised as available by the gateway."
+  },
+  "servers": [{ "url": "https://gateway.example.com" }],
+  "security": [{ "googleSession": [] }],
+  "paths": {
+    "/health/live": {
+      "get": {
+        "operationId": "gatewayLiveness", "x-implementation": "foundation", "security": [],
+        "responses": { "200": { "description": "Process alive; does not assert database, camera or OCR readiness" } }
+      }
+    },
+    "/api/v2/session": {
+      "get": {
+        "operationId": "verifyGoogleSession", "x-implementation": "foundation",
+        "description": "Locally verify Supabase ES256 signature/claims, then verify Google provider/current session/ban in Postgres. No OCR quota charge.",
+        "responses": { "200": { "description": "Account identity, effective 500/30-or-lower policy, camera catalog and explicit ocrAvailable readiness" }, "default": { "$ref": "#/components/responses/Failure" } }
+      }
+    },
+    "/api/v2/cameras": {
+      "get": {
+        "operationId": "listPiCameras", "x-implementation": "foundation",
+        "responses": { "200": { "description": "Configured Pi webcams; actual current JPEG dimensions, freshness, consumer count and error when available. No camera opened merely by listing." }, "default": { "$ref": "#/components/responses/Failure" } }
+      }
+    },
+    "/api/v2/cameras/{cameraId}/stream": {
+      "parameters": [{ "name": "cameraId", "in": "path", "required": true, "schema": { "type": "string", "pattern": "^[A-Za-z0-9_-]{1,48}$" } }],
+      "get": {
+        "operationId": "watchPiCamera", "x-implementation": "foundation",
+        "description": "Bearer header required (no URL tokens). Native JPEG parts with Content-Length; latest-frame buffer, bounded viewers, independent capture producer. Revalidate current Google session every 15 seconds; reconnect on JWT/session expiry or maximum 600-second stream lifetime. Slow viewers skip frames. No OCR charge.",
+        "responses": {
+          "200": { "description": "MJPEG multipart stream, boundary=vietocr, no-store. First frame and disconnect are separate from HTTP header success.", "content": { "multipart/x-mixed-replace": { "schema": { "type": "string", "format": "binary" } } } },
+          "default": { "$ref": "#/components/responses/Failure" }
+        }
+      }
+    },
+    "/api/v2/cameras/{cameraId}/snapshots": {
+      "parameters": [{ "name": "cameraId", "in": "path", "required": true, "schema": { "type": "string" } }],
+      "post": {
+        "operationId": "capturePiDraft", "x-implementation": "foundation",
+        "description": "Wait for a new native JPEG after the capture request. Return the exact frame at the UVC stream resolution, never the UI thumbnail. Client stores a private draft. Does not create an intent, upload to compute, run OCR or consume OCR quota. Bounded capture rate/concurrency applies separately.",
+        "responses": {
+          "200": {
+            "description": "Original compressed JPEG; next action is client draft/edit, not automatic OCR",
+            "headers": {
+              "X-Image-Sha256": { "schema": { "type": "string", "pattern": "^[0-9a-f]{64}$" } },
+              "X-Image-Width": { "schema": { "type": "integer", "minimum": 1 } },
+              "X-Image-Height": { "schema": { "type": "integer", "minimum": 1 } },
+              "X-Captured-Unix-Ms": { "description": "Time frame reached the gateway; not a hardware exposure timestamp", "schema": { "type": "integer" } }
+            },
+            "content": { "image/jpeg": { "schema": { "type": "string", "format": "binary" } } }
+          },
+          "default": { "$ref": "#/components/responses/Failure" }
+        }
+      }
+    },
+    "/api/v2/server/status": {
+      "get": {
+        "operationId": "viewServerStatus", "x-implementation": "foundation",
+        "responses": { "200": { "description": "Latest server stats or explicit offline/stale error, alarm state and pulse sequence. No OCR/account data.", "content": { "application/json": { "schema": { "type": "object", "properties": { "server": { "oneOf": [{ "$ref": "#/components/schemas/ServerStats" }, { "type": "null" }] }, "alarmActive": { "type": "boolean" }, "buzzerSequence": { "type": "integer" }, "error": { "type": ["string", "null"] } } } } } }, "default": { "$ref": "#/components/responses/Failure" } }
+      }
+    },
+    "/api/v2/jobs": {
+      "post": {
+        "operationId": "createOcrIntent", "x-implementation": "phase-3-planned",
+        "description": "Only after explicit Send. Metadata only; requestId is the per-account idempotency key. Queue intent is not a consumed OCR credit.",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ImageIntent" } } } },
+        "responses": { "202": { "description": "Durable job intent, current admission state and retry hint" }, "200": { "description": "Same intent on idempotent retry" }, "default": { "$ref": "#/components/responses/Failure" } }
+      }
+    },
+    "/api/v2/jobs/{jobId}": {
+      "parameters": [{ "$ref": "#/components/parameters/JobId" }],
+      "get": { "operationId": "readAdmission", "x-implementation": "phase-3-planned", "responses": { "200": { "description": "Owned intent and upload readiness/lease status; excludes OCR text" }, "default": { "$ref": "#/components/responses/Failure" } } },
+      "delete": { "operationId": "cancelOcrJob", "x-implementation": "phase-3-planned", "description": "Release only pre-acceptance reservations; accepted jobs retain their credit. Compute cancellation is fenced and cooperative.", "responses": { "202": { "description": "Cancellation recorded" }, "default": { "$ref": "#/components/responses/Failure" } } }
+    },
+    "/api/v2/jobs/{jobId}/upload": {
+      "parameters": [{ "$ref": "#/components/parameters/JobId" }],
+      "get": { "operationId": "readUploadOffset", "x-implementation": "phase-3-planned", "responses": { "200": { "description": "Server durable upload offset, generation and expiry" }, "default": { "$ref": "#/components/responses/Failure" } } },
+      "patch": {
+        "operationId": "uploadOcrChunk", "x-implementation": "phase-3-planned",
+        "description": "Granted lease required; Pi relays bounded binary chunks without collecting the image. 256 KiB client chunk default; 1 MiB hard chunk cap. Offset mismatch returns 409 with authoritative durable offset. Full accepted hash/length/type/pixel validation precedes atomic quota commit.",
+        "parameters": [{ "name": "Upload-Offset", "in": "header", "required": true, "schema": { "type": "integer", "minimum": 0 } }, { "name": "Upload-Generation", "in": "header", "required": true, "schema": { "type": "integer", "minimum": 1 } }],
+        "requestBody": { "required": true, "content": { "application/offset+octet-stream": { "schema": { "type": "string", "format": "binary" } } } },
+        "responses": { "204": { "description": "Chunk durable; Upload-Offset header confirms next position" }, "202": { "description": "Complete valid image accepted, one credit committed, result location and scoped ticket available" }, "default": { "$ref": "#/components/responses/Failure" } }
+      }
+    },
+    "/api/v2/jobs/{jobId}/result-ticket": {
+      "parameters": [{ "$ref": "#/components/parameters/JobId" }],
+      "post": { "operationId": "renewResultTicket", "x-implementation": "phase-3-planned", "description": "Recheck current owner/session/ban; issue short-lived user+job+server read ticket. Never consumes OCR quota.", "responses": { "200": { "description": "Trusted result origin, ticket and expiry" }, "default": { "$ref": "#/components/responses/Failure" } } }
+    },
+    "/api/result/v2/jobs/{jobId}": {
+      "servers": [{ "url": "https://result.example.com" }], "parameters": [{ "$ref": "#/components/parameters/JobId" }],
+      "get": {
+        "operationId": "readComputeResult", "x-implementation": "phase-2-planned", "security": [{ "resultTicket": [] }],
+        "description": "Direct client-initiated request to compute. Only read: ticket must bind issuer/audience/scope/user/job/server/expiry. Cannot create, upload or scale. Optional bounded long-poll wait.",
+        "parameters": [{ "name": "wait", "in": "query", "schema": { "type": "integer", "minimum": 0, "maximum": 20, "default": 0 } }],
+        "responses": { "200": { "description": "Owned job state, OCR result and per-stage timings when available" }, "default": { "$ref": "#/components/responses/Failure" } }
+      }
+    },
+    "/api/internal/v2/status": {
+      "servers": [{ "url": "https://compute.example.com" }],
+      "get": { "operationId": "sampleComputeLoad", "x-implementation": "foundation-csharp", "security": [{ "telemetryMachine": [] }], "responses": { "200": { "description": "Small cached host statistics; no GPU enumeration, database round trip or result content", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ServerStats" } } } }, "default": { "$ref": "#/components/responses/Failure" } } }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "googleSession": { "type": "http", "scheme": "bearer", "bearerFormat": "Supabase ES256 JWT; current Google session also verified in DB" },
+      "resultTicket": { "type": "http", "scheme": "bearer", "bearerFormat": "Short-lived scoped result JWT, not a Google access token" },
+      "telemetryMachine": { "type": "http", "scheme": "bearer", "bearerFormat": "Random Pi machine credential; server stores SHA-256; read-only telemetry scope" }
+    },
+    "parameters": { "JobId": { "name": "jobId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } } },
+    "responses": { "Failure": { "description": "401 invalid/expired session; 403 banned/revoked; 409 conflict/stale lease; 429 quota/capacity; 503 dependency offline. Retry-After where retryable. Never includes secrets or photo/OCR content.", "headers": { "Retry-After": { "schema": { "type": "integer", "minimum": 1 } } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Problem" } } } } },
+    "schemas": {
+      "Problem": { "type": "object", "required": ["error"], "properties": { "error": { "type": "string" }, "retryAfterSeconds": { "type": ["integer", "null"], "minimum": 1 } } },
+      "JobState": { "type": "string", "enum": ["awaiting_upload", "upload_granted", "uploading", "queued", "running", "succeeded", "failed", "cancelled"] },
+      "ImageIntent": {
+        "type": "object", "additionalProperties": false,
+        "required": ["requestId", "sha256", "imageBytes", "mediaType", "layout", "imageVersion"],
+        "properties": {
+          "requestId": { "type": "string", "format": "uuid" }, "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "imageBytes": { "type": "integer", "minimum": 16, "maximum": 67108864 },
+          "mediaType": { "type": "string", "enum": ["image/jpeg", "image/png", "image/webp"] },
+          "layout": { "type": "string", "enum": ["auto", "line"] }, "imageVersion": { "type": "integer", "minimum": 1 }
+        }
+      },
+      "AccountLimits": { "type": "object", "additionalProperties": false, "required": ["dailyImages", "requestsPerMinute"], "properties": { "dailyImages": { "type": "integer", "minimum": 1, "maximum": 500, "default": 500 }, "requestsPerMinute": { "type": "integer", "minimum": 1, "maximum": 30, "default": 30 } } },
+      "ServerStats": {
+        "type": "object", "additionalProperties": false,
+        "required": ["serverId", "sampledAtUnixMs", "uptimeSeconds", "ready", "cpuPercent", "ramUsedPercent", "idleWorkers", "busyWorkers", "startingWorkers", "drainingWorkers", "queuedJobs"],
+        "properties": {
+          "serverId": { "type": "string", "maxLength": 80 }, "sampledAtUnixMs": { "type": "integer", "minimum": 0 }, "uptimeSeconds": { "type": "number", "minimum": 0 }, "ready": { "type": "boolean" },
+          "cpuPercent": { "type": ["number", "null"], "minimum": 0, "maximum": 100 }, "ramUsedPercent": { "type": ["number", "null"], "minimum": 0, "maximum": 100 },
+          "idleWorkers": { "type": "integer", "minimum": 0 }, "busyWorkers": { "type": "integer", "minimum": 0 }, "startingWorkers": { "type": "integer", "minimum": 0 }, "drainingWorkers": { "type": "integer", "minimum": 0 }, "queuedJobs": { "type": "integer", "minimum": 0 }
+        }
+      }
+    }
+  }
+}

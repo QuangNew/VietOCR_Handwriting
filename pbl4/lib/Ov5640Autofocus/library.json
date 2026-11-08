@@ -1,8 +1,0 @@
-{
-  "name": "Ov5640Autofocus",
-  "version": "1.0.0",
-  "description": "Bounded OV5640 AF mailbox helper for the existing sensor_t API",
-  "license": "Apache-2.0",
-  "frameworks": ["arduino"],
-  "platforms": ["espressif32"]
-}

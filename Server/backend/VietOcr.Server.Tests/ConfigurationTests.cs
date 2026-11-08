@@ -6,10 +6,10 @@ public class ConfigurationTests
 {
     [Fact] public void AccountCapsCannotBeRaisedPastUserPolicy()
     {
-        Assert.Throws<ArgumentException>(()=>Store.ValidateClient("test",61,1000));
-        Assert.Throws<ArgumentException>(()=>Store.ValidateClient("test",60,1001));
-        Assert.Throws<ArgumentException>(()=>new RuntimeSettings(DefaultDailyLimit:1001).Validate());
-        Assert.Throws<ArgumentException>(()=>new RuntimeSettings(DefaultRatePerMinute:61).Validate());
+        Assert.Throws<ArgumentException>(()=>Store.ValidateClient("test",31,500));
+        Assert.Throws<ArgumentException>(()=>Store.ValidateClient("test",30,501));
+        Assert.Throws<ArgumentException>(()=>new RuntimeSettings(DefaultDailyLimit:501).Validate());
+        Assert.Throws<ArgumentException>(()=>new RuntimeSettings(DefaultRatePerMinute:31).Validate());
     }
     [Fact] public void ResourceConfigurationCannotDisableMemoryReserves()
     {

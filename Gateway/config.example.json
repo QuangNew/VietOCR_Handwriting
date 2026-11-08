@@ -1,0 +1,20 @@
+{
+  "listen": "127.0.0.1:5082",
+  "auth": {
+    "supabaseUrl": "https://rrdxhztiikizgogxtlhu.supabase.co",
+    "publishableKey": "REPLACE_WITH_PROJECT_PUBLISHABLE_KEY",
+    "databaseConcurrency": 8
+  },
+  "cameras": [
+    { "id": "desk", "name": "Webcam Raspberry", "upstream": "http://127.0.0.1:8080" }
+  ],
+  "maxViewers": 8,
+  "maxViewersPerAccount": 2,
+  "maxSnapshots": 4,
+  "maxFrameBytes": 4194304,
+  "frameFreshMs": 1500,
+  "viewerSessionSeconds": 600,
+  "authRecheckSeconds": 15,
+  "telemetry": null,
+  "panel": { "enabled": false, "dcBcm": 25, "resetBcm": 24, "buzzerBcm": 18, "spiHz": 16000000 }
+}

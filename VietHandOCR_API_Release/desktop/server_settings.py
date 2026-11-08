@@ -27,7 +27,7 @@ def open_server_settings(app, parent):
     account=tk.StringVar(value=app.auth.email or 'Chưa đăng nhập Google')
     label(body,'ĐĂNG NHẬP GOOGLE',size=9,bold=True,color=C['muted']).pack(anchor='w')
     label(body,textvariable=account,bold=True).pack(anchor='w',pady=(8,6))
-    identity=tk.StringVar(value='Mỗi tài khoản có một định danh OCR cố định · tối đa 1.000 ảnh/ngày, 60 request/phút.')
+    identity=tk.StringVar(value='Mỗi tài khoản có một định danh OCR cố định · tối đa 500 ảnh/ngày, 30 request/phút.')
     label(body,textvariable=identity,wraplength=730,justify='left',color=C['muted']).pack(anchor='w',pady=(0,12))
     actions=tk.Frame(body,bg=C['white']);actions.pack(fill='x')
     status=tk.StringVar(value='Đăng nhập mở trong trình duyệt. Token được mã hoá bằng tài khoản Windows.')

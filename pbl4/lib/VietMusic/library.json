@@ -1,9 +1,0 @@
-{
-  "name": "VietMusic",
-  "version": "1.0.0",
-  "description": "Nonblocking monophonic note sequencer with ESP32 active/passive buzzer output.",
-  "frameworks": "arduino",
-  "platforms": "espressif32",
-  "build": { "includeDir": "src" }
-}
-

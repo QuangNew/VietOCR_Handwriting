@@ -42,6 +42,8 @@ builder.Services.AddSingleton(options); builder.Services.AddSingleton<Store>(); 
 builder.Services.AddSingleton<Coordinator>(); builder.Services.AddHostedService(p => p.GetRequiredService<Coordinator>());
 builder.Services.AddSingleton<Metrics>();
 builder.Services.AddSingleton<GoogleAccounts>();
+builder.Services.AddSingleton<ServerLoadMonitor>();
+builder.Services.AddHostedService(p=>p.GetRequiredService<ServerLoadMonitor>());
 var protection=builder.Services.AddDataProtection().PersistKeysToFileSystem(new DirectoryInfo(Path.Combine(options.Runtime,"keys")))
     .SetApplicationName("VietOCR.Control");
 if(OperatingSystem.IsWindows()) protection.ProtectKeysWithDpapi();
@@ -113,7 +115,15 @@ app.MapGet("/api/health/live",() => Results.Ok(new { status="alive" }));
 app.MapGet("/api/public/config",()=>Results.Ok(new {supabaseUrl=options.SupabaseUrl,
     publishableKey=options.SupabasePublishableKey,authProvider="google",ocrMode="server-only",
     androidRedirect="vn.pbl4.vietocr://auth/callback",desktopRedirect="http://127.0.0.1:47821/auth/callback",
-    dailyLimit=1000,ratePerMinute=60,quotaTimezone="Asia/Ho_Chi_Minh"}));
+    dailyLimit=AccountPolicy.DailyImageCap,ratePerMinute=AccountPolicy.MinuteRequestCap,quotaTimezone=AccountPolicy.QuotaTimezone}));
+// Read-only machine endpoint. Admin cookies and client Google/API credentials grant no access here.
+app.MapGet("/api/internal/v2/status",(HttpContext ctx,ServerLoadMonitor monitor)=>{
+    if(string.IsNullOrEmpty(options.GatewayTelemetryKeySha256))
+        return Results.Json(new{error="gateway_telemetry_not_configured"},statusCode:503);
+    if(!GatewayTelemetryCredential.Validate(ctx.Request.Headers.Authorization.ToString(),options.GatewayTelemetryKeySha256))
+        return Results.Unauthorized();
+    return Results.Ok(monitor.Current);
+});
 app.MapGet("/api/health/ready",(Coordinator c) => c.Ready && c.Workers.Any(w=>w.State is "idle" or "busy")
     ? Results.Ok(new { status="ready" }) : Results.Json(new { status="not_ready" },statusCode:503));
 app.MapGet("/api/admin/auth/csrf",(HttpContext ctx,IAntiforgery csrf) => Results.Ok(new { token=csrf.GetAndStoreTokens(ctx).RequestToken }));
