@@ -1,0 +1,53 @@
+{
+  "date": "2026-11-09",
+  "branch": "refactor",
+  "baselineCommit": "e26faae",
+  "armBuildCommit": "53b9fea468ac58cf54f60cfebafec1514c03d2fd",
+  "ciRun": "https://github.com/QuangNew/VietOCR_Handwriting/actions/runs/42511537290",
+  "tests": {
+    "rustWindowsAndArm64": 24,
+    "csharpWindows": 36,
+    "isolatedPostgresWasm": 15,
+    "nativePostgresArm64": 4,
+    "nativePgConnections": 32,
+    "realGoogleLoginEndToEnd": false,
+    "internet1000ClientTest": false,
+    "physicalTftBuzzerTest": false
+  },
+  "pi": {
+    "host": "rasp4gb",
+    "os": "Raspberry Pi OS / Debian 13.7 aarch64",
+    "streamerVersion": "5.4",
+    "nativeMjpeg": { "width": 1920, "height": 1080, "frames": 302, "seconds": 10.031, "fps": 30.01 },
+    "rustBroker": { "width": 1920, "height": 1080, "frames": 301, "seconds": 10.011967951, "fps": 29.96413906519106, "firstFrameMsWarmSource": 20.775359 },
+    "rustBrokerRepeat": { "frames": 300, "seconds": 10.029832779, "fps": 29.881106527499747, "peakRssKiB": 11164, "cpuPercentOfOneCore": 5.57 },
+    "gatewayIdleRssKiB": 4732,
+    "gatewayHealthHttp": 200,
+    "cameraWithoutCredentialHttp": 401,
+    "reencodedJpeg": false,
+    "compilerInstalledOnPi": false,
+    "systemServicesEnabled": false,
+    "testProcessesStoppedAfterChecks": true,
+    "measurementScope": "Loopback native capture and exact Rust broker, not client HTTP fan-out or Internet delivery"
+  },
+  "artifact": {
+    "zipBytes": 3739341,
+    "zipSha256": "b7fa7696fd73b0077310e19979c822252767c19ecef532d5fd63ce2af244403a",
+    "tarBytes": 3742926,
+    "tarSha256": "f81586d894d287d4dd64ccb8d404269c18366a6c6a011324b88d89adf5f8d893",
+    "piDirectory": "/home/admin/vietocr-refactor-checkpoint1"
+  },
+  "cleanup": {
+    "legacyIotPaths": 182,
+    "legacyIotFiles": 1247,
+    "legacyIotLogicalBytes": 2717683920,
+    "removedTrackedFirmwareFiles": 127,
+    "generatedBuildLogicalBytes": 2085993190,
+    "generatedBuildPaths": ["Mobile/build", "target/debug"],
+    "preexistingProjectGiBRemovedApprox": 2.93,
+    "note": "Total deletion also includes new Rust debug products generated this turn; file size is not exact physical disk free-space accounting. Model, Python environment, current mobile dist and user originals retained."
+  },
+  "modelSha256Unchanged": "644f2613046e4974c3aea5878e61d119b9100debe05cb55756b85b8241254cb2",
+  "productionSupabaseMigrationsApplied": false,
+  "newDesktopOrAndroidClientReleased": false
+}

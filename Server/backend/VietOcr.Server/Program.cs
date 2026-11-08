@@ -118,6 +118,8 @@ app.MapGet("/api/public/config",()=>Results.Ok(new {supabaseUrl=options.Supabase
     dailyLimit=AccountPolicy.DailyImageCap,ratePerMinute=AccountPolicy.MinuteRequestCap,quotaTimezone=AccountPolicy.QuotaTimezone}));
 // Read-only machine endpoint. Admin cookies and client Google/API credentials grant no access here.
 app.MapGet("/api/internal/v2/status",(HttpContext ctx,ServerLoadMonitor monitor)=>{
+    if(!ctx.Request.IsHttps && ctx.Connection.RemoteIpAddress is {} remote && !System.Net.IPAddress.IsLoopback(remote))
+        return Results.Json(new{error="https_required"},statusCode:426);
     if(string.IsNullOrEmpty(options.GatewayTelemetryKeySha256))
         return Results.Json(new{error="gateway_telemetry_not_configured"},statusCode:503);
     if(!GatewayTelemetryCredential.Validate(ctx.Request.Headers.Authorization.ToString(),options.GatewayTelemetryKeySha256))

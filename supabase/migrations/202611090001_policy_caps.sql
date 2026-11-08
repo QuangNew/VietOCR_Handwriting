@@ -11,5 +11,12 @@ alter table public.ocr_clients add constraint ocr_clients_rate_per_minute_check 
 update public.ocr_settings set value=jsonb_set(jsonb_set(value,'{defaultDailyLimit}',
  to_jsonb(least(coalesce((value->>'defaultDailyLimit')::integer,500),500))),'{defaultRatePerMinute}',
  to_jsonb(least(coalesce((value->>'defaultRatePerMinute')::integer,30),30))),updated_at=clock_timestamp() where id;
+-- The new API must not silently serve 500/30 claims while an old database still admits 1000/60.
+create or replace function public.ocr_policy_version() returns jsonb
+language sql stable security definer set search_path='' as $$
+ select '{"policyVersion":2,"dailyImageCap":500,"minuteRequestCap":30}'::jsonb;
+$$;
+revoke all on function public.ocr_policy_version() from public,anon,authenticated;
+grant execute on function public.ocr_policy_version() to service_role;
 notify pgrst,'reload schema';
 

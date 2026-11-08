@@ -17,8 +17,14 @@ create or replace function public.ocr_gateway_session(p_session_id uuid) returns
 language plpgsql security definer set search_path='' as $$
 declare v_uid uuid:=auth.uid();v_client public.ocr_clients;v_email text;v_settings jsonb;
 begin
+ -- A linked Google identity alone is insufficient: an email/password session of that
+ -- same user must not become a Google-only app session. AMR is signed by Supabase.
  if (auth.jwt()->>'session_id')::uuid is distinct from p_session_id
-    or auth.jwt()->'app_metadata'->>'provider' is distinct from 'google'
+    or not exists(select 1 from jsonb_array_elements(case when jsonb_typeof(auth.jwt()->'amr')='array'
+      then auth.jwt()->'amr' else '[]'::jsonb end) a
+      where a->>'method'='oauth' and coalesce(a->>'provider',auth.jwt()->'app_metadata'->>'provider')='google')
+    or exists(select 1 from jsonb_array_elements(case when jsonb_typeof(auth.jwt()->'amr')='array'
+      then auth.jwt()->'amr' else '[]'::jsonb end) a where a->>'method' in ('password','otp','anonymous','sso/saml'))
  then raise sqlstate 'PT403' using message='google_session_required';end if;
  perform public.ocr_v2_check_identity(v_uid,p_session_id);
  select email into v_email from auth.users where id=v_uid;

@@ -54,7 +54,8 @@ public sealed class ServerLoadMonitor(Coordinator coordinator,ServerOptions opti
                 var views=coordinator.Workers;var ram=Hardware.Ram();
                 var memory=ram.TotalMiB>0?Math.Clamp(100d*(ram.TotalMiB-ram.AvailableMiB)/ram.TotalMiB,0,100):(double?)null;
                 var sample=new ServerLoadSnapshot(options.ServerId,DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                    Math.Max(0,(DateTime.UtcNow-coordinator.StartedAt).TotalSeconds),coordinator.Ready,cpu.Sample(),memory,
+                    Math.Max(0,(DateTime.UtcNow-coordinator.StartedAt).TotalSeconds),
+                    coordinator.Ready&&options.AcceptingRequests&&views.Any(w=>!w.Draining&&w.State is "idle" or "busy"),cpu.Sample(),memory,
                     views.Count(w=>w.State=="idle"&&!w.Draining),views.Count(w=>w.State=="busy"&&!w.Draining),
                     views.Count(w=>w.State=="starting"&&!w.Draining),views.Count(w=>w.Draining),coordinator.Queued);
                 Volatile.Write(ref current,sample);

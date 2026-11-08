@@ -27,7 +27,7 @@ Chủ dự án đã chốt kế hoạch ngày 09/11/2026, cho phép tạo/push n
 
 Các mặc định đã chốt: Windows desktop trước; C# + Python AI + Next.js admin được giữ; tài khoản admin riêng hiện có được giữ; Google-only áp dụng cho người dùng hai app; hạn mức 500/30 là trần hệ thống giai đoạn đầu, admin có thể hạ riêng từng tài khoản. Muốn cho admin nâng quá trần sẽ sửa quyết định này trước khi triển khai.
 
-Tên miền thật, thông tin SSH Pi, bản32/64-bit của OS và tốc độ uplink chưa được cung cấp. Dùng tên ví dụ trong tài liệu; không cần gửi mật khẩu/token vào chat. Các thông tin này cần trước lúc triển khai thiết bị, không cản việc chốt kiến trúc.
+Đã được cấp SSH tới `admin@rasp4gb` và kiểm tra OS **aarch64/64-bit, Debian 13.7 trên Raspberry Pi**, µStreamer 5.4. Không lưu thông tin xác thực vào tài liệu/Git. Tên miền HTTPS triển khai và tốc độ uplink thực chưa xác nhận; vẫn dùng tên ví dụ cho ingress. Tiến độ kiểm thử thiết bị ghi ở `REFACTOR_PROGRESS.md`.
 
 ## 2. Mục tiêu và ranh giới trách nhiệm
 
@@ -243,7 +243,7 @@ Giữ user identity, kết quả, admin/settings và signing certificate. Migrat
 
 ## 13. Những phần ESP32 cũ sẽ loại bỏ trong chuyển đổi
 
-Rà Git hiện thấy127 file firmware được theo dõi trong `pbl4/`, cùng nhiều module IoT trong client.
+Baseline có127 file firmware được theo dõi trong `pbl4/`, cùng nhiều module IoT trong client. Theo yêu cầu dọn dung lượng bổ sung ngày09/11, nguồn firmware/build/cache ESP32 đã được gỡ ở checkpoint đầu; khôi phục nguồn qua Git base `e26faae`. Phần client còn chuyển đổi theo giai đoạn để giữ ứng dụng đối chiếu và môi trường AI server.
 
 - `pbl4/`: firmware, PlatformIO, pinout/probe, TFT/buzzer, BLE/Wi‑Fi/OVxxxx, docs/tests/tools/builds riêng.
 - Desktop Python: Bluetooth process/radio/transport/coordinator, robot connection, ESP32 Wi‑Fi/config, UDP/MJPEG/HTTP camera transfer, màn hình/tab/buttons IoT, preferences tương ứng và tests IoT.

@@ -1,12 +1,14 @@
 # VietOCR Android — 3.0.0+17
 
+Nhánh `refactor`: đây là client cũ đang giữ đối chiếu; luồng Flutter mới sẽ dùng webcam trên Raspberry và chỉ OCR sau khi bấm Gửi. Firmware ESP32 đã được gỡ. Xem [kế hoạch](../docs/REFACTOR_PLAN_2026-11-08.md) và [tiến độ](../docs/REFACTOR_PROGRESS.md); chưa có bản APK refactor được phát hành trong checkpoint đầu.
+
 Ứng dụng Flutter Android **chỉ nhận diện qua OCR Server**. Đã bỏ ONNX runtime, service `:ocr`, trọng số và công tắc OCR offline khỏi client. Model chạy trên máy host C#, không phải Supabase. Supabase là database chính và dịch vụ đăng nhập Google.
 
 ## Sử dụng
 
 1. Trên máy host chạy [Server/Run-Server.cmd](../Server/Run-Server.cmd) với `-Lan`.
 2. Trong app, mở biểu tượng **Tài khoản & OCR Server**, nhập `http://<IP-máy-tính>:5080`. Bật HTTP trong LAN tin cậy nếu dùng mạng riêng. `localhost` trên điện thoại không phải máy tính.
-3. **Đăng nhập Google** qua trình duyệt. Mỗi tài khoản có định danh OCR cố định, tối đa **1.000 ảnh/ngày, 60 request trong 60 giây**. Phiên đăng nhập được mã hoá Android Keystore, tự refresh token; không nhập API key thủ công.
+3. **Đăng nhập Google** qua trình duyệt. Mỗi tài khoản có định danh OCR cố định; policy mới là **500 ảnh/ngày, 30 request trong 60 giây** sau khi database migrate. Phiên đăng nhập được mã hoá Android Keystore, tự refresh token; không nhập API key thủ công.
 4. Thêm ảnh từ thư viện, camera điện thoại hoặc ESP32 OV5640. Không giới hạn tổng 10 ảnh; app gửi tuần tự. Hết quota hoặc mất server thì giữ phần ảnh còn lại để thử tiếp.
 
 Mục tài khoản cho xem hạn mức và lịch sử/kết quả trên Supabase. Ảnh/crop đang soạn là cache riêng theo tài khoản trên thiết bị; đăng xuất không hiển thị dữ liệu tài khoản khác. Google login cần Internet; camera ESP32 dùng LAN/BLE độc lập. [Cấu hình Google/callback](../Server/docs/SUPABASE.md).

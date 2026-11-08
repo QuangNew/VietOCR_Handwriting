@@ -2,6 +2,8 @@
 
 **ASP.NET Core 10 + Next.js + Supabase PostgreSQL/Auth**, model **ML_s44** chạy trên máy host bằng Python/PyTorch. Desktop và Android chỉ dùng server; không nạp model cục bộ. XAMPP không còn là dependency vận hành.
 
+Trên nhánh `refactor`, server giữ C#/Python/Next.js và đang chuyển sang nhận OCR chỉ qua Raspberry. Xem [tiến độ](../docs/REFACTOR_PROGRESS.md) và [rollout database](../docs/REFACTOR_DB_ROLLOUT.md) trước khi chạy build mới: coordinator yêu cầu policy database 500/30 đã migrate. Các hướng dẫn client v1 sau đây mô tả giai đoạn chuyển đổi.
+
 ## Chạy trên máy này
 
 ```powershell
@@ -10,7 +12,7 @@ Server/Run-Server.cmd
 Server/Run-Server.cmd -Lan
 ```
 
-Dashboard: `http://127.0.0.1:3000`; API: `http://127.0.0.1:5080`. Điện thoại nhập IP LAN máy tính, ví dụ `http://192.168.100.10:5080`, và bật HTTP trong LAN tin cậy. Không nhập URL Supabase làm địa chỉ OCR server. Đăng nhập Google cần Internet; camera ESP32 vẫn giao tiếp LAN/BLE riêng.
+Dashboard: `http://127.0.0.1:3000`; API v1: `http://127.0.0.1:5080`. Client cũ nhập IP LAN máy tính và bật HTTP trong LAN tin cậy. Không nhập URL Supabase làm địa chỉ OCR server. Kiến trúc mới đặt webcam trên Pi và truy cập qua gateway; firmware ESP32 đã được gỡ khỏi nhánh này.
 
 Tài khoản quản trị hiện có đã chuyển sang Supabase. Thông tin đăng nhập trên máy nằm trong `runtime/admin-first-login.txt` (private, không commit). Tạo admin khác bằng `tools/New-Admin.ps1`; không có đăng ký admin công khai. Chạy `tools/Build-Server.ps1` sau khi sửa mã.
 

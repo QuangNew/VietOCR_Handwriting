@@ -16,7 +16,8 @@ const schema = new URL('../../supabase/migrations/', import.meta.url);
 async function scalar(sql, params = []) { return (await db.query(sql, params)).rows[0]?.v; }
 async function rpc(sql, params = []) { return scalar(`select ${sql} as v`, params); }
 async function claims(user = U1, session = S1, provider = 'google') {
-  await db.query("select set_config('request.jwt.claims',$1,true)", [JSON.stringify({ sub: user, session_id: session, app_metadata: { provider } })]);
+  await db.query("select set_config('request.jwt.claims',$1,true)", [JSON.stringify({ sub: user, session_id: session,
+    app_metadata: { provider }, amr: [{method:'oauth',provider,timestamp:Math.floor(Date.now()/1000)}] })]);
 }
 async function login(user = U1, session = S1) { await claims(user, session); return rpc('public.ocr_gateway_session($1)', [session]); }
 async function intent(user = U1, session = S1, requestId = randomUUID(), jobId = randomUUID(), hash = HASH, bytes = 1000) {
@@ -70,6 +71,7 @@ beforeEach(() => db.exec('begin'));
 afterEach(() => db.exec('reset role;rollback'));
 
 test('forward caps preserve all usage/identities and retain lower admin limits', async () => {
+  assert.deepEqual(await rpc('public.ocr_policy_version()'),{policyVersion:2,dailyImageCap:500,minuteRequestCap:30});
   const legacy = (await db.query("select daily_limit,rate_per_minute from public.ocr_clients where id='legacy'")).rows[0];
   assert.deepEqual(legacy, { daily_limit: 500, rate_per_minute: 30 });
   assert.equal(await scalar("select used as v from public.ocr_daily_usage where client_id='legacy'"), 777);
@@ -82,6 +84,9 @@ test('provider, current session, ban and ownership are checked from trusted data
   await login(); await claims(U1, S1, 'email');
   await rejects('select public.ocr_gateway_session($1)', [S1], /google_session_required/);
   await claims(U1, S1);
+  await db.query("select set_config('request.jwt.claims',$1,true)", [JSON.stringify({sub:U1,session_id:S1,app_metadata:{provider:'google'},amr:[{method:'password',timestamp:1}]})]);
+  await rejects('select public.ocr_gateway_session($1)', [S1], /google_session_required/);
+  await claims(U1,S1);
   await rejects('select public.ocr_gateway_session($1)', [S2], /google_session_required/);
   await db.query("update auth.users set banned_until=now()+interval '1 day' where id=$1", [U1]);
   await rejects('select public.ocr_gateway_session($1)', [S1], /google_session_disabled/);

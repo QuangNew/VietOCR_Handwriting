@@ -43,6 +43,17 @@ public sealed class Store : IAsyncDisposable
         (await Rpc(action,p,ct)).Deserialize<T>(Json);
     public async Task Initialize(CancellationToken ct=default,bool coordinator=true)
     {
+        Ready=false;
+        // Readiness gate, once per coordinator initialization, not one extra DB call per photo.
+        try
+        {
+            using var policy=await http.PostAsJsonAsync("rpc/ocr_policy_version",new{},Json,ct);
+            if(!policy.IsSuccessStatusCode)
+                throw new DatabaseUnavailableException("Apply the 20261109 Supabase policy migration before starting this server build.");
+            AccountPolicy.RequireDatabasePolicy(await policy.Content.ReadFromJsonAsync<JsonElement>(Json,ct));
+        }
+        catch(HttpRequestException){Error="Supabase unavailable during policy check";throw new DatabaseUnavailableException(Error);}
+        catch(TaskCanceledException)when(!ct.IsCancellationRequested){Error="Supabase policy check timed out";throw new DatabaseUnavailableException(Error);}
         await Settings(ct);
         if(coordinator) {
             var value=await Rpc("lease",new{owner},ct);

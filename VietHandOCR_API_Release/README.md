@@ -1,5 +1,7 @@
 # VietOCR Handwriting — desktop server client
 
+Nhánh `refactor`: desktop Python này được giữ tạm để đối chiếu chức năng và duy trì môi trường AI server. Bản thay thế sẽ là Tauri 2, webcam trên Raspberry và chỉ gửi OCR khi bấm Gửi. Firmware ESP32 đã được gỡ; xem [tiến độ](../docs/REFACTOR_PROGRESS.md) trước khi dùng các luồng IoT cũ bên dưới.
+
 Desktop Python/Tk, giao diện Sun Valley (MIT), sáng/tối, BLE trợ lý và camera OV5640. **OCR chỉ chạy qua server**, không nạp PyTorch/ONNX trên client. Trọng số dùng tại [Server/models](../Server/models), máy host giữ worker ML_s44.
 
 ## Mở và đăng nhập
@@ -8,7 +10,7 @@ Mở [dist/VietOCR.exe](dist/VietOCR.exe) hoặc [Run-VietOCR.cmd](Run-VietOCR.c
 
 Chạy [Server/Run-Server.cmd](../Server/Run-Server.cmd) trên máy host. Trong desktop mở **OCR Server**, nhập `http://127.0.0.1:5080` nếu cùng máy hoặc IP host trên LAN. Đăng nhập Google bằng trình duyệt; callback loopback `http://127.0.0.1:47821/auth/callback`. [Google/Supabase setup](../Server/docs/SUPABASE.md).
 
-Mỗi tài khoản có định danh cố định, tối đa 1.000 ảnh/ngày và 60 request OCR trong cửa sổ trượt60giây. Phiên Google được mã hoá Windows DPAPI; không lưu bearer token plaintext vào preferences. Lỗi mạng không chuyển về OCR local. Mục tài khoản xem hạn mức và lịch sử cloud; Supabase là database chính. Ảnh/crop và chỉnh sửa đang soạn là dữ liệu trên thiết bị.
+Mỗi tài khoản có định danh cố định; policy refactor là tối đa 500 ảnh/ngày và 30 request OCR trong cửa sổ trượt60giây sau khi database migrate. Phiên Google được mã hoá Windows DPAPI; không lưu bearer token plaintext vào preferences. Lỗi mạng không chuyển về OCR local. Mục tài khoản xem hạn mức và lịch sử cloud; Supabase là database chính. Ảnh/crop và chỉnh sửa đang soạn là dữ liệu trên thiết bị.
 
 ## Tài liệu và camera
 

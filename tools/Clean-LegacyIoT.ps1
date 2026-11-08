@@ -1,9 +1,15 @@
 [CmdletBinding()]
-param([switch]$Apply, [switch]$RemoveFirmwareSources)
+param([switch]$Apply, [switch]$RemoveFirmwareSources, [switch]$RemoveGeneratedBuilds)
 $ErrorActionPreference = 'Stop'
 $taskRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..')).TrimEnd('\','/')
 $taskCacheRoot = [IO.Path]::GetFullPath((Join-Path $taskRoot '.toolchain'))
 $taskTargets = [Collections.Generic.List[string]]::new()
+if ($RemoveGeneratedBuilds) {
+    foreach ($taskBuild in @('Mobile/build','target/debug')) {
+        $taskBuildPath=Join-Path $taskRoot $taskBuild
+        if(Test-Path -LiteralPath $taskBuildPath){$taskTargets.Add($taskBuildPath)}
+    }
+}
 
 if ($RemoveFirmwareSources -and (Test-Path -LiteralPath (Join-Path $taskRoot 'pbl4'))) {
     # Source is recoverable from the base branch/history. Never delete uncommitted firmware edits.
@@ -39,7 +45,8 @@ $taskTotal = [long](($taskManifest | Measure-Object Bytes -Sum).Sum)
 $taskReportRoot = Join-Path $taskCacheRoot 'refactor'
 if ($Apply) {
     New-Item -ItemType Directory -Path $taskReportRoot -Force | Out-Null
-    $taskManifest | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $taskReportRoot 'legacy-iot-cleanup.json') -Encoding utf8
+    $taskReportName=if($RemoveGeneratedBuilds){'generated-build-cleanup.json'}else{'legacy-iot-cleanup.json'}
+    $taskManifest | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $taskReportRoot $taskReportName) -Encoding utf8
     # Every absolute path was resolved and checked above, in this same PowerShell process.
     foreach ($taskEntry in $taskManifest) { Remove-Item -LiteralPath $taskEntry.Path -Force -Recurse }
 }

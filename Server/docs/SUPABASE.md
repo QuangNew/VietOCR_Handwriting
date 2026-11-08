@@ -2,6 +2,8 @@
 
 Project hiện tại: `https://rrdxhztiikizgogxtlhu.supabase.co`.
 
+Nhánh `refactor` triển khai Client → Pi → Server theo [kế hoạch đã duyệt](../../docs/REFACTOR_PLAN_2026-11-08.md). Các luồng app/API v1 bên dưới được giữ để đối chiếu trong chuyển đổi. Áp dụng các migration mới theo [runbook rollout](../../docs/REFACTOR_DB_ROLLOUT.md); build C# mới chỉ sẵn sàng nhận OCR sau khi database đã có policy 500/30. Không reset database/usage.
+
 Database chính là **Supabase PostgreSQL**. Model ML_s44 vẫn chạy trên máy host bằng Python/PyTorch; Supabase không chạy model. Desktop và Android chỉ gọi API C#. Không có lựa chọn model offline hoặc fallback cục bộ.
 
 ## Google OAuth
@@ -29,7 +31,7 @@ Phiên được mã hoá DPAPI trên Windows, Android Keystore AES256-GCM trên 
 
 Tài khoản Google gắn `auth.users.id` với một `ocr_id = ocr_<UUID bỏ dấu gạch>`. Định danh giữ nguyên khi đăng xuất, đăng nhập trên thiết bị khác, sửa tên hoặc sửa hạn mức. Đây là định danh công khai; access token có thời hạn mới chứng minh quyền sử dụng.
 
-- Mặc định và mức tối đa: **1.000 ảnh được nhận/ngày**, **60 request OCR được nhận trong cửa sổ trượt 60 giây**.
+- Mặc định và mức tối đa trên nhánh refactor: **500 ảnh được nhận/ngày**, **30 request OCR được nhận trong cửa sổ trượt 60 giây**; admin có thể hạ từng tài khoản. Cần forward migration để áp dụng lên database hiện có.
 - Ngày theo **Asia/Ho_Chi_Minh**, đặt lại lúc **00:00 giờ Việt Nam**.
 - Cùng tài khoản dùng chung bộ đếm trên mọi thiết bị. Admin có thể hạ hạn mức riêng hoặc mặc định tài khoản mới.
 - Postgres khoá hàng tài khoản, kiểm tra quota, ghi job và tăng bộ đếm trong **một transaction**.
@@ -58,6 +60,8 @@ Admin web vẫn đăng nhập bằng tài khoản quản trị riêng. Đăng nh
 ## Schema và dữ liệu
 
 Migration: [`../../supabase/migrations/202611030001_ocr_control.sql`](../../supabase/migrations/202611030001_ocr_control.sql).
+
+Các migration bổ sung `202611090001`–`003` giữ dữ liệu cũ, thêm xác minh Google OAuth AMR/session, quota reservation/lease và quyền riêng gateway/compute. Mã nguồn migration mới đã được kiểm thử trên database tạm; không suy ra đã được áp dụng production. Xem [tiến độ](../../docs/REFACTOR_PROGRESS.md).
 
 Các bảng `ocr_*` lưu admin, tài khoản, key hash, jobs/kết quả, quota, cấu hình, lease coordinator và audit. RLS bật trên tất cả bảng. Tài khoản authenticated chỉ đọc kết quả/usage và các cột identity được phép của chính mình. Không được sửa quota/job, đọc key hash hoặc gọi RPC backend. Secret service-role chỉ dùng trong API C#.
 
