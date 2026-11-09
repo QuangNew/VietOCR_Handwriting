@@ -15,6 +15,10 @@ $certificate=Join-Path $env:USERPROFILE '.cloudflared/cert.pem'
 if(!(Test-Path -LiteralPath $certificate)){throw 'Complete cloudflared tunnel login in the browser first; never paste the certificate into chat.'}
 $destination=Join-Path $repo '.toolchain/refactor/tunnels'
 New-Item -ItemType Directory -Path $destination -Force|Out-Null
+# Protect staging before copying a connector credential, not only on success.
+$account=[Security.Principal.WindowsIdentity]::GetCurrent().Name
+& icacls $destination /inheritance:r /grant:r ($account+':(OI)(CI)F') /Q|Out-Null
+if($LASTEXITCODE-ne0){throw 'Cannot protect tunnel directory before writing credentials.'}
 function Find-Tunnel([string]$name){
     $json=& $binary tunnel list --output json
     if($LASTEXITCODE-ne0){throw 'Cannot read named tunnels; verify Cloudflare authorization.'}

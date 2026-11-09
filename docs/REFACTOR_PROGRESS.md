@@ -1,21 +1,36 @@
 # Refactor progress — 09/11/2026
 
-Branch: [`refactor`](https://github.com/QuangNew/VietOCR_Handwriting/tree/refactor). This remains an active implementation. DevTodo is not finalised until the remaining deployment gates are ready.
+Branch: [`refactor`](https://github.com/QuangNew/VietOCR_Handwriting/tree/refactor). The implementation/release checkpoint is ready for the user's remaining Cloudflare setup. DevTodo now includes those manual steps; public Internet/device/extended-load acceptance is still pending and is not claimed complete.
 
-## Latest native-client checkpoint
+## Latest verified artifacts and deployment handbook
 
-- Source checkpoint `86525e1` pushed. Its Windows/ARM64 release CI is running;
-  do not confuse a source commit with a verified downloadable artifact.
-- Actual Windows Tauri EXE, legitimate DPAPI Google session and live Pi webcam
-  through encrypted SSH forwarding:1920×1080,146 rendered frames in5.022s
-  (~29.07FPS), no JS errors. Snapshot remained a local draft, did not consume
-  OCR quota and camera stayed open after the3-second review. This native check
-  predates4.0.1; repeat against the new EXE after CI. No public DNS test claimed.
+- Client checkpoint `f21acdc` passed [Windows/ARM64 release CI42635830142](https://github.com/QuangNew/VietOCR_Handwriting/actions/runs/42635830142).
+  Explicit Send now waits through worker warmup and rolling-minute quota without
+  changing the intent or uploading twice; daily quota does not auto-retry.
+  The earlier native camera baseline `86525e1` passed [CI42628804508](https://github.com/QuangNew/VietOCR_Handwriting/actions/runs/42628804508).
+  Backend receipt recovery and deployment-helper checkpoint `21560b7` also passed
+  [CI42632605384](https://github.com/QuangNew/VietOCR_Handwriting/actions/runs/42632605384).
+- Actual Windows Tauri EXE at `86525e1`, legitimate DPAPI Google session and live Pi webcam
+  through encrypted SSH forwarding: new4.0.1 EXE rendered127 frames in5.016s
+  (~25.32FPS),1920×1080,no JS errors. Snapshot remained a local draft, did not
+  consume OCR quota and camera stayed open after3-second review. Saved mirror
+  retained full size, original remained unchecked, optimization577,558→193,610bytes
+  took191ms at full2048×230. No public DNS test claimed. Diagnostic CDP9226 and
+  test SSH forwarding were closed, test drafts removed, saved gateway restored
+  to the production HTTPS origin awaiting DNS.
 - Optional image transfer optimization preserves full dimensions and originals.
   Six already compact JPEGs (including the four provided OV photos) were kept
   unchanged. A public sample PNG shrank1,413,860→193,610bytes with JPEG95,
   PSNR56.76dB and identical text through the real CUDA worker. One sample is
   not a CER/WER evaluation; lossy optimization is opt-in, original is default.
+- Verified artifacts: EXE13,354,496bytes/SHA256`6c73e7847ee137922e39a2666eafed0e550f58287ee8f038b706848cb46159d5`;
+  APK20,637,449bytes/SHA256`47163045301a59c664dc20331111f1b6f2c909edaa106fd9f7f6f4d4223b72a8`.
+  Native client/Android binaries correspond to `f21acdc`. Local C#49, Flutter54,
+  Rust32, JS4 tests passed; Flutter analyzer clean. SQL17+4 race suites passed in CI.
+  Updated Playwright fixture verified three intent attempts through warmup and
+  minute-quota responses, with one upload and a stable intent. Automatic approval
+  review rejected the final diagnostic EXE launch; no fresh native-camera run on
+  this last artifact is claimed. The earlier real-Pi baseline is retained above.
 - Windows settings now contain only the Raspberry URL. Supabase public config
   remains compiled in native auth; it is not an application secret. Google
   access/refresh tokens stay in DPAPI/Keystore, not the WebView. Logs redact
@@ -34,7 +49,26 @@ Branch: [`refactor`](https://github.com/QuangNew/VietOCR_Handwriting/tree/refact
 - Pi's gateway and native MJPEG capture services remain active. Latest idle
   reading42.3°C,384MiB used,3411MiB available,swap0. GPIO disabled as requested.
   Cloudflare login certificate / active DNS are still pending; no production
-  cutover to public HTTPS has been claimed. DevTodo remains deliberately final-step work.
+  cutover to public HTTPS has been claimed. DevTodo was finalised after the native
+  build checks, including the user's requested Cloudflare/DNS/Authorize runbook.
+- Added continuous receipt/DB-queued reconciliation: an accepted job with a lost
+  acknowledgement is replayed without waiting for a restart or reconnecting the
+  client. Recovery skips active workers, preserves idempotent quota and prunes
+  expired unaccepted partials without racing a writer. Added two backend tests.
+- Client frontend implementation uses static HTML/CSS/JS within Tauri, rather
+  than the plan's proposed React/TypeScript bundler. Rust owns credentials,
+  networking/files/encoding; no Node server is shipped. Upload authority uses
+  TLS plus a separate machine credential and DB-fenced leases, rather than a
+  separately signed asymmetric per-job upload token. Result tickets remain
+  authenticated/job/session-scoped. These are explicit implementation choices.
+- Removed14 old Android maps178,390,646bytes and final generated test/build cache
+  4,333,726,745bytes (~4.036GiB), preserving dist artifacts/model/env/signing and
+  private user data. The latter cache was generated during verification; do not
+  count it as pre-existing IoT weight. Mobile/build was regenerated for the final
+  APK and remains. Four private inert ACL-test files also remain in ignored
+  `.toolchain/refactor/pairing-smoke`; automatic review blocked their deletion.
+  They are not configured credentials and created no database clients.
+  Current sanitized validation is linked above.
 
 ## Current checkpoint: v2 integration and recovery
 
@@ -63,7 +97,7 @@ Branch: [`refactor`](https://github.com/QuangNew/VietOCR_Handwriting/tree/refact
 
 A stored legitimate Google session was refreshed and verified against live Supabase; it was not a synthetic identity. Pi returned a hash-checked103680-byte camera JPEG. A public Vietnamese sample then exercised idempotent intent creation, partial upload/offset conflict/resume, no quota before completion, one charge after repeated completion and direct compute result retrieval. The expected Vietnamese title matched exactly; measured GPU inference707.51ms. Total11536.81ms included deliberate extra round-trips for idempotency/quota assertions and is not a normal-user latency baseline. The result URL was validated as `ocr.quangnew.tech`, but DNS was bypassed via local compute for this check; **public Internet end-to-end is still pending**.
 
-### Build artifacts already obtained
+### Historical artifacts at checkpoint b840ba5
 
 The first integration CI failed (missing Windows icon and an ARM64 warning); both were fixed. [Run42578375251](https://github.com/QuangNew/VietOCR_Handwriting/actions/runs/42578375251) at `b840ba5` passed both jobs.
 
@@ -73,15 +107,18 @@ The first integration CI failed (missing Windows icon and an ARM64 warning); bot
 | Android ARM64 APK | `Mobile/dist/VietOCR-4.0.0-refactor-arm64.apk` |20,506,501bytes| Local JDK21 build, baseline v4 before recovery follow-up |
 | ARM64 tar | `.toolchain/refactor/checkpoint2-arm/vietocr-gateway-linux-arm64.tar.gz` |3,823,734bytes| CI at `b840ba5`, deployed on Pi |
 
-Current source includes recovery/header/load-probe changes newer than these artifacts; they require a new verified build before being called the final release. APK is sideload/debug-signed baseline, with no physical Android run claimed. The desktop browser check used a test-only native bridge, not an interactive Google login in the built EXE.
+This table records the earlier integration build and is superseded by the latest
+artifacts above. The then-current browser check used a test-only native bridge;
+the later native Google/Pi-camera check is recorded separately above. APK remains
+sideload/debug-signed, with physical Android QA pending.
 
 ### Remaining acceptance work
 
 1. Finish named Cloudflare tunnels for `api.quangnew.tech` and `ocr.quangnew.tech`, after domain/Authorize is ready. The latest CLI login expired without a certificate; no DNS record or public endpoint is claimed ready.
 2. The1000-identity fixture passed on Pi (see below); longer resource plateau tests, separate upload/slow-client relay and Internet/real-compute measurements remain. A loopback fixture is not production throughput.
-3. Complete the client parity review (including image optimization profiles, edited-image selection and camera orientation), release builds/installer and interaction checks. Keep original AI preprocessing/model hashes unchanged.
+3. Windows portable/Android release builds and native desktop interaction checks passed. Physical Android QA remains pending. No installer/Play-distribution signing is claimed; model hashes/preprocessing are unchanged.
 4. Retired Python IoT client removal has now completed for80 tracked files (see follow-up below). Finish cleaning generated build artifacts after the new release is verified; user images/signing/sessions/models are retained.
-5. Finalise setup/run/rollback instructions in DevTodo only after the deployment state is verified. Hardware GPIO remains off until the user wires it and authorises that later test.
+5. DevTodo now documents the verified build/runtime state and remaining manual Cloudflare setup/run/rollback. Hardware GPIO remains off until the user wires it and authorises that later test.
 
 ---
 

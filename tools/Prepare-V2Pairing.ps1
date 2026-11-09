@@ -15,6 +15,11 @@ foreach($origin in @($ComputeOrigin,$ResultsOrigin)){
     if(!$uri.IsAbsoluteUri -or ($uri.Scheme-ne'https' -and !($uri.Scheme-eq'http' -and $uri.IsLoopback)) -or $uri.UserInfo -or $uri.Query -or $uri.Fragment -or $uri.AbsolutePath-ne'/'){throw 'Use an HTTPS origin or a loopback HTTP development origin.'}
 }
 New-Item -ItemType Directory -Path $destination -Force|Out-Null
+if(!$IsWindows){throw 'Prepare pairing on Windows with PowerShell7; copy only Pi credentials to the Linux host.'}
+# Secure the folder before creating any credential, including failure paths.
+$account=[Security.Principal.WindowsIdentity]::GetCurrent().Name
+& icacls $destination /inheritance:r /grant:r ($account+':(OI)(CI)F') /Q|Out-Null
+if($LASTEXITCODE-ne0){throw 'Cannot protect pairing directory before writing credentials.'}
 $public=Get-Content -LiteralPath (Join-Path $repo 'Mobile/assets/config/supabase.json') -Raw|ConvertFrom-Json
 $tokens=@{}
 foreach($name in @('ingress','telemetry')){

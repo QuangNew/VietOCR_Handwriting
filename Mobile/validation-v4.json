@@ -1,11 +1,11 @@
 {
   "Date": "2026-11-09",
-  "SourceCommit": "86525e123a4af73781f5492028fcb5a5c6caf6f7",
+  "SourceCommit": "f21acdc9cd8f3b41f26ea54bd933f427364b5f83",
   "Version": "4.0.1+19",
   "Artifact": "dist/VietOCR-4.0.1-refactor-arm64.apk",
   "Bytes": 20637449,
-  "Sha256": "8a04106e2a75c1778ab3077ad3055666507c43de9073690b734566bb9dce7714",
-  "UnitTestsPassed": 53,
+  "Sha256": "47163045301a59c664dc20331111f1b6f2c909edaa106fd9f7f6f4d4223b72a8",
+  "UnitTestsPassed": 54,
   "Analyzer": "no issues",
   "MinSdk": 26,
   "TargetSdk": 36,
@@ -30,6 +30,7 @@
   },
   "ActualDeviceQa": false,
   "PublicInternetQa": false,
+  "WarmupAndMinuteQuotaRetryTested": true,
   "Pending": [
     "User Cloudflare/DNS setup",
     "Cross-network Google login and OCR check",
