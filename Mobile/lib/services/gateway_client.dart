@@ -27,6 +27,8 @@ class RemoteOcrException implements Exception {
     'compute_queue_busy',
     'compute_unreachable',
     'compute_unavailable',
+    'server_not_ready',
+    'minute_quota',
     'identity_database_unavailable',
     'jwks_unavailable',
     'queue_wait',

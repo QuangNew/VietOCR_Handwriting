@@ -105,7 +105,7 @@ $('send').onclick=()=>run(async()=>{
     try{
       let result;const deadline=Date.now()+20*60000;
       while(true){if(epoch!==accountEpoch)return;try{result=await invoke('send_draft',{id:d.id,layout,progress:channel(p=>{if(epoch===accountEpoch)transfer(d.id,p.stage==='uploading'?`Đang gửi ${Math.round(p.done/p.total*100)}%`:p.stage,p.done,p.total);})});break;}
-        catch(e){if(!/queue_wait|compute_queue_busy|uploads_busy|auth_capacity|database_capacity|compute_capacity|compute_unreachable|offset_mismatch|stale_lease/.test(String(e))||Date.now()>deadline)throw e;transfer(d.id,'Đang chờ công suất hoặc kết nối lại');await new Promise(r=>setTimeout(r,3000+Math.random()*1000));}}
+        catch(e){if(!/queue_wait|compute_queue_busy|uploads_busy|auth_capacity|database_capacity|compute_capacity|compute_unreachable|compute_unavailable|identity_database_unavailable|jwks_unavailable|server_not_ready|minute_quota|offset_mismatch|stale_lease/.test(String(e))||Date.now()>deadline)throw e;transfer(d.id,'Đang chờ công suất hoặc kết nối lại');await new Promise(r=>setTimeout(r,3000+Math.random()*1000));}}
       if(epoch!==accountEpoch)return;patch(result);pollResult(d.id);
     }catch(e){transfer(d.id,String(e),1,1);fail(e);}
   }}

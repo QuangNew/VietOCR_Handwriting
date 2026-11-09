@@ -17,7 +17,12 @@ const mime={'.html':'text/html','.css':'text/css','.mjs':'application/javascript
     if(name==='bootstrap')return{config:{gateway:'https://pi.example.invalid'},session:{email:'fixture@example.invalid',userId:draft.ownerId},verified:{},workspaceAllowed:true,drafts:[]};
     if(name==='pick_import')return[draft];if(name==='draft_image')return jpeg;
     if(name==='set_included')return{...draft,included:args.included};
-    if(name==='send_draft')return{...draft,state:'queued',jobId:'20000000-0000-4000-8000-000000000001'};
+    if(name==='send_draft'){
+      const attempt=window.nativeCalls.filter(c=>c.name==='send_draft').length;
+      if(attempt===1)throw Error('HTTP 503: server_not_ready');
+      if(attempt===2)throw Error('HTTP 429: minute_quota');
+      return{...draft,state:'queued',jobId:'20000000-0000-4000-8000-000000000001'};
+    }
     if(name==='read_result')return{...draft,state:'succeeded',text:'Văn bản kiểm thử'};
     return null;
    }}};
@@ -34,6 +39,8 @@ const mime={'.html':'text/html','.css':'text/css','.mjs':'application/javascript
   await page.click('#edit');await page.locator('#editor').waitFor({state:'visible'});assert.equal(await page.locator('#editor').evaluate(e=>e.scrollWidth<=e.clientWidth),true);
   await page.click('#editorClose');await page.click('#send');await page.waitForFunction(()=>document.querySelector('#jobState').textContent==='Hoàn tất');
   assert.equal(await page.inputValue('#text'),'Văn bản kiểm thử');
+  assert.equal(await page.evaluate(()=>nativeCalls.filter(c=>c.name==='send_draft').length),3,'warm-up and rolling-minute deferrals must resume the same explicit send');
+  assert.equal(new Set(await page.evaluate(()=>nativeCalls.filter(c=>c.name==='send_draft').map(c=>c.args.id))).size,1);
   await fs.mkdir(path.resolve(__dirname,'../../.toolchain/refactor/ui'),{recursive:true});
   await page.screenshot({path:path.resolve(__dirname,'../../.toolchain/refactor/ui/desktop-dark-fixture.png')});
   await page.setViewportSize({width:980,height:700});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);

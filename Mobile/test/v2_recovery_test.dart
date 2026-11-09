@@ -57,6 +57,79 @@ void main() {
     HttpOverrides.global = null;
   });
   test(
+    'warm-up and minute quota defer one intent then upload exactly once',
+    () async {
+      final root = await Directory.systemTemp.createTemp(
+        'vietocr-deferred-upload-',
+      );
+      final image = File('${root.path}/image.jpg');
+      await File('assets/samples/test.jpg').copy(image.path);
+      final expected = await image.readAsBytes();
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final origin = 'http://127.0.0.1:${server.port}';
+      const id = '10000000-0000-4000-8000-000000000001';
+      var creates = 0, grants = 0, uploads = 0, commits = 0;
+      final listener = server.listen((r) async {
+        final bytes = await r.fold<List<int>>(
+          [],
+          (all, next) => all..addAll(next),
+        );
+        dynamic value;
+        switch (r.uri.path) {
+          case '/api/v2/session':
+            value = {'resultsOrigin': origin, 'account': {}};
+          case '/api/v2/intents':
+            creates++;
+            value = {'id': id, 'state': 'awaiting_upload'};
+          case '/api/v2/intents/$id/grant':
+            grants++;
+            if (grants < 3) {
+              r.response.statusCode = grants == 1 ? 503 : 429;
+              r.response.headers.set('Retry-After', '1');
+              value = {
+                'error': grants == 1 ? 'server_not_ready' : 'minute_quota',
+              };
+            } else {
+              value = {'generation': 1, 'offset': 0};
+            }
+          case '/api/v2/intents/$id/content':
+            uploads++;
+            expect(bytes, expected);
+            value = {'offset': bytes.length};
+          case '/api/v2/intents/$id/complete':
+            commits++;
+            value = {'accepted': true};
+          case '/api/v2/intents/$id/result-ticket':
+            value = {
+              'resultUrl': '$origin/api/v2/results/$id',
+              'ticket': 'fixture-ticket',
+              'expiresIn': 300,
+            };
+          case '/api/v2/results/$id':
+            value = {'state': 'succeeded', 'text': 'fixture text'};
+          default:
+            throw StateError('Unexpected route');
+        }
+        r.response.headers.contentType = ContentType.json;
+        r.response.write(jsonEncode(value));
+        await r.response.close();
+      });
+      final client = VietOcrRemote(origin, 'fixture-session');
+      try {
+        expect(await client.recognize(image), 'fixture text');
+        expect(creates, 1);
+        expect(grants, 3);
+        expect(uploads, 1);
+        expect(commits, 1);
+      } finally {
+        client.close();
+        await listener.cancel();
+        await server.close(force: true);
+        await root.delete(recursive: true);
+      }
+    },
+  );
+  test(
     'a valid result ticket reads compute while Pi is offline and is not reused after account change',
     () async {
       final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
