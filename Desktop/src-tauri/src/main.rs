@@ -35,7 +35,7 @@ impl Desktop{async fn client(&self)->Arc<Client>{self.client.read().await.clone(
 #[tauri::command]async fn cameras(state:State<'_,Desktop>)->Result<Value,String>{state.client().await.api(reqwest::Method::GET,"/api/v2/cameras",None).await}
 #[tauri::command]async fn history(state:State<'_,Desktop>)->Result<Value,String>{state.client().await.api(reqwest::Method::GET,"/api/v2/intents",None).await}
 #[tauri::command]async fn history_result(state:State<'_,Desktop>,id:Uuid)->Result<Value,String>{state.client().await.result(id).await}
-#[tauri::command]async fn record_log(state:State<'_,Desktop>,message:String){vietocr_client_core::diagnostics::append(&state.client().await.root,"client",&message);}
+#[tauri::command]async fn record_log(state:State<'_,Desktop>,message:String)->Result<(),String>{vietocr_client_core::diagnostics::append(&state.client().await.root,"client",&message);Ok(())}
 #[tauri::command]async fn read_logs(state:State<'_,Desktop>)->Result<String,String>{vietocr_client_core::diagnostics::read(&state.client().await.root)}
 #[tauri::command]async fn capture(state:State<'_,Desktop>,id:String)->Result<Draft,String>{state.client().await.snapshot(&id).await}
 #[tauri::command]async fn camera_stream(app:tauri::AppHandle,state:State<'_,Desktop>,id:String,frames:Channel)->Result<(),String>{
