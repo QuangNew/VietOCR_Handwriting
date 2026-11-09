@@ -1,5 +1,11 @@
 # Supabase / client server-only update — 03/11/2026
 
+**Refactor09/11/2026:** đường dẫn Python hiện là `Server/.venv` và interpreter
+`Server/.python`; không tải lại CUDA/model. Client Tk/ESP32 đã gỡ, thay bằng
+`Desktop/` Tauri và `Mobile/` Flutter qua Raspberry. Các mục03/11 dưới đây là
+lịch sử. Xem [báo cáo hiện tại](../../docs/INSTALLATION_REPORT.md) và
+[tiến độ](../../docs/REFACTOR_PROGRESS.md) trước khi dùng đường dẫn cũ.
+
 ## Bổ sung tối ưu và worker CPU/iGPU
 
 Không cài package/runtime mới trong lượt này, không tải model/CUDA/SDK/browser. Dùng lại .NET10, Node/npm, Chromium, Python và `onnxruntime-directml1.24.4` đã có trong `VietHandOCR_API_Release/.venv`. Tạo `Server/models/ML_s44/onnx/{vietocr_encoder.onnx,vietocr_decoder.onnx}` bằng hard link từ bộ FP32 đã xác minh trong archive (113.295.181 +39.524.467byte); không nhân đôi dữ liệu trọng số trên ổ đĩa. Manifest giữ cùng SHA checkpoint mới.

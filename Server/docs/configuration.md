@@ -10,7 +10,7 @@ Primary database/auth: **Supabase PostgreSQL + Google OAuth**. XAMPP/MySqlConnec
     "SupabaseUrl": "https://rrdxhztiikizgogxtlhu.supabase.co",
     "SupabasePublishableKey": "sb_publishable_...",
     "SupabaseServiceKey": "PRIVATE_SERVICE_ROLE_KEY",
-    "Python": "../VietHandOCR_API_Release/.venv/Scripts/python.exe",
+    "Python": ".venv/Scripts/python.exe",
     "Device": "auto",
     "ConcurrentUploads": 4,
     "AllowInsecureLan": false

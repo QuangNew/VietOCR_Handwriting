@@ -24,6 +24,14 @@ public class QueueTests
         var q=new FairQueue();Assert.True(q.Add(J("1","a")));Assert.False(q.Add(J("1","a")));
         Assert.Equal(1,q.Count);Assert.NotNull(q.Take());Assert.Null(q.Take());
     }
+    [Fact] public void DurableRecoveryFindsAcknowledgementLostJobsWithoutReplayingBusyOrCompletedWork()
+    {
+        var q=new FairQueue();var active=J("active","a");q.Add(active);Assert.Equal(active,q.Take());
+        var waiting=J("lost-ack","b");var done=J("finished","c") with{State="succeeded"};
+        Assert.Equal(new[]{waiting},q.Recover(new[]{active,waiting,done},new HashSet<string>{active.Id}));
+        Assert.Empty(q.Recover(new[]{active,waiting,done},new HashSet<string>{active.Id}));
+        Assert.Equal(waiting,q.Take());Assert.Null(q.Take());
+    }
     [Fact] public void ConcurrentProducersKeepAllJobs()
     {
         var q=new FairQueue();Parallel.For(0,1000,i=>q.Add(J(i.ToString(),(i%10).ToString())));

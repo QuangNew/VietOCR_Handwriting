@@ -1,9 +1,20 @@
 [CmdletBinding()]
-param([switch]$Apply, [switch]$RemoveFirmwareSources, [switch]$RemoveGeneratedBuilds)
+param([switch]$Apply, [switch]$RemoveFirmwareSources, [switch]$RemoveGeneratedBuilds, [switch]$RemoveLegacyAndroidMaps)
 $ErrorActionPreference = 'Stop'
 $taskRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..')).TrimEnd('\','/')
 $taskCacheRoot = [IO.Path]::GetFullPath((Join-Path $taskRoot '.toolchain'))
 $taskTargets = [Collections.Generic.List[string]]::new()
+if ($RemoveLegacyAndroidMaps) {
+    # Only retired 1.x/2.x ESP32-client obfuscation maps; no current APK/signing data.
+    $taskDist=Join-Path $taskRoot 'Mobile/dist'
+    if (Test-Path -LiteralPath $taskDist) {
+        foreach ($taskMap in Get-ChildItem -LiteralPath $taskDist -File) {
+            if ($taskMap.Name -match '^VietOCR-(1|2)\.\d+\.\d+\+\d+-mapping\.txt$') {
+                $taskTargets.Add($taskMap.FullName)
+            }
+        }
+    }
+}
 if ($RemoveGeneratedBuilds) {
     foreach ($taskBuild in @('Mobile/build','target/debug')) {
         $taskBuildPath=Join-Path $taskRoot $taskBuild
@@ -38,6 +49,7 @@ $taskManifest = foreach ($taskPath in $taskTargets) {
     }
     $taskItem = Get-Item -LiteralPath $taskResolved -Force
     if ($taskItem.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw "Refusing reparse point: $taskResolved" }
+    if ($taskItem.PSIsContainer -and @(Get-ChildItem -LiteralPath $taskResolved -Recurse -Force | Where-Object {$_.Attributes -band [IO.FileAttributes]::ReparsePoint}).Count) { throw "Refusing nested reparse point: $taskResolved" }
     $taskFiles = if ($taskItem.PSIsContainer) { @(Get-ChildItem -LiteralPath $taskResolved -Recurse -File -Force) } else { @($taskItem) }
     [pscustomobject]@{ Path=$taskResolved; Files=$taskFiles.Count; Bytes=($taskFiles | Measure-Object Length -Sum).Sum }
 }
@@ -45,7 +57,7 @@ $taskTotal = [long](($taskManifest | Measure-Object Bytes -Sum).Sum)
 $taskReportRoot = Join-Path $taskCacheRoot 'refactor'
 if ($Apply) {
     New-Item -ItemType Directory -Path $taskReportRoot -Force | Out-Null
-    $taskReportName=if($RemoveGeneratedBuilds){'generated-build-cleanup.json'}else{'legacy-iot-cleanup.json'}
+    $taskReportName=if($RemoveLegacyAndroidMaps){'legacy-android-maps-cleanup.json'}elseif($RemoveGeneratedBuilds){'generated-build-cleanup.json'}else{'legacy-iot-cleanup.json'}
     $taskManifest | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $taskReportRoot $taskReportName) -Encoding utf8
     # Every absolute path was resolved and checked above, in this same PowerShell process.
     foreach ($taskEntry in $taskManifest) { Remove-Item -LiteralPath $taskEntry.Path -Force -Recurse }

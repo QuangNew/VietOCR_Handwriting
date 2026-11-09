@@ -1,3 +1,4 @@
+#requires -Version 7.2
 param(
     [string]$ComputeOrigin='http://127.0.0.1:5080',
     [string]$ResultsOrigin='http://127.0.0.1:5080',
@@ -7,7 +8,8 @@ param(
 $ErrorActionPreference='Stop'
 $repo=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $destination=[IO.Path]::GetFullPath((Join-Path $repo $OutputDirectory))
-if(!$destination.StartsWith($repo+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase)){throw 'Pairing files must stay in the ignored workspace directory.'}
+$privateRoot=[IO.Path]::GetFullPath((Join-Path $repo '.toolchain')).TrimEnd('\','/')
+if(!$destination.StartsWith($privateRoot+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase)){throw 'Pairing files must stay under the ignored .toolchain directory.'}
 foreach($origin in @($ComputeOrigin,$ResultsOrigin)){
     $uri=[Uri]$origin
     if(!$uri.IsAbsoluteUri -or ($uri.Scheme-ne'https' -and !($uri.Scheme-eq'http' -and $uri.IsLoopback)) -or $uri.UserInfo -or $uri.Query -or $uri.Fragment -or $uri.AbsolutePath-ne'/'){throw 'Use an HTTPS origin or a loopback HTTP development origin.'}
@@ -18,11 +20,11 @@ $tokens=@{}
 foreach($name in @('ingress','telemetry')){
     $file=Join-Path $destination ($name+'.token')
     if($Rotate -or !(Test-Path -LiteralPath $file)){
-        $token=[Convert]::ToHexStringLower([Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
+        $token=[Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(32)).ToLowerInvariant()
         [IO.File]::WriteAllText($file,$token)
     }else{$token=[IO.File]::ReadAllText($file).Trim()}
     if($token-notmatch'^[a-zA-Z0-9_-]{32,256}$'){throw 'Invalid machine token file.'}
-    $tokens[$name]=[Convert]::ToHexStringLower([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($token)))
+    $tokens[$name]=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($token))).ToLowerInvariant()
 }
 $gateway=Get-Content -LiteralPath (Join-Path $repo 'Gateway/config.example.json') -Raw|ConvertFrom-Json
 $gateway.auth.supabaseUrl=$public.url;$gateway.auth.publishableKey=$public.publishableKey

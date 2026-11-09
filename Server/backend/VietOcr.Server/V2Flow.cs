@@ -141,14 +141,16 @@ public sealed class V2Spool(ServerOptions options,IFlowDatabase db,IImageVerifie
             }finally{Gate(i.Id).Release();}
         }finally{uploads.Release();}
     }
-    public async Task Recover(CancellationToken ct)
+    public async Task<IReadOnlyList<Guid>> Recover(CancellationToken ct,int maxReceipts=1000)
     {
+        var accepted=new List<Guid>();
         Directory.CreateDirectory(Root);
-        foreach(var receipt in Directory.EnumerateFiles(Root,"*.receipt.json")){
+        foreach(var receipt in Directory.EnumerateFiles(Root,"*.receipt.json").Take(Math.Clamp(maxReceipts,1,1000))){
             var i=JsonSerializer.Deserialize<FlowIntent>(await File.ReadAllTextAsync(receipt,ct),FlowJson.Options)
                 ??throw new InvalidDataException("Invalid private spool receipt.");
             if(!Path.GetFileName(receipt).Equals($"{i.Id:D}.receipt.json",StringComparison.Ordinal))throw new InvalidDataException("Receipt id mismatch.");
-            try{await Complete(i,ct);}
+            try{await Complete(i,ct);accepted.Add(i.Id);}
+            catch(V2Exception e)when(e.Status is 429 or 503){ /* Active uploads/temporary capacity: retry next maintenance pass. */ }
             catch(V2Exception e)when(e.Status is 403 or 409 or 422){
                 // A rejected/unaccepted receipt is not a quota refund. Existing jobs
                 // are checked before deleting a potentially accepted image.
@@ -157,8 +159,17 @@ public sealed class V2Spool(ServerOptions options,IFlowDatabase db,IImageVerifie
                 File.Delete(receipt);
             }
         }
-        foreach(var path in Directory.EnumerateFiles(Root,"*.part"))
-            if(File.GetLastWriteTimeUtc(path)<DateTime.UtcNow.AddHours(-24))File.Delete(path);
+        foreach(var path in Directory.EnumerateFiles(Root,"*.part")){
+            var fields=Path.GetFileNameWithoutExtension(path).Split('.');
+            if(fields.Length!=2||!Guid.TryParseExact(fields[0],"D",out var id)||!long.TryParse(fields[1],out var generation)||generation<1)continue;
+            var gate=Gate(id);if(!await gate.WaitAsync(0,ct))continue;
+            try{
+                // Do not race an append, or discard a file whose durable receipt
+                // still needs reconciliation with the database.
+                if(!File.Exists(Path.Combine(Root,$"{id:D}.receipt.json"))&&File.GetLastWriteTimeUtc(path)<DateTime.UtcNow.AddHours(-24))File.Delete(path);
+            }finally{gate.Release();}
+        }
+        return accepted;
     }
 }
 

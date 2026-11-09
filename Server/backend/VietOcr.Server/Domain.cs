@@ -115,6 +115,15 @@ public sealed class FairQueue
             queue.Enqueue(job); return true;
         }
     }
+    public IReadOnlyList<Job> Recover(IEnumerable<Job> persisted,IReadOnlySet<string> active)
+    {
+        var added=new List<Job>();
+        lock(gate){
+            foreach(var job in persisted)
+                if(job.State=="queued"&&!active.Contains(job.Id)&&Add(job))added.Add(job);
+        }
+        return added;
+    }
     public Job? Take()
     {
         lock (gate)

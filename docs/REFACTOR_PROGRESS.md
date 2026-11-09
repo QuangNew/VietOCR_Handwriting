@@ -2,6 +2,40 @@
 
 Branch: [`refactor`](https://github.com/QuangNew/VietOCR_Handwriting/tree/refactor). This remains an active implementation. DevTodo is not finalised until the remaining deployment gates are ready.
 
+## Latest native-client checkpoint
+
+- Source checkpoint `86525e1` pushed. Its Windows/ARM64 release CI is running;
+  do not confuse a source commit with a verified downloadable artifact.
+- Actual Windows Tauri EXE, legitimate DPAPI Google session and live Pi webcam
+  through encrypted SSH forwarding:1920×1080,146 rendered frames in5.022s
+  (~29.07FPS), no JS errors. Snapshot remained a local draft, did not consume
+  OCR quota and camera stayed open after the3-second review. This native check
+  predates4.0.1; repeat against the new EXE after CI. No public DNS test claimed.
+- Optional image transfer optimization preserves full dimensions and originals.
+  Six already compact JPEGs (including the four provided OV photos) were kept
+  unchanged. A public sample PNG shrank1,413,860→193,610bytes with JPEG95,
+  PSNR56.76dB and identical text through the real CUDA worker. One sample is
+  not a CER/WER evaluation; lossy optimization is opt-in, original is default.
+- Windows settings now contain only the Raspberry URL. Supabase public config
+  remains compiled in native auth; it is not an application secret. Google
+  access/refresh tokens stay in DPAPI/Keystore, not the WebView. Logs redact
+  credential-like text before persisting/exporting. Current host secrets were
+  absent from tracked files and supplied EXE/APK scans; this is an exact-value
+  packaging check, not a historical Git/full security audit. A publishable-key
+  only request returned401 on all9 tested live OCR/admin tables.
+- Account refresh/network operations are pinned to the creating account;
+  Android closes camera/editor on account changes. Explicit image checkboxes
+  prevent original+edited duplicates. Mirror applies to the saved capture.
+  Desktop uses an OS file lock to prevent simultaneous writers to one workspace.
+- Removed80 tracked retired Tk/BLE/ESP32 camera files/tests/tools and the old
+  launcher EXE. Git history remains. AI adapter references a model-only module;
+  model architecture/weights/V2c preprocessing are retained. Python/CUDA now
+  lives at `Server/.venv` and `Server/.python`, no reinstall/download.
+- Pi's gateway and native MJPEG capture services remain active. Latest idle
+  reading42.3°C,384MiB used,3411MiB available,swap0. GPIO disabled as requested.
+  Cloudflare login certificate / active DNS are still pending; no production
+  cutover to public HTTPS has been claimed. DevTodo remains deliberately final-step work.
+
 ## Current checkpoint: v2 integration and recovery
 
 - Implemented Rust OCR relay and fixed compute adapter, bounded/resumable 1MiB uploads, durable receipt recovery, exactly-once quota commit, direct job-scoped result tickets, fair active-account admission and hardware-authoritative worker scale requests.

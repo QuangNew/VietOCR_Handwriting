@@ -183,6 +183,7 @@ public sealed class Coordinator(Store store, ServerOptions options, Hardware har
                 { Error = e.Message; logger.LogWarning("Initial worker failed: {Reason}", e.Message); break; }
             }
             var nextSample = DateTime.MinValue; var nextCleanup = DateTime.UtcNow;
+            var nextReceiptRecovery=DateTime.UtcNow.AddSeconds(5);
             while (!ct.IsCancellationRequested)
             {
                 if (DateTime.UtcNow >= nextSample)
@@ -191,6 +192,23 @@ public sealed class Coordinator(Store store, ServerOptions options, Hardware har
                     nextSample = DateTime.UtcNow.AddSeconds(3);
                 }
                 if (DateTime.UtcNow >= nextCleanup) { await store.Cleanup(); if(!string.IsNullOrEmpty(options.GatewayIngressKeySha256))await store.V2("ocr_v2_expire",new{}); nextCleanup = DateTime.UtcNow.AddMinutes(10); }
+                if(DateTime.UtcNow>=nextReceiptRecovery&&await Admission.WaitAsync(0,ct)){
+                    try{
+                        // A committed receipt can outlive the request/response
+                        // that created it. Recover without requiring that client
+                        // to reconnect or restarting all warmed model workers.
+                        await spool.Recover(ct,8);
+                        // Also catches a successful DB commit followed by a
+                        // failed Find/enqueue response, after its receipt was
+                        // already removed. A DB job is the durable source of truth.
+                        var pending=await store.Jobs(options.QueueCapacity,true);
+                        lock(workerGate){
+                            var active=workers.Values.Where(w=>w.JobId!=null).Select(w=>w.JobId!).ToHashSet();
+                            foreach(var job in queue.Recover(pending.Where(j=>File.Exists(options.ImagePath(j.Id))),active))signals.Register(job.Id);
+                        }
+                    }catch(DatabaseUnavailableException){logger.LogWarning("Receipt recovery waiting for database; retrying without restarting model workers");}
+                    finally{Admission.Release();nextReceiptRecovery=DateTime.UtcNow.AddSeconds(5);}
+                }
                 for(var dispatched=0;dispatched<workers.Count;dispatched++)
                 {
                     Job? job;ModelWorker worker;

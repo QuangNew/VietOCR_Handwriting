@@ -48,7 +48,20 @@ public sealed class V2FlowTests:IDisposable
         var i=Intent;var spool=Spool;await spool.Append(i,0,new MemoryStream(image),image.Length,default);
         db.FailOnce=true;await Assert.ThrowsAsync<DatabaseUnavailableException>(()=>spool.Complete(i,default));Assert.Equal(1,db.Charges);
         Assert.Single(Directory.EnumerateFiles(Path.Combine(Options.Runtime,"v2-spool"),"*.receipt.json"));
-        await Spool.Recover(default);Assert.Equal(1,db.Charges);Assert.Empty(Directory.EnumerateFiles(Path.Combine(Options.Runtime,"v2-spool"),"*.receipt.json"));
+        var recovered=await Spool.Recover(default);Assert.Equal(new[]{i.Id},recovered);Assert.Equal(1,db.Charges);Assert.Empty(Directory.EnumerateFiles(Path.Combine(Options.Runtime,"v2-spool"),"*.receipt.json"));
+    }
+    [Fact]public async Task RunningSpoolReconcilesAnAmbiguousCommitWithoutRestartAndPreservesFreshDraftUploads(){
+        var i=Intent;var spool=Spool;await spool.Append(i,0,new MemoryStream(image),image.Length,default);
+        db.FailOnce=true;await Assert.ThrowsAsync<DatabaseUnavailableException>(()=>spool.Complete(i,default));
+        var partial=Intent with{Id=Guid.NewGuid()};await spool.Append(partial,0,new MemoryStream(image[..100]),100,default);
+        var expired=Intent with{Id=Guid.NewGuid()};await spool.Append(expired,0,new MemoryStream(image[..100]),100,default);
+        var expiredPath=Path.Combine(Options.Runtime,"v2-spool",$"{expired.Id:D}.{expired.Generation}.part");
+        File.SetLastWriteTimeUtc(expiredPath,DateTime.UtcNow.AddHours(-25));
+        var recovered=await spool.Recover(default);
+        Assert.Equal(new[]{i.Id},recovered);Assert.Equal(1,db.Charges);
+        Assert.Equal(100,await spool.Offset(partial,default));Assert.Equal(0,await spool.Offset(expired,default));
+        Assert.Equal(image,await File.ReadAllBytesAsync(Options.ImagePath(i.Id.ToString("D"))));
+        Assert.Empty(await spool.Recover(default));Assert.Equal(1,db.Charges);
     }
     [Fact]public void ResultTicketsAreScopedAuthenticatedAndCannotBecomeUploadCredentials(){
         var tickets=new ResultTickets(new EphemeralDataProtectionProvider());var i=Intent;var ticket=tickets.Issue(i);

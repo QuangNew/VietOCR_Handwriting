@@ -1,5 +1,36 @@
 # Báo cáo công cụ và file đã thêm
 
+## Nhánh refactor — 09/11/2026
+
+Các mục bên dưới là lịch sử cài đặt, không phải đường dẫn chạy của v4.
+
+- Python/CUDA hiện có đã chuyển cùng ổ đĩa từ `VietHandOCR_API_Release/.venv`
+  sang **`Server/.venv`**, interpreter từ `.python` cũ sang **`Server/.python`**.
+  Không tải/cài lại PyTorch, CUDA hoặc trọng số. `pyvenv.cfg` và activation được
+  cập nhật. Dùng `Server/.venv/Scripts/python.exe -m pip`, không dựa vào launcher
+  `pip.exe` cũ có thể còn đường dẫn tuyệt đối trước khi di chuyển.
+- cloudflared **2026.10.7**: Windows tại
+  `.toolchain/cloudflared/cloudflared-windows-amd64.exe`, ARM64 trên Pi tại
+  `/usr/local/bin/cloudflared`. Tổng hai binary tải khoảng88.8MiB; đã đối chiếu
+  SHA256 release. DNS/Authorize chưa xong, chưa cài named connector production.
+- Gateway ARM64 và µStreamer native MJPEG chạy bằng systemd trên Pi; không cài
+  Rust/compiler lên Pi, không đổi SSH/RDP/Tailscale. GPIO vẫn tắt theo yêu cầu.
+- Desktop mới: `Desktop/dist/vietocr-desktop.exe` từ CI Windows, không cần Python.
+  Android mới: `Mobile/dist/VietOCR-4.0.1-refactor-arm64.apk`,20,637,449bytes;
+  JDK21/Flutter/AndroidSDK cũ được dùng lại, không tải SDK/toolchain lớn.
+- Các crate Rust bổ sung cho ảnh được cache ở Cargo registry; không thêm runtime
+  model cho client. Mã Tk/BLE/ESP32 và launcher EXE cũ đã gỡ80 tracked file.
+- Dọn14 mapping Android1.x/2.x cũ,178,390,646logical bytes (~170.1MiB). Model,
+  ảnh người dùng, signing material, session và APK mới được giữ. Dữ liệu dọn
+  firmware/cache trước đó được ghi riêng ở `docs/REFACTOR_PROGRESS.md`.
+- Khoá máy ở `/etc/vietocr/*.token` trên Pi có quyền0600; hai bản staging đã xoá,
+  thư mục staging chuyển0700. Không đưa mật khẩu SSH, cert.pem, UUID credential,
+  service-role hay máy-token vào Git/EXE/APK. Cấu hình publishable là công khai;
+  giao diện kết nối không còn hai trường Supabase.
+
+Chi tiết phiên bản build đã kiểm và giới hạn các phép đo ở
+[REFACTOR_PROGRESS.md](REFACTOR_PROGRESS.md).
+
 ## Bản test OV5640 desktop và Android — 02/11/2026
 
 - Desktop: [VietOCR.exe](../VietHandOCR_API_Release/dist/VietOCR.exe), launcher
