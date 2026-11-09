@@ -25,7 +25,7 @@ class AppController extends ChangeNotifier {
   final cloud = CloudSession.instance;
   String? _accountId;
   String? get accountEmail => cloud.email;
-  String serverUrl = 'http://127.0.0.1:5082';
+  String serverUrl = 'https://api.quangnew.tech';
   bool gatewayVerified = false;
   String? _lastVerifiedAccount;
   bool get canUseWorkspace =>
@@ -86,6 +86,10 @@ class AppController extends ChangeNotifier {
   AssistantState assistant = AssistantState.awake;
   CancellationToken? _cancel;
   Timer? _saveTimer;
+  Timer? _recoveryTimer;
+  bool _recovering = false;
+  int _accountEpoch = 0, _recoveryCursor = 0;
+  final _expiredResults = <String>{};
   Future<void>? _running;
   void _notify() {
     if (!_disposed) notifyListeners();
@@ -96,7 +100,7 @@ class AppController extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       dark = prefs.getBool('dark') ?? true;
       splitLines = prefs.getBool('splitLines') ?? true;
-      serverUrl = prefs.getString('ocrServerUrl') ?? serverUrl;
+      serverUrl = prefs.getString('v2GatewayUrl') ?? serverUrl;
       serverInsecureLan = prefs.getBool('ocrServerInsecure') ?? false;
       _lastVerifiedAccount = prefs.getString('v2VerifiedAccount');
       if (_managedEngine) {
@@ -143,6 +147,7 @@ class AppController extends ChangeNotifier {
         await verifyGateway();
       } catch (_) {}
     }
+    unawaited(recoverAcceptedResults());
   }
 
   Future<void> toggleTheme() async {
@@ -170,7 +175,7 @@ class AppController extends ChangeNotifier {
       tokenProvider: cloud.accessToken,
     );
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('ocrServerUrl', origin.trim());
+    await prefs.setString('v2GatewayUrl', origin.trim());
     await prefs.setBool('ocrServerInsecure', allowInsecureLan);
     await prefs.remove('ocrServerEnabled');
     await engine.close();
@@ -185,6 +190,11 @@ class AppController extends ChangeNotifier {
 
   Future<void> _authWork = Future.value();
   void _authChanged() {
+    if (cloud.userId != _accountId) {
+      _accountEpoch++;
+      _cancel?.cancel();
+      _recoveryTimer?.cancel();
+    }
     _authWork = _authWork.then((_) => _switchAccount()).catchError((
       Object error,
     ) {
@@ -207,6 +217,8 @@ class AppController extends ChangeNotifier {
     }
     await flush();
     _documents.clear();
+    _expiredResults.clear();
+    _recoveryCursor = 0;
     selectedIndex = 0;
     _accountId = id;
     gatewayVerified = false;
@@ -220,6 +232,7 @@ class AppController extends ChangeNotifier {
       try {
         await verifyGateway();
       } catch (_) {}
+      unawaited(recoverAcceptedResults());
     }
   }
 
@@ -246,6 +259,7 @@ class AppController extends ChangeNotifier {
   Future<void> pick({required bool camera}) async {
     if (importing || _picking || !initialized) return;
     _picking = true;
+    final accountEpoch = _accountEpoch;
     _notify();
     try {
       final List<XFile> files;
@@ -254,7 +268,7 @@ class AppController extends ChangeNotifier {
       } else {
         files = await _picker.pickMultiImage(requestFullMetadata: false);
       }
-      if (!_disposed) {
+      if (!_disposed && accountEpoch == _accountEpoch) {
         await _importFiles(files);
         _startQueue();
       }
@@ -274,14 +288,16 @@ class AppController extends ChangeNotifier {
     importing = true;
     _notify();
     var added = 0;
+    final accountEpoch = _accountEpoch;
     try {
       for (final file in files) {
-        if (_disposed) break;
+        if (_disposed || accountEpoch != _accountEpoch) break;
         if (await file.length() > 40 * 1024 * 1024) {
           throw const FormatException('Ảnh vượt 40 MB. Hãy chọn ảnh nhỏ hơn.');
         }
         rows.add((await file.readAsBytes(), file.name));
-        added += await _importRows(rows);
+        if (accountEpoch != _accountEpoch) break;
+        added += await _importRows(rows, accountEpoch: accountEpoch);
         rows.clear();
       }
       message = 'Đã nhận $added ảnh. Sẵn sàng nhận diện.';
@@ -297,10 +313,11 @@ class AppController extends ChangeNotifier {
   Future<int> _importRows(
     List<(Uint8List, String)> rows, {
     bool preserveResolution = false,
+    required int accountEpoch,
   }) async {
     var added = 0;
     for (final (bytes, name) in rows) {
-      if (_disposed) break;
+      if (_disposed || accountEpoch != _accountEpoch) break;
       final id =
           '${DateTime.now().microsecondsSinceEpoch}_${_documents.length}';
       final document = await store.import(
@@ -309,8 +326,7 @@ class AppController extends ChangeNotifier {
         id,
         preserveResolution: preserveResolution,
       );
-      if (_disposed) {
-        await store.remove(document);
+      if (_disposed || accountEpoch != _accountEpoch) {
         break;
       }
       _documents.add(document);
@@ -330,11 +346,13 @@ class AppController extends ChangeNotifier {
   }) async {
     if (importing || _disposed || rows.isEmpty) return;
     importing = true;
+    final accountEpoch = _accountEpoch;
     _notify();
     try {
       final count = await _importRows(
         rows,
         preserveResolution: preserveResolution,
+        accountEpoch: accountEpoch,
       );
       message = 'Đã nhận $count ảnh. Sẵn sàng nhận diện.';
     } catch (error) {
@@ -630,6 +648,9 @@ class AppController extends ChangeNotifier {
       await AppLog.instance.captureNative();
 
       _notify();
+      if (!_disposed && !_background) {
+        unawaited(recoverAcceptedResults());
+      }
     }
   }
 
@@ -660,12 +681,108 @@ class AppController extends ChangeNotifier {
 
   Future<void> background() async {
     _background = true;
+    _recoveryTimer?.cancel();
     if (!_picking) cancel();
     await flush();
   }
 
   void foreground() {
     _background = false;
+    unawaited(recoverAcceptedResults());
+  }
+
+  /// Restored images are never submitted here. Only known accepted jobs are read.
+  Future<void> recoverAcceptedResults() async {
+    _recoveryTimer?.cancel();
+    final recovery = engine;
+    if (_disposed ||
+        _background ||
+        busy ||
+        importing ||
+        _recovering ||
+        !canUseWorkspace ||
+        recovery is! AcceptedResultRecovery) {
+      return;
+    }
+    final reader = recovery as AcceptedResultRecovery;
+    _recovering = true;
+    final epoch = _accountEpoch;
+    var more = false, reads = 0;
+    final candidates = _documents
+        .where(
+          (d) =>
+              d.status != DocumentStatus.done &&
+              !_expiredResults.contains(d.id),
+        )
+        .toList();
+    try {
+      for (var offset = 0; offset < candidates.length; offset++) {
+        if (_disposed || _background || busy || epoch != _accountEpoch) break;
+        final index = (_recoveryCursor + offset) % candidates.length;
+        final document = candidates[index];
+        try {
+          final result = await reader.recoverAccepted(
+            document.path,
+            rotation: document.rotation,
+          );
+          if (_disposed ||
+              epoch != _accountEpoch ||
+              busy ||
+              !_documents.contains(document)) {
+            break;
+          }
+          if (result == null) continue;
+          reads++;
+          switch (result.state) {
+            case 'succeeded':
+              document.text = result.text;
+              document.error = '';
+              document.status = DocumentStatus.done;
+            case 'failed' || 'cancelled':
+              document.error = result.error;
+              document.status = DocumentStatus.error;
+              _expiredResults.add(document.id);
+            default:
+              document.status = DocumentStatus.processing;
+              more = true;
+          }
+          if (reads >= 2) {
+            _recoveryCursor = (index + 1) % candidates.length;
+            more = true;
+            break;
+          }
+        } on RemoteOcrException catch (error) {
+          if (epoch != _accountEpoch || _disposed) break;
+          if (error.status == 410) {
+            document.status = DocumentStatus.error;
+            document.error = readableError(error);
+            _expiredResults.add(document.id);
+          } else {
+            more = true;
+            break;
+          }
+        }
+      }
+      if (!_disposed && epoch == _accountEpoch) {
+        await flush();
+        _notify();
+      }
+    } catch (error) {
+      more = true;
+      AppLog.instance.add(
+        'Recovery',
+        'Chưa lấy được kết quả; bản nháp vẫn được giữ.',
+        error: error,
+      );
+    } finally {
+      _recovering = false;
+      if (more && !_disposed && !_background && epoch == _accountEpoch) {
+        _recoveryTimer = Timer(
+          const Duration(seconds: 4),
+          () => unawaited(recoverAcceptedResults()),
+        );
+      }
+    }
   }
 
   String get allText => _documents
@@ -690,6 +807,7 @@ class AppController extends ChangeNotifier {
     cloud.removeListener(_authChanged);
     _disposed = true;
     _saveTimer?.cancel();
+    _recoveryTimer?.cancel();
     _cancel?.cancel();
     unawaited(() async {
       try {

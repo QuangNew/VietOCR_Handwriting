@@ -1,50 +1,31 @@
-# VietOCR Android — 3.0.0+17
+# VietOCR Android v4
 
-Nhánh `refactor`: đây là client cũ đang giữ đối chiếu; luồng Flutter mới sẽ dùng webcam trên Raspberry và chỉ OCR sau khi bấm Gửi. Firmware ESP32 đã được gỡ. Xem [kế hoạch](../docs/REFACTOR_PLAN_2026-11-08.md) và [tiến độ](../docs/REFACTOR_PROGRESS.md); chưa có bản APK refactor được phát hành trong checkpoint đầu.
+Flutter Android client cho luồng **Google → Raspberry → inference server**. Không có model local, Bluetooth/ESP32 hoặc camera điện thoại. Webcam USB nằm trên Pi; import dùng Android Photo Picker.
 
-Ứng dụng Flutter Android **chỉ nhận diện qua OCR Server**. Đã bỏ ONNX runtime, service `:ocr`, trọng số và công tắc OCR offline khỏi client. Model chạy trên máy host C#, không phải Supabase. Supabase là database chính và dịch vụ đăng nhập Google.
+1. Mở **Google & Raspberry**, cấu hình HTTPS của Pi (`https://api.quangnew.tech` sau khi DNS/tunnel sẵn sàng).
+2. Đăng nhập Google bằng system browser. Workspace chỉ mở sau khi Pi xác minh; tài khoản đã xác minh có thể mở bản nháp riêng khi mất mạng.
+3. Chụp trên tab Camera Raspberry hoặc tải file. Xem lại 3 giây/Skip chỉ lưu bản nháp; không gửi OCR.
+4. Nhấn **Gửi** để upload từng khối tối đa 1 MiB qua Pi. Server nhận đủ/kiểm ảnh/commit rồi mới trừ lượt. Kết quả đọc trực tiếp từ compute.
+5. Ảnh đã nhận tiếp tục xử lý khi app đóng. Khi mở lại, client chỉ đọc lại những job đã biết; không tự upload các bản nháp mới.
 
-## Sử dụng
+Giữ zoom, crop hình/vẽ tự do/xoay vùng chọn, đen trắng OCR, sửa/xuất text, lưu/chia sẻ ảnh, log và lịch sử tài khoản. JPEG/PNG gốc được giữ byte-for-byte; ảnh xoay phục vụ upload được lưu cùng thư mục riêng của tài khoản để tiếp tục đúng job sau gián đoạn.
 
-1. Trên máy host chạy [Server/Run-Server.cmd](../Server/Run-Server.cmd) với `-Lan`.
-2. Trong app, mở biểu tượng **Tài khoản & OCR Server**, nhập `http://<IP-máy-tính>:5080`. Bật HTTP trong LAN tin cậy nếu dùng mạng riêng. `localhost` trên điện thoại không phải máy tính.
-3. **Đăng nhập Google** qua trình duyệt. Mỗi tài khoản có định danh OCR cố định; policy mới là **500 ảnh/ngày, 30 request trong 60 giây** sau khi database migrate. Phiên đăng nhập được mã hoá Android Keystore, tự refresh token; không nhập API key thủ công.
-4. Thêm ảnh từ thư viện, camera điện thoại hoặc ESP32 OV5640. Không giới hạn tổng 10 ảnh; app gửi tuần tự. Hết quota hoặc mất server thì giữ phần ảnh còn lại để thử tiếp.
+Mỗi tài khoản tối đa 500 ảnh/ngày và 30 ảnh được nhận trong 60 giây; admin có thể hạ. Preview, snapshot và upload chưa đủ không tính lượt. Credential phiên mã hoá Android Keystore, không dùng API key cố định để gọi OCR.
 
-Mục tài khoản cho xem hạn mức và lịch sử/kết quả trên Supabase. Ảnh/crop đang soạn là cache riêng theo tài khoản trên thiết bị; đăng xuất không hiển thị dữ liệu tài khoản khác. Google login cần Internet; camera ESP32 dùng LAN/BLE độc lập. [Cấu hình Google/callback](../Server/docs/SUPABASE.md).
-
-## Camera và ảnh
-
-- BLE kết nối trợ lý, gửi theme/trạng thái và cấu hình Wi-Fi; ESP32 giữ mạng trong NVS.
-- OV5640 preview UDP 640×480, ảnh chụp gốc 2592×1944. Lật ngang/dọc đồng nhất preview và ảnh chụp theo cấu hình cảm biến.
-- JPEG được kiểm CRC32, tải HTTP có tiếp tục byte range; lưu ảnh giữ dữ liệu gốc.
-- Xem lại 3 giây hoặc Bỏ qua, đưa ảnh vào queue; tab chụp mở tới khi tự đóng.
-- Zoom/pan, crop chữ nhật/ellipse/tự vẽ và xoay vùng chọn, tạo PNG trắng đen OCR riêng.
-- Theme sáng/tối, log lỗi, chia sẻ/sao chép và tải ảnh Android ACTION_CREATE_DOCUMENT.
-
-## Build
+## Build trên máy hiện tại
 
 ```powershell
 cd Mobile
-flutter pub get
-flutter analyze
-flutter test
-flutter build apk --release --target-platform android-arm64
+$env:JAVA_HOME=(Resolve-Path ../.toolchain/java/jdk-21.0.12.1+1).Path
+$env:PATH=$env:JAVA_HOME+'\bin;'+$env:PATH
+flutter pub get --offline
+flutter analyze --no-pub
+flutter test --no-pub --concurrency=1
+flutter build apk --release --target-platform android-arm64 --no-pub
 ```
 
-APK dùng thử: [dist/VietOCR-arm64.apk](dist/VietOCR-arm64.apk). Android 8/API26 trở lên, arm64. Giữ signing certificate hiện tại để cài cập nhật; bản sideload chưa dùng Play signing production.
+Dùng JDK **21**, không dùng Oracle JDK25 mặc định cho Gradle hiện tại. SDK hiện tại: `C:/Users/QuangNew/AppData/Local/Android/sdk`; Flutter: `C:/Services/Flutter/flutter`. Gradle giới hạn heap2GB và2worker để tránh chiếm hết RAM. Chạy kiểm tra/build lần lượt khi máy đang nhiều ứng dụng.
 
-SDK `C:/Users/QuangNew/AppData/Local/Android/sdk`, Flutter `C:/Services/Flutter/flutter`, JDK21 trong `.toolchain/java`. Máy ít RAM nên dùng một Gradle worker và JVM khoảng 1536 MiB. Không chạy Flutter tests song song với build release.
+Bản APK đã build trước checkpoint phục hồi: `dist/VietOCR-4.0.0-refactor-arm64.apk` (~19.6MiB). Kiểm [báo cáo tiến độ](../docs/REFACTOR_PROGRESS.md) để phân biệt artifact và mã nguồn mới hơn. Chưa xác nhận chạy APK v4 trên điện thoại thật; sideload hiện vẫn dùng signing baseline, không coi là bản Play Store.
 
-```powershell
-# Tại thư mục gốc, sau build:
-VietHandOCR_API_Release/.venv/Scripts/python.exe Mobile/tools/package_release.py --validation-prefix server-only
-```
-
-Verifier kiểm chữ ký, alignment16KiB, deep link, không có model/ORT hoặc `:ocr` trong APK. [validation.json](validation.json) ghi số test và hash thật. Chưa cài/run APK mới trên điện thoại thật.
-
-## Cấu hình cloud
-
-`assets/config/supabase.json` chứa project URL và **publishable key công khai**. Không được thêm service-role hoặc Google Client Secret vào file này. Sinh lại bằng `Server/tools/configure_supabase.py` khi đổi project. Deep link Android: `vn.pbl4.vietocr://auth/callback`, flow PKCE qua system browser.
-
-Mã native local OCR cũ được lưu ngoài client tại `Server/archive/local-clients/` trên máy (Git bỏ qua), không đóng gói. Các công cụ export model cũ không dùng để build app mới; server giữ checkpoint PyTorch và pipeline nhóm AI.
+`assets/config/supabase.json` chỉ chứa project URL/publishable key công khai. Callback Google: `vn.pbl4.vietocr://auth/callback`. Không đặt service-role, Google Client Secret hoặc machine token vào app.

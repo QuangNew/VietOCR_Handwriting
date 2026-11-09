@@ -2,10 +2,10 @@
 tunnel: REPLACE_COMPUTE_TUNNEL_UUID
 credentials-file: C:/ProgramData/cloudflared/REPLACE_COMPUTE_TUNNEL_UUID.json
 ingress:
-  - hostname: compute.example.com
+  - hostname: ocr.quangnew.tech
     path: ^/api/internal/v2/.*$
     service: http://127.0.0.1:5080
-  - hostname: ocr.example.com
+  - hostname: ocr.quangnew.tech
     path: ^/api/v2/results/.*$
     service: http://127.0.0.1:5080
   - service: http_status:404

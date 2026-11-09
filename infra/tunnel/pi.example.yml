@@ -2,7 +2,7 @@
 tunnel: REPLACE_PI_TUNNEL_UUID
 credentials-file: /etc/cloudflared/REPLACE_PI_TUNNEL_UUID.json
 ingress:
-  - hostname: pi.example.com
+  - hostname: api.quangnew.tech
     service: http://127.0.0.1:5082
     originRequest:
       connectTimeout: 10s

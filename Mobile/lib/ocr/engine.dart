@@ -12,3 +12,11 @@ abstract class OcrEngine {
   });
   Future<void> close();
 }
+
+/// Optional read-only recovery, separate from the explicit-send engine method.
+abstract interface class AcceptedResultRecovery {
+  Future<({String state, String text, String error})?> recoverAccepted(
+    String path, {
+    required int rotation,
+  });
+}

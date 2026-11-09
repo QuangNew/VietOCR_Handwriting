@@ -54,7 +54,7 @@ impl App {
 }
 pub fn router(app: Arc<App>) -> Router {
     let json_routes=Router::new()
-        .route("/health/live", get(|| async { Json(serde_json::json!({ "status": "alive", "apiVersion": "2", "phase": "foundation" })) }))
+        .route("/health/live", get(|| async { Json(serde_json::json!({ "status": "alive", "apiVersion": "2", "service": "raspberry-gateway" })) }))
         .route("/api/v2/session", get(session))
         .route("/api/v2/cameras", get(cameras))
         .route("/api/v2/cameras/{id}/stream", get(stream))

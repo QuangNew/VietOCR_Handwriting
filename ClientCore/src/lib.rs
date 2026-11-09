@@ -1,16 +1,21 @@
 //! Native client owns credentials/files/network; the webview only renders UI.
+pub mod diagnostics;
+pub mod image_headers;
 pub mod session;
 pub mod storage;
+#[cfg(test)]
+mod tests;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{
+    collections::HashMap,
     path::{Path, PathBuf},
-    time::Duration,
+    time::{Duration, Instant},
 };
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, Semaphore};
 use uuid::Uuid;
 use vietocr_contracts::mjpeg::MjpegParser;
 
@@ -49,9 +54,15 @@ pub fn secure_origin(value: &str) -> bool {
 #[serde(rename_all = "camelCase")]
 pub struct Draft {
     pub id: Uuid,
+    #[serde(default)]
+    pub owner_id: Uuid,
     pub name: String,
     pub media_type: String,
     pub image_bytes: u64,
+    #[serde(default)]
+    pub width: u32,
+    #[serde(default)]
+    pub height: u32,
     pub sha256: String,
     pub version: u32,
     pub state: String,
@@ -59,6 +70,15 @@ pub struct Draft {
     pub job_id: Option<Uuid>,
     pub text: String,
     pub error: String,
+    #[serde(default)]
+    pub layout: Option<String>,
+}
+#[derive(Clone)]
+struct CachedResultTicket {
+    owner: Uuid,
+    url: reqwest::Url,
+    bearer: String,
+    expires: Instant,
 }
 pub struct Client {
     pub config: Config,
@@ -66,6 +86,8 @@ pub struct Client {
     pub http: reqwest::Client,
     pub session: Mutex<Option<session::Session>>,
     pub draft_lock: Mutex<()>,
+    result_tickets: Mutex<HashMap<Uuid, CachedResultTicket>>,
+    result_slots: Semaphore,
 }
 impl Client {
     pub async fn remove(&self, id: Uuid) -> Result<(), String> {
@@ -94,6 +116,8 @@ impl Client {
                 .map_err(|_| "Không tạo được kết nối")?,
             session: Mutex::new(session),
             draft_lock: Mutex::new(()),
+            result_tickets: Mutex::new(HashMap::new()),
+            result_slots: Semaphore::new(4),
         })
     }
     pub async fn response(response: reqwest::Response) -> Result<Value, String> {
@@ -116,7 +140,16 @@ impl Client {
         path: &str,
         body: Option<Value>,
     ) -> Result<Value, String> {
-        let token = self.access_token().await?;
+        self.api_for(None, method, path, body).await
+    }
+    async fn api_for(
+        &self,
+        owner: Option<Uuid>,
+        method: reqwest::Method,
+        path: &str,
+        body: Option<Value>,
+    ) -> Result<Value, String> {
+        let token = self.access_token_for(owner).await?;
         let mut request = self
             .http
             .request(
@@ -156,7 +189,9 @@ impl Client {
             .ok_or_else(|| "Đăng nhập Google trước".into())
     }
     async fn account_root(&self) -> Result<PathBuf, String> {
-        let user = self.user().await?;
+        self.account_path(self.user().await?)
+    }
+    fn account_path(&self, user: Uuid) -> Result<PathBuf, String> {
         if !self.root.join(format!("verified-{user}")).is_file() {
             return Err("Xác minh phiên với Raspberry trước".into());
         }
@@ -173,12 +208,33 @@ impl Client {
         if !path.exists() {
             return Ok(vec![]);
         }
-        serde_json::from_slice(&std::fs::read(path).map_err(|_| "Không đọc được bản nháp")?)
-            .map_err(|_| "Danh sách bản nháp lỗi".into())
+        let mut drafts: Vec<Draft> =
+            serde_json::from_slice(&std::fs::read(path).map_err(|_| "Không đọc được bản nháp")?)
+                .map_err(|_| "Danh sách bản nháp lỗi")?;
+        let owner: Uuid = root
+            .file_name()
+            .and_then(|s| s.to_str())
+            .ok_or("Tài khoản lỗi")?
+            .parse()
+            .map_err(|_| "Tài khoản lỗi")?;
+        for draft in &mut drafts {
+            if draft.owner_id.is_nil() {
+                draft.owner_id = owner;
+            }
+            if draft.owner_id != owner {
+                return Err("Bản nháp không thuộc tài khoản".into());
+            }
+        }
+        Ok(drafts)
     }
     pub async fn save_draft(&self, draft: &Draft) -> Result<(), String> {
         let _lock = self.draft_lock.lock().await;
-        let root = self.account_root().await?;
+        let session = self.session.lock().await;
+        let owner = session.as_ref().ok_or("Đăng nhập Google trước")?.user_id;
+        if draft.owner_id != owner {
+            return Err("Tài khoản đã thay đổi; giữ bản nháp ở tài khoản gốc".into());
+        }
+        let root = self.account_path(owner)?;
         let mut all = self.read_drafts(&root)?;
         if let Some(i) = all.iter().position(|d| d.id == draft.id) {
             all[i] = draft.clone();
@@ -191,26 +247,24 @@ impl Client {
         )
     }
     pub async fn import(&self, bytes: Vec<u8>, name: String) -> Result<Draft, String> {
+        self.import_for(self.user().await?, bytes, name).await
+    }
+    async fn import_for(&self, owner: Uuid, bytes: Vec<u8>, name: String) -> Result<Draft, String> {
         if bytes.len() < 16 || bytes.len() > 16 * 1024 * 1024 {
             return Err("Ảnh hỗ trợ 16 byte..16 MiB; crop ảnh lớn trước".into());
         }
-        let media = if bytes.starts_with(&[255, 216]) {
-            "image/jpeg"
-        } else if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
-            "image/png"
-        } else if bytes.starts_with(b"RIFF") && bytes.get(8..12) == Some(b"WEBP") {
-            "image/webp"
-        } else {
-            return Err("Chọn JPEG, PNG hoặc WebP".into());
-        };
+        let (media, width, height) = image_headers::inspect(&bytes)?;
         let id = Uuid::new_v4();
-        let root = self.account_root().await?;
+        let root = self.account_path(owner)?;
         storage::atomic(&root.join(format!("{id}.image")), &bytes)?;
         let draft = Draft {
             id,
+            owner_id: owner,
             name: name.chars().take(160).collect(),
             media_type: media.into(),
             image_bytes: bytes.len() as u64,
+            width,
+            height,
             sha256: format!("{:x}", Sha256::digest(&bytes)),
             version: 1,
             state: "draft".into(),
@@ -218,6 +272,7 @@ impl Client {
             job_id: None,
             text: String::new(),
             error: String::new(),
+            layout: None,
         };
         self.save_draft(&draft).await?;
         Ok(draft)
@@ -241,7 +296,8 @@ impl Client {
     }
     pub async fn snapshot(&self, camera: &str) -> Result<Draft, String> {
         let camera = checked_camera(camera)?;
-        let token = self.access_token().await?;
+        let owner = self.user().await?;
+        let token = self.access_token_for(Some(owner)).await?;
         let response = self
             .http
             .post(format!(
@@ -265,8 +321,12 @@ impl Client {
         if expected.is_some_and(|h| h != format!("{:x}", Sha256::digest(&bytes))) {
             return Err("Ảnh sai mã toàn vẹn".into());
         }
-        self.import(bytes, format!("Raspberry-{}.jpg", Uuid::new_v4().simple()))
-            .await
+        self.import_for(
+            owner,
+            bytes,
+            format!("Raspberry-{}.jpg", Uuid::new_v4().simple()),
+        )
+        .await
     }
     pub async fn stream(
         &self,
@@ -322,7 +382,11 @@ impl Client {
             .into_iter()
             .find(|d| d.id == id)
             .ok_or("Bản nháp không tồn tại")?;
-        let intent=self.api(reqwest::Method::POST,"/api/v2/intents",Some(json!({"requestId":draft.request_id,"sha256":draft.sha256,"imageBytes":draft.image_bytes,"mediaType":draft.media_type,"layout":layout,"imageVersion":draft.version}))).await?;
+        let owner = draft.owner_id;
+        // Retrying a partial upload keeps the original layout/idempotency key.
+        let layout = draft.layout.get_or_insert_with(|| layout.into()).clone();
+        self.save_draft(&draft).await?;
+        let intent=self.api_for(Some(owner),reqwest::Method::POST,"/api/v2/intents",Some(json!({"requestId":draft.request_id,"sha256":draft.sha256,"imageBytes":draft.image_bytes,"mediaType":draft.media_type,"layout":layout,"imageVersion":draft.version}))).await?;
         let job: Uuid = intent["id"]
             .as_str()
             .ok_or("Thiếu job ID")?
@@ -333,10 +397,17 @@ impl Client {
         self.save_draft(&draft).await?;
         if matches!(
             draft.state.as_str(),
+            "queued" | "running" | "succeeded" | "failed" | "cancelled"
+        ) {
+            return Ok(draft);
+        }
+        if matches!(
+            draft.state.as_str(),
             "awaiting_upload" | "upload_granted" | "uploading"
         ) {
             let grant = self
-                .api(
+                .api_for(
+                    Some(owner),
                     reqwest::Method::POST,
                     &format!("/api/v2/intents/{job}/grant"),
                     Some(json!({})),
@@ -355,7 +426,7 @@ impl Client {
                             "{}/api/v2/intents/{job}/content",
                             self.config.gateway.trim_end_matches('/')
                         ))
-                        .bearer_auth(self.access_token().await?)
+                        .bearer_auth(self.access_token_for(Some(owner)).await?)
                         .header("upload-offset", offset)
                         .header("x-ocr-generation", generation)
                         .timeout(Duration::from_secs(30))
@@ -369,7 +440,8 @@ impl Client {
                         .filter(|n| *n == end)
                         .ok_or("Offset server không hợp lệ")?;
                 }
-                self.api(
+                self.api_for(
+                    Some(owner),
                     reqwest::Method::POST,
                     &format!("/api/v2/intents/{job}/complete"),
                     Some(json!({"generation":generation})),
@@ -382,7 +454,46 @@ impl Client {
         Ok(draft)
     }
     pub async fn result(&self, id: Uuid) -> Result<Value, String> {
-        let account = self.verify().await?;
+        let _slot = self
+            .result_slots
+            .acquire()
+            .await
+            .map_err(|_| "Client đã đóng")?;
+        let owner = self.user().await?;
+        let cached = self
+            .result_tickets
+            .lock()
+            .await
+            .get(&id)
+            .filter(|t| t.owner == owner && t.expires > Instant::now())
+            .cloned();
+        let access = if let Some(ticket) = cached {
+            ticket
+        } else {
+            self.mint_result_ticket(id, owner).await?
+        };
+        let response = self
+            .http
+            .get(access.url)
+            .query(&[("wait", "8")])
+            .bearer_auth(access.bearer)
+            .timeout(Duration::from_secs(20))
+            .send()
+            .await
+            .map_err(|_| "Chưa nhận được kết quả; thử lại")?;
+        if matches!(response.status().as_u16(), 401 | 403 | 410) {
+            self.result_tickets.lock().await.remove(&id);
+        }
+        Self::response(response).await
+    }
+    async fn mint_result_ticket(
+        &self,
+        id: Uuid,
+        owner: Uuid,
+    ) -> Result<CachedResultTicket, String> {
+        let account = self
+            .api_for(Some(owner), reqwest::Method::GET, "/api/v2/session", None)
+            .await?;
         let origin = account["resultsOrigin"]
             .as_str()
             .ok_or("Chưa có result origin")?;
@@ -390,7 +501,8 @@ impl Client {
             return Err("Result origin không hợp lệ".into());
         }
         let ticket = self
-            .api(
+            .api_for(
+                Some(owner),
                 reqwest::Method::POST,
                 &format!("/api/v2/intents/{id}/result-ticket"),
                 Some(json!({})),
@@ -408,17 +520,30 @@ impl Client {
         {
             return Err("Result URL không đúng server".into());
         }
-        Self::response(
-            self.http
-                .get(url)
-                .query(&[("wait", "8")])
-                .bearer_auth(ticket["ticket"].as_str().ok_or("Thiếu vé kết quả")?)
-                .timeout(Duration::from_secs(20))
-                .send()
-                .await
-                .map_err(|_| "Chưa nhận được kết quả; thử lại")?,
-        )
-        .await
+        if self.user().await? != owner {
+            return Err("Tài khoản đã thay đổi".into());
+        }
+        let access = CachedResultTicket {
+            owner,
+            url,
+            bearer: ticket["ticket"].as_str().ok_or("Thiếu vé kết quả")?.into(),
+            expires: Instant::now()
+                + Duration::from_secs(
+                    ticket["expiresIn"]
+                        .as_u64()
+                        .unwrap_or(60)
+                        .min(300)
+                        .saturating_sub(15)
+                        .max(1),
+                ),
+        };
+        let mut cache = self.result_tickets.lock().await;
+        cache.retain(|_, t| t.owner == owner && t.expires > Instant::now());
+        if cache.len() >= 64 {
+            cache.clear();
+        }
+        cache.insert(id, access.clone());
+        Ok(access)
     }
 }
 pub async fn bounded(response: reqwest::Response, max: usize) -> Result<Vec<u8>, String> {

@@ -32,6 +32,18 @@ public sealed class V2FlowTests:IDisposable
         var i=Intent with{Sha256=new string('a',64)};var spool=Spool;await spool.Append(i,0,new MemoryStream(image),image.Length,default);
         var error=await Assert.ThrowsAsync<V2Exception>(()=>spool.Complete(i,default));Assert.Equal("image_integrity",error.Code);Assert.Equal(0,db.Charges);
     }
+    [Fact]public async Task CancelledUnacceptedIntentCannotBeAcknowledgedAsAccepted(){
+        var error=await Assert.ThrowsAsync<V2Exception>(()=>Spool.Complete(Intent with{State="cancelled"},default));
+        Assert.Equal("intent_closed",error.Code);Assert.Equal(0,db.Charges);
+    }
+    [Theory]
+    [InlineData("queued")][InlineData("running")][InlineData("succeeded")][InlineData("failed")]
+    public void PurgedAcceptedResultIsExpiredInsteadOfLookingLikeANewUpload(string state){
+        var error=Assert.Throws<V2Exception>(()=>FlowResultState.WithoutJob(state));
+        Assert.Equal(410,error.Status);Assert.Equal("result_expired",error.Code);
+    }
+    [Theory][InlineData("awaiting_upload")][InlineData("cancelled")]
+    public void UnacceptedIntentKeepsItsActualState(string state)=>Assert.Equal(state,FlowResultState.WithoutJob(state));
     [Fact]public async Task RestartRecoversAcceptedImageAfterAmbiguousDatabaseResponseWithoutRecharging(){
         var i=Intent;var spool=Spool;await spool.Append(i,0,new MemoryStream(image),image.Length,default);
         db.FailOnce=true;await Assert.ThrowsAsync<DatabaseUnavailableException>(()=>spool.Complete(i,default));Assert.Equal(1,db.Charges);

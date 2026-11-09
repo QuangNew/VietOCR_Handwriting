@@ -1,6 +1,55 @@
 # Refactor progress — 09/11/2026
 
-Branch: [`refactor`](https://github.com/QuangNew/VietOCR_Handwriting/tree/refactor). Base: `e26faae`; approved-plan checkpoint: `06f5f3d`. The user approved implementation and subsequently authorized SSH to `admin@rasp4gb`. Credentials are not recorded in this report.
+Branch: [`refactor`](https://github.com/QuangNew/VietOCR_Handwriting/tree/refactor). This remains an active implementation. DevTodo is not finalised until the remaining deployment gates are ready.
+
+## Current checkpoint: v2 integration and recovery
+
+- Implemented Rust OCR relay and fixed compute adapter, bounded/resumable 1MiB uploads, durable receipt recovery, exactly-once quota commit, direct job-scoped result tickets, fair active-account admission and hardware-authoritative worker scale requests.
+- Implemented Windows Tauri client and Flutter Android v4: Google-only, Pi webcam, private drafts, explicit Send, edits/BW/crop, native exports, history and local diagnostics. JPEG originals are preserved. Source and build-artifact versions must be distinguished below.
+- Follow-up fixes: job-result tickets are reused within their short lifetime, so an already issued ticket can read compute during a Pi outage; the ticket is not reused across account changes. Android restores accepted results read-only, including lost acceptance acknowledgements. Rotated upload files persist in the account directory for stable resume. Native results are limited to four reads per client and reconnect after transient failures. Cancelled intents are not falsely acknowledged as accepted; expired results return410 rather than pretending upload is pending.
+- Account isolation now also covers queued writes/imports and late network completions. Native image headers are checked before handing input to the webview decoder; actual image dimensions are stored. The old Run-VietOCR.cmd opens the new desktop launcher instead of the retired Python IoT UI.
+
+### Checks recorded
+
+- Rust workspace:28 tests passed before the last header guard; ClientCore then passed5 tests (adds one header-bound test). Final CI reruns the combined workspace and all-target Clippy on ARM64.
+- C# backend:47 tests passed. Flutter:45 tests passed; analyzer reported no issues after the recovery changes. Three JS geometry/explicit-send tests and a Playwright UI fixture passed (import by clicking original image, no autosend, stable theme geometry, editor fit and980px layout).
+- SQL baseline remains17 isolated PGlite tests and4 native PostgreSQL race tests,32 connections; the new CI run reruns them. No load fixtures are inserted into the production database.
+- Windows loopback load fixture:3 rounds ×1000 distinct, locally signed ES256 identities. All1000 metadata intents admitted per round with controlled429/503 retry; p95 approximately3.56–3.74s, a single JWKS fetch, upstream-offline503, ban403 with zero forwarding, and health200 after load. This is **real gateway code with fake local Supabase/compute**, not1000 Google logins, real image ingestion or an Internet benchmark.
+
+### Live database and Pi deployment
+
+- The user explicitly approved the Supabase live migration. Migrations202611090001–004 applied, CLI migration history repaired. Existing1admin/24clients/35jobs and used counters were unchanged at migration time. When compute was subsequently started, its existing24-hour retention policy pruned the expired Nov3 jobs; migration and fake-client cleanup did not delete those jobs.
+- Requested fake-client cleanup deleted23 disabled, unlinked test clients with known test prefixes and no jobs/intents. The real Google account and administrator remain. The cleanup SQL is `tools/Clean-FakeClients.sql`.
+- Pi runtime installed: `/opt/vietocr/vietocr-gateway`, private `/etc/vietocr/gateway.json` and two separate machine token files. Dedicated `vietocr` service user; `vietocr-gateway.service` and `vietocr-camera@desk.service` enabled/active. Capture stays on loopback8080. Existing SSH/RDP/Tailscale were not changed.
+- cloudflared2026.10.7 installed at `/usr/local/bin/cloudflared` on Pi; the Windows binary is `.toolchain/cloudflared/cloudflared-windows-amd64.exe`. Both release SHA-256 values were checked. Downloads were about88.8MiB combined; no additional model/CUDA/C++/Android SDK downloaded for this checkpoint. Existing JDK21, Flutter and Android SDK reused.
+- GPIO remains **disabled by the user's explicit instruction**: TFT/buzzer are not wired yet. Logic/renderer tests passed; no physical TFT/buzzer test is claimed. Pi measured about45°C at idle during this checkpoint.
+- Compute connection used for the live check was an encrypted temporary SSH reverse-forward on Pi localhost15080. Production must use the named compute HTTPS tunnel, not depend on that test SSH process. The forward is not currently a persistent service.
+
+### Actual Google → Pi → model → direct-result check
+
+A stored legitimate Google session was refreshed and verified against live Supabase; it was not a synthetic identity. Pi returned a hash-checked103680-byte camera JPEG. A public Vietnamese sample then exercised idempotent intent creation, partial upload/offset conflict/resume, no quota before completion, one charge after repeated completion and direct compute result retrieval. The expected Vietnamese title matched exactly; measured GPU inference707.51ms. Total11536.81ms included deliberate extra round-trips for idempotency/quota assertions and is not a normal-user latency baseline. The result URL was validated as `ocr.quangnew.tech`, but DNS was bypassed via local compute for this check; **public Internet end-to-end is still pending**.
+
+### Build artifacts already obtained
+
+The first integration CI failed (missing Windows icon and an ARM64 warning); both were fixed. [Run42578375251](https://github.com/QuangNew/VietOCR_Handwriting/actions/runs/42578375251) at `b840ba5` passed both jobs.
+
+| Artifact | Local path | Size | Source |
+|---|---|---:|---|
+| Windows portable EXE | `Desktop/dist/vietocr-desktop.exe` |12,317,184bytes| CI at `b840ba5` |
+| Android ARM64 APK | `Mobile/dist/VietOCR-4.0.0-refactor-arm64.apk` |20,506,501bytes| Local JDK21 build, baseline v4 before recovery follow-up |
+| ARM64 tar | `.toolchain/refactor/checkpoint2-arm/vietocr-gateway-linux-arm64.tar.gz` |3,823,734bytes| CI at `b840ba5`, deployed on Pi |
+
+Current source includes recovery/header/load-probe changes newer than these artifacts; they require a new verified build before being called the final release. APK is sideload/debug-signed baseline, with no physical Android run claimed. The desktop browser check used a test-only native bridge, not an interactive Google login in the built EXE.
+
+### Remaining acceptance work
+
+1. Finish named Cloudflare tunnels for `api.quangnew.tech` and `ocr.quangnew.tech`, after domain/Authorize is ready. The latest CLI login expired without a certificate; no DNS record or public endpoint is claimed ready.
+2. Build/run the1000-identity fixture on the actual Pi and measure combined RSS/FD, then separate capture/relay/Internet and real compute measurements. Include sustained load and failure recovery; loopback fixture alone does not prove production throughput.
+3. Complete the client parity review (including image optimization profiles, edited-image selection and camera orientation), release builds/installer and interaction checks. Keep original AI preprocessing/model hashes unchanged.
+4. Remove the remaining retired Python IoT client code/tools after parity. Keep the Python/CUDA environment required by compute until it is relocated safely; do not delete user images, signing material, sessions or models.
+5. Finalise setup/run/rollback instructions in DevTodo only after the deployment state is verified. Hardware GPIO remains off until the user wires it and authorises that later test.
+
+---
 
 ## Implemented in checkpoint 1
 

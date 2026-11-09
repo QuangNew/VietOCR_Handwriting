@@ -20,6 +20,19 @@ class RemoteOcrException implements Exception {
   final int? status;
   final Duration? retryAfter;
   final String? code;
+  bool get retryableCapacity => const {
+    'auth_capacity',
+    'database_capacity',
+    'compute_capacity',
+    'compute_queue_busy',
+    'compute_unreachable',
+    'compute_unavailable',
+    'identity_database_unavailable',
+    'jwks_unavailable',
+    'queue_wait',
+    'uploads_busy',
+    'result_capacity',
+  }.contains(code);
   @override
   String toString() => message;
 }
@@ -57,6 +70,8 @@ class VietOcrRemote {
   final _http = HttpClient();
   bool _closed = false;
   Uri? _resultsOrigin;
+  final _resultTickets =
+      <String, ({Uri url, String bearer, String owner, DateTime expires})>{};
   Future<String> _token() async {
     if (_closed) throw StateError('Client đã đóng.');
     final token = tokenProvider == null ? _key : await tokenProvider!();
@@ -111,7 +126,7 @@ class VietOcrRemote {
       throw RemoteOcrException(
         switch (code) {
           'daily_quota' => 'Đã hết hạn mức ảnh hôm nay.',
-          'minute_quota' => 'Đã đạt 30 ảnh trong 60 giây. Hãy chờ.',
+          'minute_quota' => 'Đã đạt hạn mức ảnh trong 60 giây. Hãy chờ.',
           'google_session_required' ||
           'account_or_session_disabled' ||
           'account_disabled' => 'Phiên Google hết hạn hoặc tài khoản bị khoá.',
@@ -218,21 +233,109 @@ class VietOcrRemote {
   }
 
   Future<Map<String, dynamic>> get(String id) async {
-    if (_resultsOrigin == null) await session();
-    final ticket = await json('POST', '/api/v2/intents/$id/result-ticket', {});
-    final u = Uri.parse(ticket['resultUrl'] as String);
-    if (_resultsOrigin == null ||
-        u.origin != _resultsOrigin!.origin ||
-        u.path != '/api/v2/results/$id' ||
-        u.userInfo.isNotEmpty ||
-        u.hasFragment ||
-        u.hasQuery) {
-      throw const FormatException('Địa chỉ trả kết quả không hợp lệ.');
+    final owner = sha256.convert(utf8.encode(await _token())).toString();
+    var access = _resultTickets[id];
+    if (access == null ||
+        access.owner != owner ||
+        !access.expires.isAfter(DateTime.now())) {
+      if (_resultsOrigin == null) await session();
+      final ticket = await json(
+        'POST',
+        '/api/v2/intents/$id/result-ticket',
+        {},
+      );
+      final u = Uri.parse(ticket['resultUrl'] as String);
+      if (_resultsOrigin == null ||
+          u.origin != _resultsOrigin!.origin ||
+          u.path != '/api/v2/results/$id' ||
+          u.userInfo.isNotEmpty ||
+          u.hasFragment ||
+          u.hasQuery) {
+        throw const FormatException('Địa chỉ trả kết quả không hợp lệ.');
+      }
+      if (sha256.convert(utf8.encode(await _token())).toString() != owner) {
+        throw const RemoteOcrException(
+          'Phiên đăng nhập đã thay đổi.',
+          status: 401,
+        );
+      }
+      access = (
+        url: u,
+        bearer: ticket['ticket'] as String,
+        owner: owner,
+        expires: DateTime.now().add(
+          Duration(
+            seconds: ((ticket['expiresIn'] as int? ?? 60).clamp(1, 300) - 15)
+                .clamp(1, 285),
+          ),
+        ),
+      );
+      _resultTickets.removeWhere(
+        (_, t) => t.owner != owner || !t.expires.isAfter(DateTime.now()),
+      );
+      if (_resultTickets.length >= 64) _resultTickets.clear();
+      _resultTickets[id] = access;
     }
-    final r = await _http.getUrl(u.replace(queryParameters: {'wait': '8'}));
+    final r = await _http.getUrl(
+      access.url.replace(queryParameters: {'wait': '8'}),
+    );
     r.followRedirects = false;
-    r.headers.set('Authorization', 'Bearer ${ticket['ticket']}');
-    return Map<String, dynamic>.from(await _read(r) as Map);
+    r.headers.set('Authorization', 'Bearer ${access.bearer}');
+    try {
+      return Map<String, dynamic>.from(await _read(r) as Map);
+    } on RemoteOcrException catch (e) {
+      if ([401, 403, 410].contains(e.status)) _resultTickets.remove(id);
+      rethrow;
+    }
+  }
+
+  Future<Map<String, dynamic>> _readCache(File image) async {
+    final file = File('${image.path}.ocr-v2.json');
+    if (!await file.exists() || await file.length() > 8192) {
+      return {};
+    }
+    try {
+      return Map<String, dynamic>.from(
+        jsonDecode(await file.readAsString()) as Map,
+      );
+    } catch (_) {
+      return {};
+    }
+  }
+
+  Future<void> _saveCache(File image, Map<String, dynamic> cache) async {
+    final pending = File('${image.path}.ocr-v2.json.tmp');
+    await pending.writeAsString(jsonEncode(cache), flush: true);
+    await pending.rename('${image.path}.ocr-v2.json');
+  }
+
+  /// Reads only: a restored draft must never create an intent or upload a byte.
+  Future<Map<String, dynamic>?> recoverAccepted(File image) async {
+    final cache = await _readCache(image);
+    final id = cache['jobId'];
+    if (id is! String ||
+        !RegExp(r'^[a-fA-F0-9-]{36}$').hasMatch(id) ||
+        cache['gateway'] != origin.toString()) {
+      return null;
+    }
+    if (cache['sha256'] !=
+        (await sha256.bind(image.openRead()).first).toString()) {
+      return null;
+    }
+    if (cache['accepted'] != true) {
+      final intent = await json('GET', '/api/v2/intents/$id');
+      if (![
+        'queued',
+        'running',
+        'succeeded',
+        'failed',
+      ].contains(intent['state'])) {
+        return null;
+      }
+      cache['accepted'] = true;
+      await _saveCache(image, cache);
+    }
+    return get(id);
   }
 
   Future<String> recognize(
@@ -256,8 +359,24 @@ class VietOcrRemote {
       }
     }
 
+    Future<T> withCapacity<T>(Future<T> Function() operation) async {
+      while (true) {
+        check();
+        try {
+          return await operation();
+        } on RemoteOcrException catch (error) {
+          if (!error.retryableCapacity) rethrow;
+          onState?.call('awaiting_upload');
+          await Future<void>.delayed(
+            (error.retryAfter ?? const Duration(seconds: 3)) +
+                Duration(milliseconds: Random().nextInt(750)),
+          );
+        }
+      }
+    }
+
     check();
-    await session();
+    await withCapacity(session);
     final length = await image.length();
     if (length > 16 * 1048576) {
       throw const FormatException(
@@ -265,15 +384,7 @@ class VietOcrRemote {
       );
     }
     final hash = (await sha256.bind(image.openRead()).first).toString();
-    final sidecar = File('${image.path}.ocr-v2.json');
-    Map<String, dynamic> cache = {};
-    if (await sidecar.exists()) {
-      try {
-        cache = Map<String, dynamic>.from(
-          jsonDecode(await sidecar.readAsString()) as Map,
-        );
-      } catch (_) {}
-    }
+    var cache = await _readCache(image);
     if (cache['sha256'] != hash ||
         cache['layout'] != layout ||
         cache['gateway'] != origin.toString()) {
@@ -285,9 +396,7 @@ class VietOcrRemote {
       };
     }
     Future<void> save() async {
-      final temp = File('${sidecar.path}.tmp');
-      await temp.writeAsString(jsonEncode(cache), flush: true);
-      await temp.rename(sidecar.path);
+      await _saveCache(image, cache);
     }
 
     await save();
@@ -299,18 +408,25 @@ class VietOcrRemote {
         : head.length > 3 && head[0] == 137
         ? 'image/png'
         : 'image/webp';
-    final intent = await json('POST', '/api/v2/intents', {
-      'requestId': cache['requestId'],
-      'sha256': hash,
-      'imageBytes': length,
-      'mediaType': media,
-      'layout': layout,
-      'imageVersion': 1,
-    });
+    final intent = await withCapacity(
+      () => json('POST', '/api/v2/intents', {
+        'requestId': cache['requestId'],
+        'sha256': hash,
+        'imageBytes': length,
+        'mediaType': media,
+        'layout': layout,
+        'imageVersion': 1,
+      }),
+    );
     final id = intent['id'] as String;
     cache['jobId'] = id;
     await save();
     var state = intent['state'];
+    if (['cancelled', 'expired'].contains(state)) {
+      throw const RemoteOcrException(
+        'Lượt gửi đã đóng. Tạo bản nháp mới để gửi lại.',
+      );
+    }
     if (!['queued', 'running', 'succeeded', 'failed'].contains(state)) {
       Map<String, dynamic> grant;
       while (true) {
@@ -320,8 +436,7 @@ class VietOcrRemote {
           grant = await json('POST', '/api/v2/intents/$id/grant', {});
           break;
         } on RemoteOcrException catch (e) {
-          if (![429, 503].contains(e.status) ||
-              ['minute_quota', 'daily_quota'].contains(e.code)) {
+          if (!e.retryableCapacity) {
             rethrow;
           }
           await Future<void>.delayed(
@@ -345,14 +460,18 @@ class VietOcrRemote {
           offset = value['offset'] as int;
         }
         check();
-        await json('POST', '/api/v2/intents/$id/complete', {
-          'generation': generation,
-        });
+        await withCapacity(
+          () => json('POST', '/api/v2/intents/$id/complete', {
+            'generation': generation,
+          }),
+        );
       }
     }
+    cache['accepted'] = true;
+    await save();
     while (true) {
       check();
-      final result = await get(id);
+      final result = await withCapacity(() => get(id));
       state = result['state'];
       onState?.call(state?.toString() ?? 'queued');
       if (state == 'succeeded') return result['text'] as String? ?? '';
@@ -367,6 +486,7 @@ class VietOcrRemote {
 
   void close() {
     _closed = true;
+    _resultTickets.clear();
     _http.close(force: true);
   }
 }

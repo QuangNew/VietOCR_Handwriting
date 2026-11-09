@@ -68,7 +68,7 @@ Future<void> showServerDialog(BuildContext context, AppController app) async {
                       enabled: !saving,
                       decoration: const InputDecoration(
                         labelText: 'Địa chỉ Raspberry gateway',
-                        hintText: 'https://pi.example.com',
+                        hintText: 'https://api.quangnew.tech',
                       ),
                     ),
                     CheckboxListTile(
@@ -141,7 +141,10 @@ Future<void> showServerDialog(BuildContext context, AppController app) async {
                               title: Text(
                                 '#${(job['id'] as String).substring(0, 8)} · ${job['state']}',
                               ),
-                              subtitle: Text(job['createdAt'].toString()),
+                              subtitle: Text(
+                                (job['created_at'] ?? job['createdAt'])
+                                    .toString(),
+                              ),
                               trailing: const Icon(Icons.chevron_right),
                               onTap: () => run(() async {
                                 final remote = VietOcrRemote(

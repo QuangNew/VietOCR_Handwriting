@@ -36,7 +36,10 @@ $patch=@{AllowedHosts='localhost;127.0.0.1;[::1];'+([Uri]$ComputeOrigin).Host+';
 [IO.File]::WriteAllText((Join-Path $destination 'compute.patch.json'),($patch|ConvertTo-Json -Depth 6))
 if($IsWindows){
     $account=[Security.Principal.WindowsIdentity]::GetCurrent().Name
-    & icacls $destination /inheritance:r /grant:r ($account+':(OI)(CI)F') /T /Q | Out-Null
+    & icacls $destination /inheritance:r /grant:r ($account+':(OI)(CI)F') /Q | Out-Null
+    foreach($name in @('ingress.token','telemetry.token','gateway.json','compute.patch.json')){
+        & icacls (Join-Path $destination $name) /grant:r ($account+':F') /inheritance:r /Q | Out-Null
+    }
     if($LASTEXITCODE-ne0){throw 'Cannot protect pairing directory ACL.'}
 }
 $token=$null;$tokens=$null

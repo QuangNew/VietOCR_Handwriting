@@ -1,0 +1,91 @@
+{
+  "date": "2026-11-09",
+  "branch": "refactor",
+  "phase": "integration and recovery; not final deployment",
+  "unitChecks": {
+    "rustWorkspaceBeforeHeader": 28,
+    "clientCoreAfterHeader": 5,
+    "csharp": 47,
+    "flutter": 45,
+    "javascript": 3,
+    "databaseWasmBaseline": 17,
+    "databaseNativeBaseline": 4
+  },
+  "liveFlow": {
+    "googleSessionVerified": true,
+    "cameraHashMatched": true,
+    "sampleTextMatched": true,
+    "duplicateCommitChargedOnce": true,
+    "inferenceMs": 707.5104,
+    "publicDomainUsedForTransport": false
+  },
+  "load": {
+    "after": {
+      "openFds": null,
+      "peakRssKiB": null,
+      "rssKiB": null
+    },
+    "bannedForwarded": 0,
+    "bannedHttp": 403,
+    "before": {
+      "openFds": null,
+      "peakRssKiB": null,
+      "rssKiB": null
+    },
+    "elapsedSeconds": 11.7201961,
+    "healthAfterLoad": 200,
+    "jwksFetches": 1,
+    "ocrImagesUploaded": 0,
+    "realDatabaseWrites": 0,
+    "realGoogleLogins": 0,
+    "rounds": [
+      {
+        "clients": 1000,
+        "deferredAttempts": 7994,
+        "metadataAdmitted": 1000,
+        "p50Ms": 1999,
+        "p95Ms": 3743,
+        "round": 1
+      },
+      {
+        "clients": 1000,
+        "deferredAttempts": 7196,
+        "metadataAdmitted": 1000,
+        "p50Ms": 1828,
+        "p95Ms": 3562,
+        "round": 2
+      },
+      {
+        "clients": 1000,
+        "deferredAttempts": 7481,
+        "metadataAdmitted": 1000,
+        "p50Ms": 1893,
+        "p95Ms": 3600,
+        "round": 3
+      }
+    ],
+    "scope": "loopback real Rust gateway + ES256, fake local Supabase/compute; combined process includes fixtures and load clients",
+    "upstreamOfflineHttp": 503
+  },
+  "database": {
+    "migrationV2Applied": true,
+    "fakeClientsDeleted": 23,
+    "remainingGoogleClients": 1,
+    "remainingAdmins": 1
+  },
+  "pi": {
+    "servicesEnabled": true,
+    "captureLoopbackOnly": true,
+    "cloudflaredInstalled": "2026.10.7",
+    "gpioEnabled": false,
+    "gpioOffExplicitlyRequested": true
+  },
+  "pending": [
+    "named Cloudflare Authorize/DNS and public end-to-end",
+    "Pi load/soak measurements",
+    "remaining image/client parity",
+    "updated release artifacts and interaction checks",
+    "legacy client cleanup",
+    "final DevTodo"
+  ]
+}

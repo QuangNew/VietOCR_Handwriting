@@ -51,6 +51,7 @@ class SessionStore {
     String id, {
     bool preserveResolution = false,
   }) async {
+    final folderFuture = directory;
     final nativeCamera =
         bytes.length <= 40 * 1024 * 1024 &&
         bytes.length > 3 &&
@@ -71,7 +72,7 @@ class SessionStore {
     } else {
       normalized = await compute(normalizeDerivative, bytes);
     }
-    final folder = await directory;
+    final folder = await folderFuture;
     await folder.create(recursive: true);
     final file = File('${folder.path}/$id.${nativeCamera ? 'jpg' : 'png'}');
     await file.writeAsBytes(normalized, flush: true);
@@ -79,11 +80,12 @@ class SessionStore {
   }
 
   Future<void> save(List<Document> documents) {
+    final folderFuture = directory;
     final snapshot = jsonEncode(
       documents.map((document) => document.toJson()).toList(),
     );
     final operation = _saving.then((_) async {
-      final folder = await directory;
+      final folder = await folderFuture;
       await folder.create(recursive: true);
       final pending = File('${folder.path}/session.tmp');
       await pending.writeAsString(snapshot, flush: true);
@@ -98,7 +100,17 @@ class SessionStore {
     final file = File(document.path);
     if (file.parent.absolute.path == folder.absolute.path &&
         await file.exists()) {
-      await file.delete();
+      for (final path in [
+        file.path,
+        '${file.path}.ocr-v2.json',
+        for (var rotation = 1; rotation < 4; rotation++) ...[
+          '${file.path}.rotate-$rotation.png',
+          '${file.path}.rotate-$rotation.png.ocr-v2.json',
+        ],
+      ]) {
+        final target = File(path);
+        if (await target.exists()) await target.delete();
+      }
     }
   }
 }

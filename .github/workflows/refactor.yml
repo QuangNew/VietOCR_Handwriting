@@ -73,11 +73,13 @@ jobs:
           npm run test:native
       - run: cargo +1.94.0 build --release --locked -p vietocr-gateway
       - run: cargo +1.94.0 build --release --locked -p vietocr-gateway --example camera_probe
+      - run: cargo +1.94.0 build --release --locked -p vietocr-gateway --example admission_probe
       - name: Small ARM64 runtime bundle
         run: |
           mkdir -p bundle
           cp target/release/vietocr-gateway Gateway/config.example.json Gateway/README.md bundle/
           cp target/release/examples/camera_probe bundle/
+          cp target/release/examples/admission_probe bundle/
           cp -r infra/raspberry bundle/
           tar -czf vietocr-gateway-linux-arm64.tar.gz -C bundle .
           sha256sum vietocr-gateway-linux-arm64.tar.gz > vietocr-gateway-linux-arm64.tar.gz.sha256

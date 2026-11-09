@@ -1,13 +1,13 @@
-# Raspberry gateway — refactor checkpoint
+# Raspberry gateway — API v2
 
 Rust/Tokio/Axum service for the Pi 4B 4 GB. See the [approved plan](../docs/REFACTOR_PLAN_2026-11-08.md) and [implementation progress](../docs/REFACTOR_PROGRESS.md).
 
-This checkpoint implements Google session verification, shared native MJPEG/snapshots, server telemetry and optional ILI9341/active-buzzer output. **OCR v2 relay/result tickets and the replacement clients are later stages.** `/api/v2/session` explicitly returns `ocrAvailable: false`; the current apps have not been redirected to this service.
+Implements Google session verification, shared native MJPEG/snapshots, bounded OCR relay, fair upload admission through compute, result tickets, telemetry and optional ILI9341/active-buzzer output. `/api/v2/session` reports `ocrAvailable` only when compute pairing is configured. Functional deployment evidence and remaining Internet/hardware checks are recorded in the progress report.
 
 ## Build and configure
 
 ```sh
-# From the repository, using Rust >=1.88 and a C compiler:
+# From the repository, using Rust >=1.94 and a C compiler:
 cargo test --workspace --locked
 cargo build --release --locked -p vietocr-gateway
 cp Gateway/config.example.json Gateway/config.local.json
@@ -19,7 +19,7 @@ cp Gateway/config.example.json Gateway/config.local.json
 
 GitHub workflow `Refactor foundation` builds a Linux ARM64 runtime bundle without installing a compiler on the Pi. The bundle has the gateway, SSH-only `camera_probe` diagnostic and example service files. Build dependencies stay on CI. The Windows build is for development; it does not operate Pi GPIO.
 
-Supabase migrations `202611090001`–`003` must be tested and deployed before using the new login/admission RPCs. They preserve identities, history and used quota, clamp limits to 500/day and 30/rolling minute and retain any lower admin limits. This checkpoint does not run `db push` automatically. Do not provision a full service-role credential as a workaround for missing restricted roles.
+Supabase migrations `202611090001`–`004` are applied to the current project; a new deployment must apply and validate them in order before using the login/admission RPCs. They preserve identities, history and used quota, clamp limits to 500/day and 30/rolling minute and retain any lower admin limits. This checkpoint does not run `db push` automatically. Pi holds only the public Supabase key and separate ingress/telemetry machine credentials. Compute holds the database credential and exposes only a fixed adapter to Pi; no arbitrary RPC name or SQL is accepted.
 
 ## Native USB camera
 
@@ -40,7 +40,7 @@ There is one upstream connection per active camera, regardless of viewer count. 
 
 The broker supports native UVC zero/FF padding after the JPEG EOI marker. It preserves the exact frame bytes. It also checks µStreamer `/state`; an offline placeholder must not become a new photo. A snapshot waits for a fresh frame after the request and returns original dimensions/SHA-256 in headers. No intent, upload to compute or OCR credit is created by a capture.
 
-Camera URLs are configured loopback origins, not user-supplied fetch targets. Never expose raw port 8080 on the Internet. Gateway routes require a Google bearer header, including the video route; URL tokens are not accepted. The final Tauri/Flutter viewers must read authenticated binary HTTP streams. A bare HTML `<img src>` cannot add this Authorization header.
+Camera URLs are configured loopback origins, not user-supplied fetch targets. Never expose raw port 8080 on the Internet. Gateway routes require a Google bearer header, including the video route; URL tokens are not accepted. The Tauri/Flutter viewers read authenticated binary HTTP streams. A bare HTML `<img src>` cannot add this Authorization header.
 
 ```sh
 # On the Pi over SSH: diagnostic uses the exact capture broker without opening a public bypass.
@@ -56,7 +56,7 @@ Gateway config example:
 ```json
 {
   "telemetry": {
-    "url": "https://compute.example.com/api/internal/v2/status",
+    "url": "https://ocr.quangnew.tech/api/internal/v2/status",
     "tokenFile": "/etc/vietocr/secrets/telemetry.key"
   },
   "panel": { "enabled": false, "dcBcm": 25, "resetBcm": 24, "buzzerBcm": 18, "spiHz": 16000000 }

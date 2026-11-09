@@ -1,30 +1,33 @@
-# VietOCR
+# VietOCR v4
 
-Refactor branch: **`refactor`**. Architecture: **Tauri 2 / Flutter client → Raspberry Pi Rust gateway → Windows C#/Python inference**, with the Next.js admin and Supabase retained.
+Nhánh triển khai: **[refactor](https://github.com/QuangNew/VietOCR_Handwriting/tree/refactor)**.
 
-The [approved plan](docs/REFACTOR_PLAN_2026-11-08.md) and [progress/validation report](docs/REFACTOR_PROGRESS.md) distinguish completed checkpoints from later work. Do not switch a production client merely because the new gateway health check responds.
+Client Windows Tauri 2 / Android Flutter → Raspberry Pi Rust gateway → server Windows C#/Python. Supabase quản lý Google Auth, tài khoản, quota và lịch sử; Next.js giữ phần quản trị.
 
-| Component | Location | Current checkpoint |
-| --- | --- | --- |
-| Pi gateway, shared webcam, server-status TFT/buzzer | [Gateway](Gateway/README.md) | Rust foundation; Google-session RPC, native MJPEG/snapshot, telemetry/alarm |
-| API/state/quota contracts and isolated DB tests | [Contracts](Contracts/openapi-v2.json) | v2 contract and additive 500/day, 30/min reservation migrations |
-| C# API, Python workers, Next.js admin | [Server](Server/README.md) | Existing inference kept; new host-load telemetry and 500/30 admin bounds |
-| Windows Tauri client | `Desktop/` (later phase) | Replacement has not been implemented in this checkpoint |
-| Android Flutter | [Mobile](Mobile/README.md) | Existing client retained until v2 gateway/result flow is ready |
-| Pi deployment templates | [infra/raspberry](infra/raspberry/README.md) | ARM64 runtime/service setup; no production install implied |
+| Thành phần | Mã nguồn | Tình trạng |
+|---|---|---|
+| Gateway, webcam chung, telemetry/TFT/còi | [Gateway](Gateway/README.md) | Đã chạy bằng systemd trên Pi; GPIO tắt đến khi xác minh dây |
+| Client Windows, không Python/model/BLE | [Desktop](Desktop/README.md) | Đã build EXE; đang hoàn thiện kiểm thử triển khai |
+| Client Android, không model/BLE/camera local | [Mobile](Mobile/README.md) | Đã build APK v4; đang kiểm thử luồng mới |
+| API inference, queue, GPU/CPU workers | [Server](Server/README.md) | Đã kiểm luồng Google → Pi → model → nhận kết quả trực tiếp |
+| Contract và database | [Contracts](Contracts/openapi-v2.json), `supabase/` | Migrations v2 đã áp dụng lên project hiện tại |
 
-The USB webcam is on **Raspberry**, shared by authenticated users. Clients see the Pi stream and save captured JPEGs as private drafts; OCR starts only after **Send**. Local-file import/edit/crop/black-and-white/export/history remain required in the replacement clients. No local AI runtime is planned for clients.
+Webcam cắm **Pi**, dùng chung cho các tài khoản hợp lệ. Ảnh chụp, import và chỉnh sửa là bản nháp riêng; **Gửi** mới upload và tạo OCR. Pi chuyển tiếp từng khối, server ghi ảnh bền vững rồi mới tính một lượt. Client đọc kết quả trực tiếp từ compute bằng vé ngắn hạn. Trần **500 ảnh/ngày, 30 ảnh được nhận/phút**, dùng chung mọi thiết bị; admin có thể hạ giới hạn.
 
-Old ESP32 firmware (`pbl4/`) and obsolete build/APK caches have been removed on this branch. Firmware source can be recovered from base commit `e26faae` / its original branch. Python client code is temporarily retained for parity and because the inference server still uses its Python environment. See the progress report before removing that environment.
+Tiến độ và bằng chứng: [REFACTOR_PROGRESS.md](docs/REFACTOR_PROGRESS.md). Phạm vi đã duyệt: [REFACTOR_PLAN_2026-11-08.md](docs/REFACTOR_PLAN_2026-11-08.md). Tên miền dự kiến `api.quangnew.tech` cho Pi và `ocr.quangnew.tech` cho compute; **chưa công bố Internet sẵn sàng khi Cloudflare/DNS còn cấu hình**.
 
-Development checks:
+`pbl4/` và cache ESP32 cũ đã gỡ. Server hiện còn dùng Python/CUDA tại `VietHandOCR_API_Release/.venv`; không xoá môi trường này. Launcher Python cũ đã chuyển sang mở client Tauri. Firmware có thể lấy lại từ Git history; không cần giữ PlatformIO trên nhánh mới.
+
+## Kiểm tra mã
 
 ```sh
 cargo test --workspace --locked
-dotnet test Server/backend/VietOcr.Server.Tests/VietOcr.Server.Tests.csproj
-cd Contracts/tests
-npm ci --ignore-scripts --no-audit --no-fund
-npm test
+cargo clippy --workspace --all-targets --locked -- -D warnings
+dotnet test Server/backend/VietOcr.Server.Tests
+node --test Desktop/tests/*.test.mjs
+cd Mobile
+flutter analyze --no-pub
+flutter test --no-pub --concurrency=1
 ```
 
-Runtime secrets stay outside Git. The repository's Google OAuth callbacks and model provenance must be preserved during the remaining stages.
+SQL tests nằm trong `Contracts/tests`; native PostgreSQL suite chỉ chạy trên database disposable tên `*_test`. Không tạo hàng nghìn tài khoản hoặc đốt quota project thật để giả lập tải. Hướng dẫn DevTodo sẽ được chốt sau khi các cổng triển khai còn thiếu đã kiểm chứng.

@@ -1,6 +1,5 @@
 import 'dart:io';
 import 'package:flutter/foundation.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:image/image.dart' as img;
 import 'engine.dart';
 import 'decoder.dart';
@@ -36,7 +35,7 @@ List<int> _rotateForServer((String, int) input) {
   );
 }
 
-class RemoteEngine implements OcrEngine {
+class RemoteEngine implements OcrEngine, AcceptedResultRecovery {
   RemoteEngine(
     String origin,
     String key, {
@@ -50,6 +49,36 @@ class RemoteEngine implements OcrEngine {
        );
   final VietOcrRemote _client;
   bool _closed = false;
+  Future<File> _image(String path, int rotation, {bool create = true}) async {
+    final original = File(path);
+    if (rotation % 4 == 0) return original;
+    final derived = File('$path.rotate-${rotation % 4}.png');
+    if (!await derived.exists() && create) {
+      final bytes = await compute(_rotateForServer, (path, rotation));
+      final temporary = File('${derived.path}.tmp');
+      await temporary.writeAsBytes(bytes, flush: true);
+      await temporary.rename(derived.path);
+    }
+    return derived;
+  }
+
+  @override
+  Future<({String state, String text, String error})?> recoverAccepted(
+    String path, {
+    required int rotation,
+  }) async {
+    if (_closed) return null;
+    final image = await _image(path, rotation, create: false);
+    if (!await image.exists()) return null;
+    final result = await _client.recoverAccepted(image);
+    if (result == null) return null;
+    return (
+      state: result['state'] as String,
+      text: result['text'] as String? ?? '',
+      error: result['error'] as String? ?? '',
+    );
+  }
+
   @override
   bool get loaded => !_closed;
   @override
@@ -62,19 +91,12 @@ class RemoteEngine implements OcrEngine {
   }) async {
     if (_closed) throw OcrCancelled();
     cancel.check();
-    File? temporary;
     try {
-      var image = File(path);
       if (rotation % 4 != 0) {
         progress('Đang xoay ảnh trước khi gửi…', null);
-        final bytes = await compute(_rotateForServer, (path, rotation));
-        cancel.check();
-        temporary = File(
-          '${(await getTemporaryDirectory()).path}/server-${DateTime.now().microsecondsSinceEpoch}.png',
-        );
-        await temporary.writeAsBytes(bytes, flush: true);
-        image = temporary;
       }
+      final image = await _image(path, rotation);
+      cancel.check();
       progress('Đang gửi ảnh đến OCR Server…', null);
       final text = await _client.recognize(
         image,
@@ -85,7 +107,11 @@ class RemoteEngine implements OcrEngine {
               ? 'Đang chờ worker trên server…'
               : state == 'running'
               ? 'Server đang nhận diện…'
-              : 'Đã nhận kết quả.',
+              : state.startsWith('uploading')
+              ? 'Đang gửi ảnh qua Raspberry… $state'
+              : state == 'awaiting_upload'
+              ? 'Đang chờ lượt gửi…'
+              : 'Đang nhận kết quả.',
           null,
         ),
       );
@@ -96,10 +122,6 @@ class RemoteEngine implements OcrEngine {
       if (_closed) throw OcrCancelled();
       if (error is RemoteOcrException) rethrow;
       throw StateError(error.toString());
-    } finally {
-      if (temporary != null && await temporary.exists()) {
-        await temporary.delete();
-      }
     }
   }
 

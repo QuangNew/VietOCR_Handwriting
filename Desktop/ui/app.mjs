@@ -2,13 +2,13 @@ import {outline,bounds} from './editor.mjs';
 const $=id=>document.getElementById(id);
 const invoke=(name,args={})=>window.__TAURI__?.core.invoke(name,args)??Promise.reject(Error('Mở ứng dụng Tauri để sử dụng chức năng này.'));
 const channel=handler=>{const c=new window.__TAURI__.core.Channel();c.onmessage=handler;return c;};
-let drafts=[],selected=null,config=null,verified=false,busy=false,liveURL=null,reviewTimer=null,editorSource=null,points=[],drawing=false,textTimer=null,toastTimer=null,transferTimer=null;
-const runningResults=new Set(),transferRows=new Map();
-const label=state=>({draft:'Bản nháp · chưa gửi',awaiting_upload:'Chờ lượt gửi',upload_granted:'Được phép gửi',uploading:'Đang gửi',queued:'Đang chờ worker',running:'Đang đọc chữ',succeeded:'Hoàn tất',failed:'Cần thử lại',cancelled:'Đã dừng'}[state]??state);
+let drafts=[],selected=null,config=null,verified=false,busy=false,liveURL=null,reviewTimer=null,editorSource=null,points=[],drawing=false,textTimer=null,toastTimer=null,transferTimer=null,userId=null,accountEpoch=0;
+const runningResults=new Map(),transferRows=new Map();
+const label=state=>({draft:'Bản nháp · chưa gửi',awaiting_upload:'Chờ lượt gửi',upload_granted:'Được phép gửi',uploading:'Đang gửi',queued:'Đang chờ worker',running:'Đang đọc chữ',succeeded:'Hoàn tất',failed:'Không nhận diện được',cancelled:'Đã dừng',expired:'Đã hết hạn lưu kết quả'}[state]??state);
 function toast(text){$('toast').textContent=String(text);$('toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').hidden=true,6000);}
-function fail(e){const text=String(e);$('message').textContent=text;toast(text);}
+function fail(e){const text=String(e);$('message').textContent=text;toast(text);invoke('record_log',{message:text}).catch(()=>{});}
 async function run(action){try{return await action();}catch(e){fail(e);return null;}}
-function patch(d){const i=drafts.findIndex(x=>x.id===d.id);if(i<0)drafts.push(d);else drafts[i]=d;renderList();}
+function patch(d){if(!userId||d.ownerId!==userId)return;const i=drafts.findIndex(x=>x.id===d.id);if(i<0)drafts.push(d);else drafts[i]=d;renderList();}
 function renderList(){
   $('count').textContent=drafts.length;$('drafts').replaceChildren();
   for(const[d,i]of drafts.map((d,i)=>[d,i])){
@@ -20,6 +20,8 @@ function renderList(){
   $('send').disabled=busy||!verified||!drafts.some(d=>['draft','awaiting_upload','upload_granted','uploading'].includes(d.state));
   for(const id of ['edit','download','remove'])$(id).disabled=!current;
   $('downloadAll').disabled=!drafts.length;
+  $('historyButton').disabled=!verified;
+  $('text').disabled=!!current&&['queued','running'].includes(current.state);
 }
 async function select(id){
   selected=id;renderList();const d=drafts.find(d=>d.id===id);
@@ -27,10 +29,10 @@ async function select(id){
   if(!d){$('originalImage').hidden=true;$('emptyImage').hidden=false;return;}
   const url=await invoke('draft_image',{id});if(selected!==id)return;
   $('originalImage').src=url;$('originalImage').hidden=false;$('emptyImage').hidden=true;
-  $('imageInfo').textContent=`${(d.imageBytes/1024).toFixed(0)} KiB · ${d.mediaType.replace('image/','').toUpperCase()}`;
+  $('imageInfo').textContent=`${d.width&&d.height?`${d.width} × ${d.height} px · `:''}${(d.imageBytes/1024).toFixed(0)} KiB · ${d.mediaType.replace('image/','').toUpperCase()}`;
 }
 async function boot(){
-  const data=await invoke('bootstrap');config=data.config;drafts=data.drafts;verified=!!data.verified;
+  const data=await invoke('bootstrap');config=data.config;drafts=data.drafts;verified=!!data.verified;userId=data.session?.userId??null;
   $('email').textContent=data.session?.email??'Chưa đăng nhập Google';
   $('connection').textContent=verified?'Raspberry đã xác minh':data.session?'Offline · bản nháp được giữ':'Chưa xác minh Raspberry';
   $('connectionDot').classList.toggle('connected',verified);
@@ -39,7 +41,7 @@ async function boot(){
   $('authMessage').textContent=data.session&&!verified?'Chưa xác minh được với Pi. Kiểm tra địa chỉ gateway và migration database.':'';
   $('gateway').value=config.gateway;$('supabase').value=config.supabaseUrl;$('publicKey').value=config.publishableKey;
   renderList();await select(drafts.some(d=>d.id===selected)?selected:drafts[0]?.id??null);
-  for(const d of drafts)if(d.jobId&&['queued','running'].includes(d.state))pollResult(d.id);
+  for(const d of drafts)if(d.jobId&&!['succeeded','failed','cancelled','expired'].includes(d.state))pollResult(d.id);
 }
 $('theme').onclick=()=>{document.body.classList.toggle('light');localStorage.setItem('theme',document.body.classList.contains('light')?'light':'dark');};
 document.body.classList.toggle('light',localStorage.getItem('theme')==='light');
@@ -47,9 +49,9 @@ function settings(){$('settings').showModal();}
 $('settingsButton').onclick=settings;$('gateSettings').onclick=settings;
 $('saveSettings').onclick=()=>run(async()=>{config={gateway:$('gateway').value.trim().replace(/\/$/,''),supabaseUrl:$('supabase').value.trim().replace(/\/$/,''),publishableKey:$('publicKey').value.trim()};await invoke('configure',{config});$('settings').close();await boot();});
 $('login').onclick=()=>run(async()=>{$('login').disabled=true;$('authMessage').textContent='Hoàn tất đăng nhập trong trình duyệt…';try{await invoke('login');await boot();}finally{$('login').disabled=false;}});
-$('logoutButton').onclick=()=>run(async()=>{await invoke('logout');drafts=[];selected=null;await boot();});
+$('logoutButton').onclick=()=>run(async()=>{accountEpoch++;userId=null;verified=false;closeCamera();await invoke('logout');drafts=[];selected=null;await boot();});
 $('import').onclick=()=>run(async()=>{const items=await invoke('pick_import');items.forEach(patch);if(items.length)await select(items.at(-1).id);$('message').textContent='Đã thêm bản nháp. Chọn Gửi khi sẵn sàng.';});
-$('original').onclick=()=>selected?openEditor():$('import').click();
+$('original').onclick=()=>selected?run(openEditor):$('import').click();
 $('edit').onclick=()=>run(openEditor);
 $('download').onclick=()=>run(()=>invoke('export_images',{ids:[selected]}));
 $('downloadAll').onclick=()=>run(()=>invoke('export_images',{ids:drafts.map(d=>d.id)}));
@@ -65,26 +67,42 @@ function transfer(id,text,done=null,total=1){
 }
 $('hideTransfers').onclick=()=>{$('transfers').hidden=true;};
 async function pollResult(id){
-  if(runningResults.has(id))return;runningResults.add(id);
+  const epoch=accountEpoch;
+  if(runningResults.get(id)===epoch)return;runningResults.set(id,epoch);
+  let interruptions=0;
   try{
-    while(drafts.some(d=>d.id===id)&&verified){
-      const d=await invoke('read_result',{id});patch(d);transfer(id,label(d.state),['succeeded','failed','cancelled'].includes(d.state)?1:null,1);
+    while(drafts.some(d=>d.id===id)&&verified&&epoch===accountEpoch){
+      let d;
+      try{d=await invoke('read_result',{id});interruptions=0;}
+      catch(e){if(epoch!==accountEpoch)return;if(/HTTP (401|403)|Đăng nhập Google/.test(String(e)))throw e;interruptions++;transfer(id,'Server giữ lượt gửi · đang kết nối lại để nhận kết quả');await new Promise(r=>setTimeout(r,Math.min(15000,1500*interruptions)+Math.random()*500));continue;}
+      if(epoch!==accountEpoch)return;patch(d);transfer(id,label(d.state),['succeeded','failed','cancelled','expired','awaiting_upload','upload_granted','uploading'].includes(d.state)?1:null,1);
       if(selected===id&&document.activeElement!==$('text')){$('text').value=d.text;countText();}
-      if(['succeeded','failed','cancelled'].includes(d.state))break;
+      if(['succeeded','failed','cancelled','expired','awaiting_upload','upload_granted','uploading'].includes(d.state))break;
       await new Promise(r=>setTimeout(r,500));
     }
   }catch(e){transfer(id,`Kết quả đang lưu ở server · ${String(e)}`,1,1);$('message').textContent='Chưa nhận kết quả. Mở app lại để lấy tiếp.';}
-  finally{runningResults.delete(id);}
+  finally{if(runningResults.get(id)===epoch)runningResults.delete(id);}
 }
+$('historyButton').onclick=()=>run(async()=>{
+  const epoch=accountEpoch,rows=await invoke('history');if(epoch!==accountEpoch)return;
+  $('historyRows').replaceChildren();$('historyText').value='';$('historyState').textContent=rows.length?'Chọn một lượt để xem kết quả.':'Chưa có lượt gửi nào.';
+  for(const item of rows){const button=document.createElement('button');button.textContent=`${new Date(item.created_at??item.createdAt).toLocaleString('vi-VN')} · ${label(item.state)}`;
+    button.onclick=()=>run(async()=>{const data=await invoke('history_result',{id:item.id});if(epoch!==accountEpoch)return;$('historyText').value=data.text??data.error??'';$('historyState').textContent=label(data.state);});$('historyRows').append(button);}
+  $('history').showModal();
+});
+$('historyCopy').onclick=()=>run(()=>navigator.clipboard.writeText($('historyText').value));
+$('logsButton').onclick=()=>run(async()=>{$('logText').value=await invoke('read_logs');$('logs').showModal();});
+$('reloadLogs').onclick=()=>run(async()=>{$('logText').value=await invoke('read_logs');});
+$('copyLogs').onclick=()=>run(()=>navigator.clipboard.writeText($('logText').value));
 $('send').onclick=()=>run(async()=>{
-  if(busy||!verified)return;busy=true;renderList();const queue=drafts.filter(d=>['draft','awaiting_upload','upload_granted','uploading'].includes(d.state));
-  async function worker(){let d;while((d=queue.shift())){
+  if(busy||!verified)return;busy=true;renderList();const queue=drafts.filter(d=>['draft','awaiting_upload','upload_granted','uploading'].includes(d.state)),epoch=accountEpoch,layout=$('layout').value;
+  async function worker(){let d;while(epoch===accountEpoch&&(d=queue.shift())){
     transfer(d.id,'Chờ lượt gửi');
     try{
       let result;const deadline=Date.now()+20*60000;
-      while(true){try{result=await invoke('send_draft',{id:d.id,layout:$('layout').value,progress:channel(p=>transfer(d.id,p.stage==='uploading'?`Đang gửi ${Math.round(p.done/p.total*100)}%`:p.stage,p.done,p.total))});break;}
-        catch(e){if(!/queue_wait|compute_queue_busy|uploads_busy/.test(String(e))||Date.now()>deadline)throw e;await new Promise(r=>setTimeout(r,3000+Math.random()*1000));}}
-      patch(result);pollResult(d.id);
+      while(true){if(epoch!==accountEpoch)return;try{result=await invoke('send_draft',{id:d.id,layout,progress:channel(p=>{if(epoch===accountEpoch)transfer(d.id,p.stage==='uploading'?`Đang gửi ${Math.round(p.done/p.total*100)}%`:p.stage,p.done,p.total);})});break;}
+        catch(e){if(!/queue_wait|compute_queue_busy|uploads_busy|auth_capacity|database_capacity|compute_capacity|compute_unreachable|offset_mismatch|stale_lease/.test(String(e))||Date.now()>deadline)throw e;transfer(d.id,'Đang chờ công suất hoặc kết nối lại');await new Promise(r=>setTimeout(r,3000+Math.random()*1000));}}
+      if(epoch!==accountEpoch)return;patch(result);pollResult(d.id);
     }catch(e){transfer(d.id,String(e),1,1);fail(e);}
   }}
   try{await Promise.all([worker(),worker()]);}finally{busy=false;renderList();}

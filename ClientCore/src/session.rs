@@ -78,8 +78,14 @@ impl Client {
         })
     }
     pub async fn access_token(&self) -> Result<String, String> {
+        self.access_token_for(None).await
+    }
+    pub(crate) async fn access_token_for(&self, owner: Option<Uuid>) -> Result<String, String> {
         let mut current = self.session.lock().await;
         let session = current.as_ref().ok_or("Đăng nhập Google trước")?;
+        if owner.is_some_and(|u| u != session.user_id) {
+            return Err("Tài khoản đã thay đổi".into());
+        }
         if session.expires_at < seconds() + 90 {
             let next = self
                 .auth_token(
@@ -87,6 +93,9 @@ impl Client {
                     json!({"refresh_token":session.refresh_token}),
                 )
                 .await?;
+            if next.user_id != session.user_id {
+                return Err("Phiên được làm mới không trùng tài khoản".into());
+            }
             save(&self.root, &next)?;
             *current = Some(next);
         }
@@ -100,7 +109,12 @@ impl Client {
         let _listener = tokio::net::TcpListener::bind("127.0.0.1:47821")
             .await
             .map_err(|_| "Cổng đăng nhập 47821 đang được dùng")?;
-        let verifier = format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple());
+        let verifier = format!(
+            "{}{}{}",
+            Uuid::new_v4().simple(),
+            Uuid::new_v4().simple(),
+            Uuid::new_v4().simple()
+        );
         let challenge = URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()));
         let nonce = Uuid::new_v4().simple().to_string();
         let redirect = format!("http://127.0.0.1:47821/auth/callback?state={nonce}");
@@ -154,6 +168,7 @@ impl Client {
                 .await?;
             save(&self.root, &next)?;
             *self.session.lock().await = Some(next);
+            self.result_tickets.lock().await.clear();
             self.verify().await
         }
     }
@@ -172,6 +187,7 @@ impl Client {
                 .await;
         }
         *self.session.lock().await = None;
+        self.result_tickets.lock().await.clear();
         match std::fs::remove_file(self.root.join("session.dpapi")) {
             Ok(()) => Ok(()),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),

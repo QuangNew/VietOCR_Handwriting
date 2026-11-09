@@ -114,7 +114,8 @@ public sealed class V2Spool(ServerOptions options,IFlowDatabase db,IImageVerifie
         try{
             await Gate(i.Id).WaitAsync(ct);
             try{
-                if(i.State is "queued" or "running" or "succeeded" or "failed" or "cancelled")
+                if(i.State is "cancelled" or "expired")throw new V2Exception(409,"intent_closed");
+                if(i.State is "queued" or "running" or "succeeded" or "failed")
                     return JsonSerializer.SerializeToElement(new{accepted=true,duplicate=true,jobId=i.Id});
                 var part=Partial(i);var published=options.ImagePath(i.Id.ToString("D"));
                 // A response/DB outage after publication can be retried without reuploading.
@@ -260,14 +261,14 @@ public static class V2Endpoints
             if(!header.StartsWith("Bearer ",StringComparison.Ordinal))throw new V2Exception(401,"result_ticket_required");
             var access=tickets.Read(header[7..],id);
             // Revalidate owner, current session and ban, including after a long-poll.
-            await Find(db,id,new(access.UserId,access.SessionId),ct);
+            var intent=await Find(db,id,new(access.UserId,access.SessionId),ct);
             var job=await store.Find(id.ToString("D"),access.ClientId);
             if(job is {State:"queued" or "running"}&&wait>0){
                 await c.WaitForResult(job.Id,Math.Min(wait.Value,10),ct);
-                tickets.Read(header[7..],id);await Find(db,id,new(access.UserId,access.SessionId),ct);
+                tickets.Read(header[7..],id);intent=await Find(db,id,new(access.UserId,access.SessionId),ct);
                 job=await store.Find(job.Id,access.ClientId);
             }
-            return job==null?Results.Json(new{id,state="awaiting_upload"}):Results.Ok(new{job.Id,job.State,job.Text,job.Error,job.Width,job.Height,job.QueueMs,job.InferenceMs,job.TotalMs});
+            return job==null?Results.Json(new{id,state=FlowResultState.WithoutJob(intent.State)}):Results.Ok(new{job.Id,job.State,job.Text,job.Error,job.Width,job.Height,job.QueueMs,job.InferenceMs,job.TotalMs});
             }finally{resultReaders.Release();}
         });
     }
@@ -280,3 +281,13 @@ public static class V2Endpoints
         FlowJson.Intent(FlowJson.Check(await db.Gateway("get",new{cmd.UserId,cmd.SessionId,jobId=id},ct)),new(cmd.UserId,cmd.SessionId));
 }
 public sealed record ScaleRequest(int DesiredWorkers);
+
+public static class FlowResultState
+{
+    public static string WithoutJob(string intentState)=>intentState switch {
+        "queued" or "running" or "succeeded" or "failed"=>throw new V2Exception(410,"result_expired"),
+        "expired"=>throw new V2Exception(410,"intent_expired"),
+        "awaiting_upload" or "upload_granted" or "uploading" or "cancelled"=>intentState,
+        _=>throw new V2Exception(409,"invalid_job_state")
+    };
+}
