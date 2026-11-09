@@ -85,7 +85,7 @@ void main() {
     },
   );
   test(
-    'OV3660 arrival during OCR is processed serially without repeating completed images',
+    'new capture during Send stays draft until the next explicit Send',
     () async {
       await app.importImages([(bytes, 'first.png')]);
       engine.gate = Completer<void>();
@@ -97,11 +97,8 @@ void main() {
       expect(app.documents, hasLength(2));
       engine.gate!.complete();
       await running;
-      expect(engine.calls, 2);
-      expect(
-        app.documents.every((row) => row.status == DocumentStatus.done),
-        isTrue,
-      );
+      expect(engine.calls, 1);
+      expect(app.documents.last.status, DocumentStatus.ready);
       await app.recognize();
       expect(engine.calls, 2);
     },

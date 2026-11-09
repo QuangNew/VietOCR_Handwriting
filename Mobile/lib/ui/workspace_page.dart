@@ -21,10 +21,11 @@ class _HomePageState extends State<HomePage> {
   int tab = 0;
   AppController get app => widget.app;
   void notice(Object e) {
-    if (mounted)
+    if (mounted) {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text(AppController.readableError(e))));
+    }
   }
 
   Future<void> camera() async {

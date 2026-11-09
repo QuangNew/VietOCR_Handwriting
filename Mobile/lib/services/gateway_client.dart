@@ -44,10 +44,11 @@ class VietOcrRemote {
         !{'', '/'}.contains(u.path) ||
         u.scheme == 'http' &&
             !{'localhost', '127.0.0.1', '::1'}.contains(u.host) &&
-            !allowInsecureLan)
+            !allowInsecureLan) {
       throw ArgumentError(
         'Cần địa chỉ HTTPS của Raspberry. HTTP chỉ dành cho phát triển trong LAN.',
       );
+    }
   }
 
   final Uri origin;
@@ -59,8 +60,9 @@ class VietOcrRemote {
   Future<String> _token() async {
     if (_closed) throw StateError('Client đã đóng.');
     final token = tokenProvider == null ? _key : await tokenProvider!();
-    if (token.isEmpty)
+    if (token.isEmpty) {
       throw const RemoteOcrException('Đăng nhập Google trước.', status: 401);
+    }
     return token;
   }
 
@@ -74,11 +76,12 @@ class VietOcrRemote {
   }
 
   Future<HttpClientRequest> request(String method, String path) async {
+    final token = await _token();
     final r = await _http
         .openUrl(method, origin.resolve(path))
         .timeout(const Duration(seconds: 10));
     r.followRedirects = false;
-    r.headers.set('Authorization', 'Bearer ${await _token()}');
+    r.headers.set('Authorization', 'Bearer $token');
     return r;
   }
 
@@ -88,8 +91,9 @@ class VietOcrRemote {
     var count = 0;
     await for (final chunk in response.timeout(const Duration(seconds: 30))) {
       count += chunk.length;
-      if (count > 2 * 1024 * 1024)
+      if (count > 2 * 1024 * 1024) {
         throw const FormatException('Phản hồi quá lớn.');
+      }
       bytes.add(chunk);
     }
     final text = utf8.decode(bytes.takeBytes());
@@ -166,23 +170,26 @@ class VietOcrRemote {
       '/api/v2/cameras/${Uri.encodeComponent(camera)}/snapshots',
     );
     final response = await r.close().timeout(const Duration(seconds: 15));
-    if (response.statusCode != 200)
+    if (response.statusCode != 200) {
       throw RemoteOcrException(
         'Chụp camera thất bại.',
         status: response.statusCode,
       );
+    }
     final output = BytesBuilder(copy: false);
     var length = 0;
     await for (final p in response.timeout(const Duration(seconds: 15))) {
       length += p.length;
-      if (length > 8 * 1024 * 1024)
+      if (length > 8 * 1024 * 1024) {
         throw const FormatException('Ảnh camera quá lớn.');
+      }
       output.add(p);
     }
     final bytes = output.takeBytes();
     final expected = response.headers.value('x-image-sha256');
-    if (expected != null && sha256.convert(bytes).toString() != expected)
+    if (expected != null && sha256.convert(bytes).toString() != expected) {
       throw const FormatException('Ảnh camera bị lỗi đường truyền.');
+    }
     return bytes;
   }
 
@@ -193,11 +200,12 @@ class VietOcrRemote {
         '/api/v2/cameras/${Uri.encodeComponent(camera)}/stream',
       );
       final response = await r.close().timeout(const Duration(seconds: 15));
-      if (response.statusCode != 200)
+      if (response.statusCode != 200) {
         throw RemoteOcrException(
           'Không mở được camera.',
           status: response.statusCode,
         );
+      }
       final parser = MjpegParser(response.headers.value('content-type') ?? '');
       await for (final chunk in response.timeout(const Duration(seconds: 15))) {
         if (_closed) return;
@@ -218,8 +226,9 @@ class VietOcrRemote {
         u.path != '/api/v2/results/$id' ||
         u.userInfo.isNotEmpty ||
         u.hasFragment ||
-        u.hasQuery)
+        u.hasQuery) {
       throw const FormatException('Địa chỉ trả kết quả không hợp lệ.');
+    }
     final r = await _http.getUrl(u.replace(queryParameters: {'wait': '8'}));
     r.followRedirects = false;
     r.headers.set('Authorization', 'Bearer ${ticket['ticket']}');
@@ -235,23 +244,26 @@ class VietOcrRemote {
   }) async {
     final deadline = DateTime.now().add(timeout);
     void check() {
-      if (_closed || (cancelled?.call() ?? false))
+      if (_closed || (cancelled?.call() ?? false)) {
         throw const RemoteOcrException(
           'Đã tạm dừng. Ảnh đã nhận ở server vẫn được xử lý.',
         );
-      if (DateTime.now().isAfter(deadline))
+      }
+      if (DateTime.now().isAfter(deadline)) {
         throw const RemoteOcrException(
           'Hết thời gian chờ; mở lại để nhận kết quả.',
         );
+      }
     }
 
     check();
     await session();
     final length = await image.length();
-    if (length > 16 * 1048576)
+    if (length > 16 * 1048576) {
       throw const FormatException(
         'Ảnh gửi vượt 16 MiB. Hãy crop vùng cần đọc.',
       );
+    }
     final hash = (await sha256.bind(image.openRead()).first).toString();
     final sidecar = File('${image.path}.ocr-v2.json');
     Map<String, dynamic> cache = {};
@@ -264,13 +276,14 @@ class VietOcrRemote {
     }
     if (cache['sha256'] != hash ||
         cache['layout'] != layout ||
-        cache['gateway'] != origin.toString())
+        cache['gateway'] != origin.toString()) {
       cache = {
         'requestId': newIdempotencyKey(),
         'sha256': hash,
         'layout': layout,
         'gateway': origin.toString(),
       };
+    }
     Future<void> save() async {
       final temp = File('${sidecar.path}.tmp');
       await temp.writeAsString(jsonEncode(cache), flush: true);
@@ -308,8 +321,9 @@ class VietOcrRemote {
           break;
         } on RemoteOcrException catch (e) {
           if (![429, 503].contains(e.status) ||
-              ['minute_quota', 'daily_quota'].contains(e.code))
+              ['minute_quota', 'daily_quota'].contains(e.code)) {
             rethrow;
+          }
           await Future<void>.delayed(
             e.retryAfter ?? const Duration(seconds: 3),
           );
@@ -342,10 +356,11 @@ class VietOcrRemote {
       state = result['state'];
       onState?.call(state?.toString() ?? 'queued');
       if (state == 'succeeded') return result['text'] as String? ?? '';
-      if (state == 'failed' || state == 'cancelled')
+      if (state == 'failed' || state == 'cancelled') {
         throw RemoteOcrException(
           result['error'] as String? ?? 'Không nhận diện được ảnh.',
         );
+      }
       await Future<void>.delayed(const Duration(milliseconds: 400));
     }
   }

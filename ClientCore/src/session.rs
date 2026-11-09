@@ -97,7 +97,7 @@ impl Client {
             .clone())
     }
     pub async fn login(&self) -> Result<Value, String> {
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:47821")
+        let _listener = tokio::net::TcpListener::bind("127.0.0.1:47821")
             .await
             .map_err(|_| "Cổng đăng nhập 47821 đang được dùng")?;
         let verifier = format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple());
@@ -132,7 +132,7 @@ impl Client {
         #[allow(unreachable_code)]
         let code=tokio::time::timeout(Duration::from_secs(180),async{
             loop{
-                let(mut socket,_)=listener.accept().await.map_err(|_|"Đóng callback")?;let mut data=Vec::new();
+                let(mut socket,_)=_listener.accept().await.map_err(|_|"Đóng callback")?;let mut data=Vec::new();
                 let read=tokio::time::timeout(Duration::from_secs(3),async{let mut part=[0u8;1024];while data.len()<8192&&!data.windows(4).any(|v|v==b"\r\n\r\n"){let n=socket.read(&mut part).await?;if n==0{break;}data.extend_from_slice(&part[..n]);}Ok::<_,std::io::Error>(())}).await;
                 if !matches!(read,Ok(Ok(()))){continue;}
                 let line=std::str::from_utf8(&data).unwrap_or("").lines().next().unwrap_or("");let mut fields=line.split_whitespace();

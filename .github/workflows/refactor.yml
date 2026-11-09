@@ -31,7 +31,7 @@ jobs:
       - run: node --test Desktop/tests/*.test.mjs
       - name: Native Tauri Windows release (no local C++ SDK download)
         working-directory: Desktop/src-tauri
-        run: cargo +1.94.0 build --release
+        run: cargo +1.94.0 build --release --locked
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: vietocr-desktop-windows

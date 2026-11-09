@@ -63,8 +63,9 @@ class _PiCameraPageState extends State<PiCameraPage>
           (bytes) {
             if (!mounted ||
                 review != null ||
-                DateTime.now().difference(last).inMilliseconds < 60)
+                DateTime.now().difference(last).inMilliseconds < 60) {
               return;
+            }
             last = DateTime.now();
             setState(() => frame = bytes);
           },
@@ -110,11 +111,12 @@ class _PiCameraPageState extends State<PiCameraPage>
 
   void skip() {
     reviewTimer?.cancel();
-    if (mounted)
+    if (mounted) {
       setState(() {
         review = null;
         seconds = 0;
       });
+    }
   }
 
   @override

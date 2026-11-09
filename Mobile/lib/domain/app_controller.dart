@@ -43,8 +43,9 @@ class AppController extends ChangeNotifier {
     );
     try {
       final session = await remote.session();
-      if ((session['account'] as Map)['userId'] != cloud.userId)
+      if ((session['account'] as Map)['userId'] != cloud.userId) {
         throw StateError('Tài khoản gateway không trùng phiên Google.');
+      }
       gatewayVerified = true;
       _lastVerifiedAccount = cloud.userId;
       await (await SharedPreferences.getInstance()).setString(
@@ -110,8 +111,9 @@ class AppController extends ChangeNotifier {
           tokenProvider: cloud.accessToken,
         );
       }
-      if (!_managedEngine || _accountId != null)
+      if (!_managedEngine || _accountId != null) {
         _documents.addAll(await store.load());
+      }
       if (_disposed) return;
       if (_documents.isNotEmpty) {
         assistant = AssistantState.received;
