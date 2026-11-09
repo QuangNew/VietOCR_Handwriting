@@ -8,6 +8,7 @@ import '../domain/app_controller.dart';
 import '../domain/document.dart';
 import '../ocr/image_processing.dart' show blackWhitePhoto;
 import '../ocr/shape_crop.dart';
+import '../ocr/transfer_image.dart';
 
 typedef CropJob = (
   Uint8List bytes,
@@ -61,11 +62,25 @@ class _ImageDetailPageState extends State<ImageDetailPage> {
   double cropAngle = 0;
   List<CropPoint> stroke = [];
   String? error;
+  late final String? owner;
+  bool get sameAccount => owner == widget.app.cloud.userId;
 
   @override
   void initState() {
     super.initState();
+    owner = widget.app.cloud.userId;
+    widget.app.cloud.addListener(accountChanged);
     _loadSize();
+  }
+
+  void accountChanged() {
+    if (sameAccount || !mounted) return;
+    setState(() => size = null);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && !sameAccount) {
+        Navigator.of(context).popUntil((route) => route.isFirst);
+      }
+    });
   }
 
   Future<void> _loadSize() async {
@@ -81,14 +96,14 @@ class _ImageDetailPageState extends State<ImageDetailPage> {
       );
       frame.image.dispose();
       codec.dispose();
-      if (mounted) setState(() => size = value);
+      if (mounted && sameAccount) setState(() => size = value);
     } catch (failure) {
       if (mounted) setState(() => error = '$failure');
     }
   }
 
   void _notice(String message) {
-    if (mounted) {
+    if (mounted && sameAccount) {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text(message)));
@@ -96,6 +111,7 @@ class _ImageDetailPageState extends State<ImageDetailPage> {
   }
 
   Future<void> _save() async {
+    if (!sameAccount) return;
     try {
       final saved = await const MethodChannel('vietocr/device')
           .invokeMethod<bool>('saveImage', {
@@ -142,7 +158,7 @@ class _ImageDetailPageState extends State<ImageDetailPage> {
 
   Future<void> _crop() async {
     final rect = selection;
-    if (rect == null || saving || widget.app.importing) return;
+    if (!sameAccount || rect == null || saving || widget.app.importing) return;
     setState(() => saving = true);
     try {
       final result = await compute(cropSelection, (
@@ -152,6 +168,7 @@ class _ImageDetailPageState extends State<ImageDetailPage> {
         points: List<CropPoint>.of(cropPoints),
         angle: cropAngle,
       ));
+      if (!mounted || !sameAccount) return;
       final name = 'Crop_${DateTime.now().millisecondsSinceEpoch}.png';
       await widget.app.importImages(
         [(result, name)],
@@ -161,6 +178,7 @@ class _ImageDetailPageState extends State<ImageDetailPage> {
       if (!widget.app.documents.any((item) => item.name == name)) {
         throw StateError(widget.app.message);
       }
+      widget.app.setIncluded(widget.item.id, false);
       _notice('Đã thêm bản nháp crop. Nhấn Gửi khi sẵn sàng.');
     } catch (failure) {
       _notice(AppController.readableError(failure));
@@ -170,13 +188,16 @@ class _ImageDetailPageState extends State<ImageDetailPage> {
   }
 
   Future<void> _blackWhite() async {
-    if (saving || widget.app.importing || widget.app.busy) return;
+    if (!sameAccount || saving || widget.app.importing || widget.app.busy) {
+      return;
+    }
     setState(() => saving = true);
     try {
       final bytes = await compute(blackWhiteOriginal, (
         await File(widget.item.path).readAsBytes(),
         widget.item.rotation,
       ));
+      if (!mounted || !sameAccount) return;
       final name =
           '${widget.item.name.split('.').first}_BW_${DateTime.now().millisecondsSinceEpoch}.png';
       await widget.app.importImages(
@@ -187,6 +208,7 @@ class _ImageDetailPageState extends State<ImageDetailPage> {
       if (!widget.app.documents.any((item) => item.name == name)) {
         throw StateError(widget.app.message);
       }
+      widget.app.setIncluded(widget.item.id, false);
       _notice(
         'Đã thêm bản đen trắng. Ảnh gốc được giữ nguyên; chọn bản phù hợp để nhận diện.',
       );
@@ -197,8 +219,48 @@ class _ImageDetailPageState extends State<ImageDetailPage> {
     }
   }
 
+  Future<void> _optimize() async {
+    if (!sameAccount || saving || widget.app.importing || widget.app.busy) {
+      return;
+    }
+    setState(() => saving = true);
+    final account = widget.app.cloud.userId;
+    try {
+      final result = await compute(optimizeTransfer, (
+        await File(widget.item.path).readAsBytes(),
+        widget.item.rotation,
+      ));
+      if (!mounted || widget.app.cloud.userId != account) return;
+      if (result == null) {
+        _notice(
+          'Ảnh đã gọn hoặc có profile màu cần giữ. Tiếp tục dùng bản gốc.',
+        );
+        return;
+      }
+      final name =
+          'OCR_${DateTime.now().millisecondsSinceEpoch}.${result.extension}';
+      await widget.app.importImages([
+        (result.bytes, name),
+      ], preserveResolution: true);
+      if (!widget.app.documents.any((d) => d.name == name)) {
+        throw StateError(widget.app.message);
+      }
+      widget.app.setIncluded(widget.item.id, false);
+      _notice(
+        result.lossless
+            ? 'Đã chọn PNG không mất dữ liệu pixel; giữ bản gốc.'
+            : 'Đã chọn JPEG95, không giảm độ phân giải; giữ bản gốc.',
+      );
+    } catch (e) {
+      _notice(AppController.readableError(e));
+    } finally {
+      if (mounted) setState(() => saving = false);
+    }
+  }
+
   @override
   void dispose() {
+    widget.app.cloud.removeListener(accountChanged);
     transform.dispose();
     super.dispose();
   }
@@ -392,6 +454,10 @@ class _ImageDetailPageState extends State<ImageDetailPage> {
                   label: const Text('Chọn vùng crop'),
                   selected: cropping,
                   onSelected: (value) => setState(() => cropping = value),
+                ),
+                OutlinedButton(
+                  onPressed: saving || widget.app.importing ? null : _optimize,
+                  child: const Text('Tối ưu OCR · JPEG95 / PNG'),
                 ),
                 FilledButton(
                   onPressed: selection != null && !saving ? _crop : null,

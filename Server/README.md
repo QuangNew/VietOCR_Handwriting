@@ -2,17 +2,17 @@
 
 **ASP.NET Core 10 + Next.js + Supabase PostgreSQL/Auth**, model **ML_s44** chạy trên máy host bằng Python/PyTorch. Desktop và Android chỉ dùng server; không nạp model cục bộ. XAMPP không còn là dependency vận hành.
 
-Trên nhánh `refactor`, server giữ C#/Python/Next.js và đang chuyển sang nhận OCR chỉ qua Raspberry. Xem [tiến độ](../docs/REFACTOR_PROGRESS.md) và [rollout database](../docs/REFACTOR_DB_ROLLOUT.md) trước khi chạy build mới: coordinator yêu cầu policy database 500/30 đã migrate. Các hướng dẫn client v1 sau đây mô tả giai đoạn chuyển đổi.
+Trên nhánh `refactor`, server giữ C#/Python/Next.js và nhận OCR qua Raspberry. Xem [tiến độ](../docs/REFACTOR_PROGRESS.md), [API v2](docs/API.md) và [rollout database](../docs/REFACTOR_DB_ROLLOUT.md). Migrations500/30 đã áp dụng; tên miền/tunnel còn cần xác minh trước khi dùng qua Internet.
 
 ## Chạy trên máy này
 
 ```powershell
 Server/Run-Server.cmd
-# Cho phép điện thoại/máy khác trong LAN:
+# Chỉ dành cho phát triển trong LAN tin cậy:
 Server/Run-Server.cmd -Lan
 ```
 
-Dashboard: `http://127.0.0.1:3000`; API v1: `http://127.0.0.1:5080`. Client cũ nhập IP LAN máy tính và bật HTTP trong LAN tin cậy. Không nhập URL Supabase làm địa chỉ OCR server. Kiến trúc mới đặt webcam trên Pi và truy cập qua gateway; firmware ESP32 đã được gỡ khỏi nhánh này.
+Dashboard: `http://127.0.0.1:3000`; compute nội bộ: `http://127.0.0.1:5080`. Client cấu hình HTTPS của Pi, không kết nối trực tiếp cổng5080 để gửi ảnh. API v1 mặc định trả410. Webcam nằm trên Pi; firmware và client BLE/ESP32 đã gỡ.
 
 Tài khoản quản trị hiện có đã chuyển sang Supabase. Thông tin đăng nhập trên máy nằm trong `runtime/admin-first-login.txt` (private, không commit). Tạo admin khác bằng `tools/New-Admin.ps1`; không có đăng ký admin công khai. Chạy `tools/Build-Server.ps1` sau khi sửa mã.
 
@@ -27,13 +27,13 @@ Mỗi tài khoản có mã OCR cố định; request dùng phiên Google có th�
 
 ## Model và tài nguyên
 
-Model lưu tại `models/ML_s44/ml_s44_fp16.pth` (72,9 MiB), runtime FP32/V2c 64px, worker persistent. Không tải trọng số từ Internet. Server hiện tái sử dụng Python CUDA tại `../VietHandOCR_API_Release/.venv/Scripts/python.exe`; đây là môi trường **server**, không phải yêu cầu cài PyTorch cho client mới.
+Model lưu tại `models/ML_s44/ml_s44_fp16.pth` (72,9 MiB), runtime FP32/V2c 64px, worker persistent. Không tải trọng số từ Internet. Server dùng Python CUDA tại `.venv/Scripts/python.exe` (interpreter riêng trong `.python/`); đây là môi trường **server**, không phải yêu cầu cài PyTorch cho client mới.
 
 Dự toán `(6144−1024)/300≈17` chỉ là tính ban đầu. Phép đo trước đây: một worker khoảng 266 MiB CUDA reserved và khoảng 1,1 GiB RAM cả cây process; phải cộng CUDA context, activation, warm-up và phần dự phòng. Không tự nạp 17 worker. Nếu web báo thiếu RAM, giải phóng RAM rồi thêm worker. App vẫn giữ ảnh khi server chưa sẵn sàng.
 
 Queue round-robin theo tài khoản, FIFO bên trong từng tài khoản. Worker lỗi native được thay process và retry có giới hạn; input trên ổ đĩa, trạng thái/kết quả trên Supabase. Giữ ít nhất 1 GiB RAM/VRAM theo mặc định. Ảnh tạm xoá sau kết thúc; kết quả giữ 24 giờ mặc định. Host chết có thể thực hiện lại inference: at least once, không cam kết exactly once. Một coordinator/lease cho một project.
 
-Các worker rảnh cũng được chọn luân phiên, kể cả khi request đến từng cái. Worker đang bận hoặc đang dừng được bỏ qua; worker nhanh nhận việc tiếp mà không phải chờ worker chậm. Desktop gửi đồng thời tối đa `min(4, số worker sẵn sàng)` ảnh, giữ nguyên JPEG/PNG nguồn và thứ tự tài liệu. Một ảnh chỉ chạy trên một worker. Cả Android và desktop dùng cùng bộ điều phối này.
+Các worker rảnh cũng được chọn luân phiên, kể cả khi request đến từng cái. Worker đang bận hoặc đang dừng được bỏ qua; worker nhanh nhận việc tiếp mà không phải chờ worker chậm. Client gửi có giới hạn đồng thời và theo cơ chế cấp lượt của Pi; ảnh đã nhận nằm trên compute, không giữ hàng nghìn file trong RAM Pi. Một ảnh chạy trên một worker. Bản JPEG/PNG gốc luôn được giữ; bản tối ưu ảnh là tuỳ chọn riêng.
 
 Xem [đo độ trễ và chia tải](docs/PERFORMANCE.md). `Run-Server.cmd` build lại web production trước khi chạy để tránh dùng UI cũ; cần đóng phiên server trước khi mở lại. Bản Android hiện tại không cần đổi để nhận lợi ích của bộ điều phối phía server.
 

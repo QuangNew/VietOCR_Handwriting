@@ -12,13 +12,16 @@ function patch(d){if(!userId||d.ownerId!==userId)return;const i=drafts.findIndex
 function renderList(){
   $('count').textContent=drafts.length;$('drafts').replaceChildren();
   for(const[d,i]of drafts.map((d,i)=>[d,i])){
-    const row=document.createElement('button');row.className=`draft-row ${selected===d.id?'active':''}`;
+    const row=document.createElement('div');row.className=`draft-row ${selected===d.id?'active':''}`;
+    const checkbox=document.createElement('input');checkbox.type='checkbox';checkbox.checked=d.included!==false;checkbox.disabled=busy;checkbox.setAttribute('aria-label',`Gửi ${d.name}`);checkbox.onchange=()=>run(async()=>{patch(await invoke('set_included',{id:d.id,included:checkbox.checked}));});
     const n=document.createElement('span');n.className='draft-number';n.textContent=String(i+1).padStart(2,'0');
-    const block=document.createElement('span');block.className='draft-name';const title=document.createElement('strong');title.textContent=d.name;const hint=document.createElement('small');hint.textContent=label(d.state);block.append(title,hint);row.append(n,block);row.onclick=()=>run(()=>select(d.id));$('drafts').append(row);
+    const block=document.createElement('button');block.className='draft-name';const title=document.createElement('strong');title.textContent=d.name;const hint=document.createElement('small');hint.textContent=label(d.state);block.append(title,hint);block.onclick=()=>run(()=>select(d.id));row.append(checkbox,n,block);$('drafts').append(row);
   }
   const current=drafts.find(x=>x.id===selected);$('jobState').textContent=current?label(current.state):'Chưa gửi';
-  $('send').disabled=busy||!verified||!drafts.some(d=>['draft','awaiting_upload','upload_granted','uploading'].includes(d.state));
+  const sendable=drafts.filter(d=>d.included!==false&&['draft','awaiting_upload','upload_granted','uploading'].includes(d.state));
+  $('send').disabled=busy||!verified||!sendable.length;$('send').textContent=`Gửi ${sendable.length} ảnh →`;
   for(const id of ['edit','download','remove'])$(id).disabled=!current;
+  $('optimize').disabled=!current||busy;
   $('downloadAll').disabled=!drafts.length;
   $('historyButton').disabled=!verified;
   $('text').disabled=!!current&&['queued','running'].includes(current.state);
@@ -39,7 +42,7 @@ async function boot(){
   $('authGate').hidden=!!data.session&&!!(verified||data.workspaceAllowed);
   $('workspace').hidden=!$('authGate').hidden;
   $('authMessage').textContent=data.session&&!verified?'Chưa xác minh được với Pi. Kiểm tra địa chỉ gateway và migration database.':'';
-  $('gateway').value=config.gateway;$('supabase').value=config.supabaseUrl;$('publicKey').value=config.publishableKey;
+  $('gateway').value=config.gateway;
   renderList();await select(drafts.some(d=>d.id===selected)?selected:drafts[0]?.id??null);
   for(const d of drafts)if(d.jobId&&!['succeeded','failed','cancelled','expired'].includes(d.state))pollResult(d.id);
 }
@@ -47,7 +50,7 @@ $('theme').onclick=()=>{document.body.classList.toggle('light');localStorage.set
 document.body.classList.toggle('light',localStorage.getItem('theme')==='light');
 function settings(){$('settings').showModal();}
 $('settingsButton').onclick=settings;$('gateSettings').onclick=settings;
-$('saveSettings').onclick=()=>run(async()=>{config={gateway:$('gateway').value.trim().replace(/\/$/,''),supabaseUrl:$('supabase').value.trim().replace(/\/$/,''),publishableKey:$('publicKey').value.trim()};await invoke('configure',{config});$('settings').close();await boot();});
+$('saveSettings').onclick=()=>run(async()=>{await invoke('configure',{gateway:$('gateway').value.trim().replace(/\/$/,'')});$('settings').close();await boot();});
 $('login').onclick=()=>run(async()=>{$('login').disabled=true;$('authMessage').textContent='Hoàn tất đăng nhập trong trình duyệt…';try{await invoke('login');await boot();}finally{$('login').disabled=false;}});
 $('logoutButton').onclick=()=>run(async()=>{accountEpoch++;userId=null;verified=false;closeCamera();await invoke('logout');drafts=[];selected=null;await boot();});
 $('import').onclick=()=>run(async()=>{const items=await invoke('pick_import');items.forEach(patch);if(items.length)await select(items.at(-1).id);$('message').textContent='Đã thêm bản nháp. Chọn Gửi khi sẵn sàng.';});
@@ -55,6 +58,7 @@ $('original').onclick=()=>selected?run(openEditor):$('import').click();
 $('edit').onclick=()=>run(openEditor);
 $('download').onclick=()=>run(()=>invoke('export_images',{ids:[selected]}));
 $('downloadAll').onclick=()=>run(()=>invoke('export_images',{ids:drafts.map(d=>d.id)}));
+$('optimize').onclick=()=>run(async()=>{if(!selected||busy)return;const sourceId=selected;$('optimize').disabled=true;try{const d=await invoke('optimize_draft',{id:sourceId});if(!d){toast('Ảnh đã gọn hoặc có profile màu cần giữ. Tiếp tục dùng bản gốc.');return;}const source=drafts.find(x=>x.id===sourceId);if(source)source.included=false;patch(d);await select(d.id);toast(d.transferNote+' · bản gốc được giữ');}finally{renderList();}});
 $('remove').onclick=()=>run(async()=>{await invoke('remove_draft',{id:selected});drafts=drafts.filter(d=>d.id!==selected);await select(drafts[0]?.id??null);});
 $('copy').onclick=()=>run(()=>navigator.clipboard.writeText($('text').value));
 $('exportText').onclick=()=>run(()=>invoke('export_text'));
@@ -95,7 +99,7 @@ $('logsButton').onclick=()=>run(async()=>{$('logText').value=await invoke('read_
 $('reloadLogs').onclick=()=>run(async()=>{$('logText').value=await invoke('read_logs');});
 $('copyLogs').onclick=()=>run(()=>navigator.clipboard.writeText($('logText').value));
 $('send').onclick=()=>run(async()=>{
-  if(busy||!verified)return;busy=true;renderList();const queue=drafts.filter(d=>['draft','awaiting_upload','upload_granted','uploading'].includes(d.state)),epoch=accountEpoch,layout=$('layout').value;
+  if(busy||!verified)return;busy=true;renderList();const queue=drafts.filter(d=>d.included!==false&&['draft','awaiting_upload','upload_granted','uploading'].includes(d.state)),epoch=accountEpoch,layout=$('layout').value;
   async function worker(){let d;while(epoch===accountEpoch&&(d=queue.shift())){
     transfer(d.id,'Chờ lượt gửi');
     try{
@@ -109,24 +113,27 @@ $('send').onclick=()=>run(async()=>{
 });
 const splitter=$('splitter');splitter.onpointerdown=e=>{splitter.setPointerCapture(e.pointerId);splitter.onpointermove=e=>$('sidebar').style.width=`${Math.max(250,Math.min(440,e.clientX))}px`;splitter.onpointerup=()=>{splitter.onpointermove=null;};};
 
-function closeCamera(){clearInterval(reviewTimer);reviewTimer=null;$('camera').close();run(()=>invoke('camera_stop'));if(liveURL){URL.revokeObjectURL(liveURL);liveURL=null;}}
-let review=false;
+let review=false,reviewMirrored=false,cameraGeneration=0;
+function liveTransform(){$('live').style.transform=(!review&&$('mirror').checked)||(review&&$('mirror').checked!==reviewMirrored)?'scaleX(-1)':'';}
+function closeCamera(){cameraGeneration++;clearInterval(reviewTimer);reviewTimer=null;review=false;$('camera').close();run(()=>invoke('camera_stop'));if(liveURL){URL.revokeObjectURL(liveURL);liveURL=null;}}
 async function startCamera(){
-  review=false;$('live').style.transform=$('mirror').checked?'scaleX(-1)':'';$('cameraStatus').textContent='Đang mở camera…';
+  const generation=++cameraGeneration;review=false;clearInterval(reviewTimer);reviewTimer=null;$('skip').hidden=true;$('shoot').disabled=false;liveTransform();$('cameraStatus').textContent='Đang mở camera…';
   await invoke('camera_stop');const frames=channel(async buffer=>{
-    try{if(!review&&$('camera').open){const next=URL.createObjectURL(new Blob([buffer],{type:'image/jpeg'}));const old=liveURL;liveURL=next;$('live').src=next;$('cameraStatus').textContent='Đang xem trực tiếp';if(old)URL.revokeObjectURL(old);}}
+    try{if(generation===cameraGeneration&&!review&&$('camera').open){const next=URL.createObjectURL(new Blob([buffer],{type:'image/jpeg'}));const old=liveURL;liveURL=next;$('live').src=next;$('cameraStatus').textContent='Đang xem trực tiếp';if(old)URL.revokeObjectURL(old);}}
     finally{await invoke('camera_ack');}
   });
-  invoke('camera_stream',{id:$('cameraSelect').value,frames}).then(()=>{if($('camera').open&&!review)$('cameraStatus').textContent='Stream đã dừng. Chọn lại camera để nối lại.';}).catch(e=>{if($('camera').open){$('cameraStatus').textContent=String(e);}});
+  invoke('camera_stream',{id:$('cameraSelect').value,frames}).then(()=>{if(generation===cameraGeneration&&$('camera').open&&!review)$('cameraStatus').textContent='Stream đã dừng. Chọn lại camera để nối lại.';}).catch(e=>{if(generation===cameraGeneration&&$('camera').open){$('cameraStatus').textContent=String(e);}});
 }
 $('cameraButton').onclick=()=>run(async()=>{const items=await invoke('cameras');$('cameraSelect').replaceChildren();for(const c of items){const option=document.createElement('option');option.value=c.id;option.textContent=c.name;$('cameraSelect').append(option);}if(!items.length)throw Error('Pi chưa có webcam được cấu hình.');$('camera').showModal();await startCamera();});
 $('cameraSelect').onchange=()=>run(startCamera);$('cameraClose').onclick=closeCamera;$('camera').addEventListener('cancel',()=>closeCamera());
-$('mirror').onchange=()=>{$('live').style.transform=$('mirror').checked?'scaleX(-1)':'';};
-function skip(){clearInterval(reviewTimer);reviewTimer=null;review=false;$('skip').hidden=true;$('shoot').disabled=false;$('reviewStatus').textContent='Ảnh đã lưu bản nháp · chưa gửi OCR';}
+$('mirror').onchange=liveTransform;
+function skip(){clearInterval(reviewTimer);reviewTimer=null;review=false;$('skip').hidden=true;$('shoot').disabled=false;$('reviewStatus').textContent='Ảnh đã lưu bản nháp · chưa gửi OCR';liveTransform();}
 $('skip').onclick=skip;
 $('shoot').onclick=()=>run(async()=>{
-  $('shoot').disabled=true;
-  try{const d=await invoke('capture',{id:$('cameraSelect').value});patch(d);await select(d.id);review=true;$('live').src=await invoke('draft_image',{id:d.id});
+  $('shoot').disabled=true;const epoch=accountEpoch,generation=cameraGeneration,mirrored=$('mirror').checked;
+  try{let d=await invoke('capture',{id:$('cameraSelect').value});if(epoch!==accountEpoch||generation!==cameraGeneration)return;patch(d);
+    if(mirrored){const image=new Image();image.src=await invoke('draft_image',{id:d.id});await image.decode();const out=document.createElement('canvas');out.width=image.naturalWidth;out.height=image.naturalHeight;const c=out.getContext('2d');c.translate(out.width,0);c.scale(-1,1);c.drawImage(image,0,0);d=await saveCanvas(out,`Mirror-${Date.now()}.png`,d.id);}
+    if(epoch!==accountEpoch||generation!==cameraGeneration)return;await select(d.id);review=true;reviewMirrored=mirrored;liveTransform();$('live').src=await invoke('draft_image',{id:d.id});
     let seconds=3;$('skip').hidden=false;$('reviewStatus').textContent=`Đã lưu bản nháp · xem lại ${seconds}s`;
     reviewTimer=setInterval(()=>{seconds--;if(seconds<=0)skip();else $('reviewStatus').textContent=`Đã lưu bản nháp · xem lại ${seconds}s`;},1000);
   }catch(e){$('shoot').disabled=false;throw e;}
@@ -148,7 +155,7 @@ canvas.onpointerdown=e=>{drawing=true;canvas.setPointerCapture(e.pointerId);poin
 canvas.onpointermove=e=>{if(!drawing)return;if($('shape').value==='freehand'){if(points.length<4096)points.push(point(e));}else points[1]=point(e);drawEditor();};
 canvas.onpointerup=()=>{drawing=false;drawEditor();};$('shape').onchange=()=>{points=[];drawEditor();};$('angle').oninput=drawEditor;$('zoom').oninput=drawEditor;
 $('editorClose').onclick=()=>{$('editor').close();editorSource=null;};
-async function saveCanvas(output,name){const d=await invoke('save_edit',{data:output.toDataURL('image/png'),name});patch(d);await select(d.id);toast('Đã thêm bản nháp mới · chưa gửi OCR');}
+async function saveCanvas(output,name,sourceId=selected){const d=await invoke('save_edit',{data:output.toDataURL('image/png'),name,sourceId});const original=drafts.find(x=>x.id===sourceId);if(original)original.included=false;patch(d);await select(d.id);toast('Đã chọn bản chỉnh sửa để gửi · bản gốc vẫn được giữ');return d;}
 $('crop').onclick=()=>run(async()=>{
   const polygon=outline(points,$('shape').value,Number($('angle').value)),r=bounds(polygon,canvas.width,canvas.height),out=document.createElement('canvas');out.width=r.w;out.height=r.h;const c=out.getContext('2d');
   c.fillStyle='#fff';c.fillRect(0,0,r.w,r.h);c.save();c.beginPath();polygon.forEach(([x,y],i)=>i?c.lineTo(x-r.l,y-r.t):c.moveTo(x-r.l,y-r.t));c.closePath();c.clip();c.drawImage(editorSource,-r.l,-r.t);c.restore();
@@ -158,7 +165,7 @@ $('rotate').onclick=()=>run(async()=>{const out=document.createElement('canvas')
 $('bw').onclick=()=>run(async()=>{
   $('bw').disabled=true;try{const out=document.createElement('canvas');out.width=canvas.width;out.height=canvas.height;out.getContext('2d').drawImage(editorSource,0,0);const blob=await new Promise(r=>out.toBlob(r,'image/png'));
     const worker=new Worker('bw-worker.mjs',{type:'module'});const result=await new Promise((resolve,reject)=>{worker.onmessage=e=>e.data.error?reject(Error(e.data.error)):resolve(e.data.blob);worker.onerror=reject;worker.postMessage(blob);});worker.terminate();
-    const data=await new Promise(resolve=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.readAsDataURL(result);});const d=await invoke('save_edit',{data,name:`BW-${Date.now()}.png`});patch(d);await select(d.id);$('editor').close();toast('Bản đen trắng đã lưu · chưa gửi');
+    const data=await new Promise(resolve=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.readAsDataURL(result);});const sourceId=selected,d=await invoke('save_edit',{data,name:`BW-${Date.now()}.png`,sourceId});const original=drafts.find(x=>x.id===sourceId);if(original)original.included=false;patch(d);await select(d.id);$('editor').close();toast('Đã chọn bản đen trắng để gửi · bản gốc vẫn được giữ');
   }finally{$('bw').disabled=false;}
 });
 run(boot);

@@ -6,6 +6,22 @@ import 'package:vietocr_mobile/services/app_log.dart';
 import 'package:vietocr_mobile/ui/log_page.dart';
 
 void main() {
+  test('logs hide credentials from messages, errors and export text', () {
+    final log = AppLog(persist: false);
+    log.add(
+      'Auth',
+      'Bearer opaque-token-value',
+      error:
+          'HTTP401 password=private-value & access_token=query-token-value sb_publishable_fixture_value eyJhbGciOiJIUzI1NiJ9.payload.signature',
+    );
+    expect(log.text, isNot(contains('opaque-token-value')));
+    expect(log.text, isNot(contains('private-value')));
+    expect(log.text, isNot(contains('query-token-value')));
+    expect(log.text, isNot(contains('sb_publishable_fixture_value')));
+    expect(log.text, isNot(contains('eyJhbGci')));
+    expect(log.text, contains('HTTP401'));
+    log.dispose();
+  });
   TestWidgetsFlutterBinding.ensureInitialized();
   const native = MethodChannel('vietocr/ocr');
   final messenger =

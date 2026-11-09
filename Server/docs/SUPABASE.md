@@ -85,7 +85,7 @@ Chỉ với database mới, chạy migration một lần qua SQL Editor hoặc C
 supabase db query --linked --file supabase/migrations/202611030001_ocr_control.sql
 ```
 
-`server.local.json` bị Git bỏ qua và giới hạn quyền Windows. Public/publishable config cho hai app được sinh tại `desktop/cloud_config.json` và `Mobile/assets/config/supabase.json`. Đổi project cần sinh lại config rồi build APK.
+`server.local.json` bị Git bỏ qua và giới hạn quyền Windows. Cấu hình công khai dùng chung ở `Mobile/assets/config/supabase.json`; Tauri nhúng file này lúc build. Đổi project cần build lại EXE/APK. Giao diện người dùng không hiển thị hoặc yêu cầu nhập key Supabase. Publishable key không phải secret; service-role/secret key chỉ được giữ trên compute, quyền dữ liệu do grants/RLS và phiên người dùng quyết định.
 
 Máy này đã chuyển **1 admin và 14 client cũ** từ XAMPP; database XAMPP gốc không xoá. Công việc/lịch sử thử nghiệm cũ vẫn nằm trong XAMPP, không chuyển ảnh/queue thử nghiệm cũ sang hệ thống mới.
 

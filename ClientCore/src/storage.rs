@@ -1,4 +1,20 @@
 use std::{fs::File, io::Write, path::Path};
+/// One desktop writer per app-data directory. The OS releases the lock on exit,
+/// including a crash; a stale PID file can never permanently block the app.
+pub fn workspace_lock(root: &Path) -> std::io::Result<Option<File>> {
+    std::fs::create_dir_all(root)?;
+    let file = File::options()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(root.join("workspace.lock"))?;
+    match file.try_lock() {
+        Ok(()) => Ok(Some(file)),
+        Err(std::fs::TryLockError::WouldBlock) => Ok(None),
+        Err(std::fs::TryLockError::Error(error)) => Err(error),
+    }
+}
 pub fn atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
     let temp = path.with_extension("tmp");
     let mut file = File::create(&temp).map_err(|_| "Không tạo được file tạm")?;

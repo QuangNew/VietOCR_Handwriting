@@ -17,7 +17,7 @@ public sealed class ServerOptions
     public bool GatewayAutoScale { get; set; } = true;
     public bool AcceptingRequests { get; set; } = true;
     public bool DispatchPaused { get; set; }
-    public string Python { get; set; } = "../VietHandOCR_API_Release/.venv/Scripts/python.exe";
+    public string Python { get; set; } = ".venv/Scripts/python.exe";
     public string Device { get; set; } = "auto";
     public int InitialWorkers { get; set; } = 1;
     public int ReserveVramMiB { get; set; } = 1024;

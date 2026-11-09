@@ -8,6 +8,7 @@ on:
       - Gateway/**
       - ClientCore/**
       - Desktop/**
+      - Mobile/**
       - Server/backend/**
       - Contracts/**
       - supabase/migrations/**

@@ -16,7 +16,7 @@ Webcam cắm **Pi**, dùng chung cho các tài khoản hợp lệ. Ảnh chụp,
 
 Tiến độ và bằng chứng: [REFACTOR_PROGRESS.md](docs/REFACTOR_PROGRESS.md). Phạm vi đã duyệt: [REFACTOR_PLAN_2026-11-08.md](docs/REFACTOR_PLAN_2026-11-08.md). Tên miền dự kiến `api.quangnew.tech` cho Pi và `ocr.quangnew.tech` cho compute; **chưa công bố Internet sẵn sàng khi Cloudflare/DNS còn cấu hình**.
 
-`pbl4/` và cache ESP32 cũ đã gỡ. Server hiện còn dùng Python/CUDA tại `VietHandOCR_API_Release/.venv`; không xoá môi trường này. Launcher Python cũ đã chuyển sang mở client Tauri. Firmware có thể lấy lại từ Git history; không cần giữ PlatformIO trên nhánh mới.
+`pbl4/` và cache ESP32 cũ đã gỡ. Python/CUDA đã được tách vào `Server/.venv` và `Server/.python`; không xoá môi trường này. Launcher Python cũ đã chuyển sang mở client Tauri. Firmware có thể lấy lại từ Git history; không cần giữ PlatformIO trên nhánh mới.
 
 ## Kiểm tra mã
 

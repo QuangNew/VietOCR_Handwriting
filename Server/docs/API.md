@@ -1,4 +1,42 @@
-# Client API v1
+# Client API v2 — Raspberry gateway
+
+Current clients connect to `https://api.quangnew.tech`. The Pi validates the
+Google access token, current session, ban and shared account quota before
+forwarding any OCR image to compute. [OpenAPI v2](../../Contracts/openapi-v2.json)
+is the current transport contract; the public tunnels must be deployed first.
+
+1. `GET /api/v2/session` verifies the account and advertises the pinned compute
+   results origin. Camera list/stream/snapshot also require a Google session.
+2. Capture/import/edit create private client drafts. Explicit Send creates
+   `POST /api/v2/intents` with stable request UUID, SHA-256, byte count and layout.
+3. `POST /api/v2/intents/{id}/grant` gets a fenced upload generation/offset.
+   `PUT .../content` streams at most1MiB per chunk with `Upload-Offset` and
+   `X-OCR-Generation`; retry the same intent, not a fresh request ID.
+4. `POST .../complete` validates the durable compute receipt and commits quota
+   once. An incomplete upload does not consume an image credit.
+5. `POST .../result-ticket` issues a short-lived, job/user/session-bound read
+   ticket. The client reads `/api/v2/results/{id}` directly on compute; image
+   upload and OCR creation remain restricted to the Pi's machine ingress.
+
+Limits: at most **500 accepted images/day** and **30 accepted images/rolling60s**
+per Google account, shared across devices; administrators can lower them.
+Daily reset is Asia/Ho_Chi_Minh00:00. Idempotent retries do not charge twice.
+Clients retain unsent originals and recover accepted jobs without reuploading.
+Transient429/503 requires bounded backoff, not unlimited upload concurrency.
+Expired retained results return410; the client's local image remains available.
+
+Only public Supabase project configuration is compiled into clients. The user
+does not enter a service-role key, Google client secret or Pi machine token.
+Desktop connection settings contain only the Raspberry URL. Session credentials
+use Windows DPAPI / Android Keystore. Hiding a public key is not the authorization
+boundary: the database grants/RLS, session checks and compute ingress enforce it.
+
+## Retired v1 compatibility reference
+
+The endpoints below are disabled by default (`LegacyClientApiEnabled=false`)
+and return410. They are not used by the refactor desktop/Android clients and
+must not be exposed by the compute tunnel. This section describes legacy SDKs
+only. Admin cookie/CSRF and worker administration remain supported.
 
 Base URL is the **C# API** on port 5080, e.g. `https://ocr.example.com` or a trusted LAN address. Next.js port 3000 is the admin interface. Apps authenticate with a Supabase Google access token. A stable public OCR identity identifies the account; it is not an authentication secret. Admin-issued revocable voc_ keys remain available for service integrations. HTTPS is the default requirement outside loopback; `Start-Server -Lan` explicitly allows development HTTP.
 

@@ -1,4 +1,30 @@
 use super::*;
+#[test]
+fn another_desktop_cannot_overwrite_the_same_workspace_and_exit_releases_lock() {
+    let root = Temporary::new();
+    let first = storage::workspace_lock(&root.0).unwrap().unwrap();
+    assert!(storage::workspace_lock(&root.0).unwrap().is_none());
+    drop(first);
+    assert!(storage::workspace_lock(&root.0).unwrap().is_some());
+}
+#[test]
+fn diagnostics_omit_credentials_before_persisting_or_exporting() {
+    let root = Temporary::new();
+    for message in [
+        "authorization: bearer private-token",
+        "sb_publishable_fixture",
+        "CLIENT_SECRET=private-value",
+        "eyJfixture.payload.signature",
+    ] {
+        diagnostics::append(&root.0, "client", message);
+    }
+    let text = diagnostics::read(&root.0).unwrap();
+    assert!(!text.contains("private-token"));
+    assert!(!text.contains("private-value"));
+    assert!(!text.contains("sb_publishable_fixture"));
+    assert!(!text.contains("eyJfixture"));
+    assert!(text.contains("credential-like details omitted"));
+}
 use std::sync::{
     Arc,
     atomic::{AtomicBool, AtomicUsize, Ordering},

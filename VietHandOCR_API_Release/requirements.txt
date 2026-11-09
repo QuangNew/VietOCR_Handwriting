@@ -1,6 +1,0 @@
-# Desktop server client only. Install server/worker requirements separately.
-Pillow>=10.0.0
-opencv-python
-numpy>=1.26.4,<3
-bleak>=3.0.2,<4.0
-winrt-Windows.Devices.Radios>=3.2.1,<4.0; sys_platform == 'win32'

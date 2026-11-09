@@ -4,6 +4,27 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 
+String _redact(String value) => value
+    .replaceAll(
+      RegExp(r'Bearer\s+[^\s,;"\x27]+', caseSensitive: false),
+      'Bearer [hidden]',
+    )
+    .replaceAll(
+      RegExp(r'sb_(?:secret|publishable)_[A-Za-z0-9_-]+'),
+      '[hidden key]',
+    )
+    .replaceAll(
+      RegExp(r'eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+'),
+      '[hidden token]',
+    )
+    .replaceAll(
+      RegExp(
+        r'(access_token|refresh_token|id_token|client_secret|service_role_key|password|apikey|authorization)["\x27]?\s*[:=]\s*["\x27]?[^\s,;"\x27}&]+',
+        caseSensitive: false,
+      ),
+      '[hidden credential]',
+    );
+
 class LogEntry {
   LogEntry(this.level, this.source, this.message, this.detail, {DateTime? time})
     : time = time ?? DateTime.now();
@@ -51,9 +72,9 @@ class AppLog extends ChangeNotifier {
             previous.add(
               LogEntry(
                 row['level'] as String,
-                row['source'] as String,
-                row['message'] as String,
-                row['detail'] as String,
+                _redact(row['source'] as String),
+                _redact(row['message'] as String),
+                _redact(row['detail'] as String),
                 time: DateTime.parse(row['time'] as String),
               ),
             );
@@ -84,9 +105,9 @@ class AppLog extends ChangeNotifier {
     ].join('\n');
     final entry = LogEntry(
       level,
-      source,
-      message,
-      detail.length > 8000 ? detail.substring(0, 8000) : detail,
+      _redact(source),
+      _redact(message),
+      _redact(detail.length > 8000 ? detail.substring(0, 8000) : detail),
       time: time,
     );
     _entries.add(entry);

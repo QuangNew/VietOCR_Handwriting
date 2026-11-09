@@ -11,11 +11,13 @@ class Document {
     this.status = DocumentStatus.ready,
     this.error = '',
     this.rotation = 0,
+    this.included = true,
   });
   final String id, path, name;
   String text, error;
   DocumentStatus status;
   int rotation;
+  bool included;
 
   Map<String, dynamic> toJson() => {
     'id': id,
@@ -25,6 +27,7 @@ class Document {
     'status': status.name,
     'error': error,
     'rotation': rotation,
+    'included': included,
   };
 
   factory Document.fromJson(Map<String, dynamic> json) {
@@ -40,6 +43,7 @@ class Document {
       text: json['text'] as String? ?? '',
       error: json['error'] as String? ?? '',
       rotation: json['rotation'] as int? ?? 0,
+      included: json['included'] as bool? ?? true,
       status: status,
     );
   }

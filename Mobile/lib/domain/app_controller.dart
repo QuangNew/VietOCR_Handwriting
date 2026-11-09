@@ -9,6 +9,7 @@ import '../ocr/decoder.dart';
 import '../ocr/engine.dart';
 import '../ocr/remote_engine.dart';
 import '../services/cloud_session.dart';
+import '../services/scoped_token.dart';
 import '../services/vietocr_remote.dart';
 import '../services/session_store.dart';
 import '../services/app_log.dart';
@@ -34,6 +35,17 @@ class AppController extends ChangeNotifier {
           cloud.userId == _accountId &&
           (gatewayVerified || _lastVerifiedAccount == _accountId));
   bool get canSend => !_managedEngine || gatewayVerified;
+  RemoteEngine _remoteFor(String origin, bool allowLan, String? owner) =>
+      RemoteEngine(
+        origin,
+        '',
+        allowInsecureLan: allowLan,
+        tokenProvider: scopedToken(
+          owner: owner,
+          currentOwner: () => cloud.userId,
+          fetch: cloud.accessToken,
+        ),
+      );
   Future<void> verifyGateway() async {
     final remote = VietOcrRemote(
       serverUrl,
@@ -71,6 +83,18 @@ class AppController extends ChangeNotifier {
   Document? get selected => _documents.isEmpty
       ? null
       : _documents[selectedIndex.clamp(0, _documents.length - 1)];
+  int get sendCount => _documents
+      .where((d) => d.included && d.status != DocumentStatus.done)
+      .length;
+  void setIncluded(String id, bool included) {
+    if (busy || importing) return;
+    for (final d in _documents.where((d) => d.id == id)) {
+      d.included = included;
+    }
+    _scheduleSave();
+    _notify();
+  }
+
   int selectedIndex = 0;
   bool dark = true,
       splitLines = true,
@@ -108,12 +132,7 @@ class AppController extends ChangeNotifier {
         _accountId = cloud.userId;
         store.setAccount(_accountId);
         cloud.addListener(_authChanged);
-        engine = RemoteEngine(
-          serverUrl,
-          '',
-          allowInsecureLan: serverInsecureLan,
-          tokenProvider: cloud.accessToken,
-        );
+        engine = _remoteFor(serverUrl, serverInsecureLan, _accountId);
       }
       if (!_managedEngine || _accountId != null) {
         _documents.addAll(await store.load());
@@ -168,12 +187,7 @@ class AppController extends ChangeNotifier {
     if (busy || importing) {
       throw StateError('Dừng nhận diện trước khi đổi server.');
     }
-    final next = RemoteEngine(
-      origin.trim(),
-      '',
-      allowInsecureLan: allowInsecureLan,
-      tokenProvider: cloud.accessToken,
-    );
+    final next = _remoteFor(origin.trim(), allowInsecureLan, _accountId);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('v2GatewayUrl', origin.trim());
     await prefs.setBool('ocrServerInsecure', allowInsecureLan);
@@ -191,9 +205,11 @@ class AppController extends ChangeNotifier {
   Future<void> _authWork = Future.value();
   void _authChanged() {
     if (cloud.userId != _accountId) {
+      gatewayVerified = false;
       _accountEpoch++;
       _cancel?.cancel();
       _recoveryTimer?.cancel();
+      _notify();
     }
     _authWork = _authWork.then((_) => _switchAccount()).catchError((
       Object error,
@@ -216,6 +232,10 @@ class AppController extends ChangeNotifier {
       } catch (_) {}
     }
     await flush();
+    await engine.close();
+    engine = id == null
+        ? UnavailableServerEngine()
+        : _remoteFor(serverUrl, serverInsecureLan, id);
     _documents.clear();
     _expiredResults.clear();
     _recoveryCursor = 0;
@@ -547,32 +567,37 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> _recognize(CancellationToken cancel, bool retryErrors) async {
-    final batch = List<Document>.of(_documents);
+    final batch = _documents.where((d) => d.included).toList();
     var completed = 0, failed = 0;
     var workerStopped = false;
-    Document? active;
-    try {
-      for (var i = 0; i < batch.length; i++) {
+    final activeDocuments = <Document>{};
+    final batchEngine = engine;
+    final split = splitLines;
+    var cursor = 0;
+    Future<void> worker() async {
+      while (cursor < batch.length && !workerStopped) {
+        final i = cursor++;
+        final active = batch[i];
         cancel.check();
-        active = batch[i];
         if (active.status == DocumentStatus.done) continue;
         if (!retryErrors && active.status != DocumentStatus.ready) continue;
         selectedIndex = _documents.indexOf(active);
+        activeDocuments.add(active);
         active.status = DocumentStatus.processing;
         active.error = '';
         _notify();
         try {
-          final text = await engine.recognize(
+          final text = await batchEngine.recognize(
             active.path,
-            split: splitLines,
+            split: split,
             rotation: active.rotation,
             cancel: cancel,
             progress: (label, fraction) {
               if (_disposed || cancel.isCancelled) return;
-              progressLabel = 'Ảnh ${i + 1}/${_documents.length} · $label';
+              progressLabel = 'Ảnh ${i + 1}/${batch.length} · $label';
               progress = fraction == null
                   ? null
-                  : (i + fraction) / _documents.length;
+                  : (completed + fraction) / batch.length;
               _notify();
             },
           );
@@ -608,9 +633,20 @@ class AppController extends ChangeNotifier {
             break; // Keep remaining photos queued when login/quota/server needs attention.
           }
         }
+        activeDocuments.remove(active);
         await flush();
         _notify();
       }
+    }
+
+    try {
+      final parallel = batchEngine is ConcurrentOcrEngine
+          ? (batchEngine as ConcurrentOcrEngine).parallelRequests.clamp(1, 2)
+          : 1;
+      await Future.wait(
+        List.generate(parallel, (_) => worker()),
+        eagerError: false,
+      );
       assistant = failed == 0 ? AssistantState.done : AssistantState.error;
       message = workerStopped
           ? 'Hàng đợi đã tạm dừng. Kiểm tra đăng nhập, hạn mức hoặc server; các ảnh còn lại được giữ để thử tiếp.'
@@ -619,8 +655,10 @@ class AppController extends ChangeNotifier {
           : 'Đã đọc $completed ảnh; $failed ảnh cần thử lại.';
     } on OcrCancelled {
       _queueHalted = true;
-      if (active?.status == DocumentStatus.processing) {
-        active!.status = DocumentStatus.cancelled;
+      for (final active in activeDocuments) {
+        if (active.status == DocumentStatus.processing) {
+          active.status = DocumentStatus.cancelled;
+        }
       }
       assistant = AssistantState.awake;
       message = 'Đã dừng. Kết quả của $completed ảnh đã đọc được giữ lại.';
@@ -633,9 +671,11 @@ class AppController extends ChangeNotifier {
         error: error,
         stack: stack,
       );
-      if (active?.status == DocumentStatus.processing) {
-        active!.status = DocumentStatus.error;
-        active.error = readableError(error);
+      for (final active in activeDocuments) {
+        if (active.status == DocumentStatus.processing) {
+          active.status = DocumentStatus.error;
+          active.error = readableError(error);
+        }
       }
       assistant = AssistantState.error;
       message = readableError(error);

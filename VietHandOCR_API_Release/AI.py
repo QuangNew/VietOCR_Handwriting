@@ -173,7 +173,7 @@ class VietHandOCR:
         self.config = deepcopy(MODEL_CONFIG)
         self.load_error = None
         if weight_path is None:
-            from desktop.lite_predictor import release_weights
+            from model_api import release_weights
             base = Path(__file__).resolve().parent
             weight_path = release_weights(base) or base / "vgg_transformer_final.pth"
         weight_path = str(weight_path)
@@ -185,14 +185,13 @@ class VietHandOCR:
         
         # Khởi tạo mô hình vietocr
         try:
-            from desktop.lite_predictor import LitePredictor, lite_model_dir
+            from model_api import LitePredictor, lite_model_dir
             model_dir = lite_model_dir(weight_path)
             if model_dir is not None:
                 # Gói viethandocr-lite (ML_s44): bộ nạp và bước cắt lề V2c của nhóm AI, tính FP32.
                 self.predictor = LitePredictor(model_dir, device)
             else:
-                from desktop.torch_predictor import TorchPredictor
-                self.predictor = TorchPredictor(self.config)
+                raise ValueError('Cần gói model ML_s44 với model_config.json bên cạnh trọng số. Xem Server/models.')
         except Exception as e:
             self.load_error = e
             warnings.warn(f"VietHandOCR: Không thể khởi tạo mô hình Predictor. Chi tiết lỗi: {str(e)}")

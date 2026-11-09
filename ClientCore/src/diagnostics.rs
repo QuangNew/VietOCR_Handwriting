@@ -21,15 +21,19 @@ pub fn append(root: &Path, category: &str, message: &str) {
         }
         previous.drain(..start);
     }
+    let lower = message.to_ascii_lowercase();
     let safe = if [
-        "Bearer ",
+        "bearer ",
         "refresh_token",
         "access_token",
         "sb_secret_",
-        "eyJ",
+        "sb_publishable_",
+        "client_secret",
+        "service_role",
+        "eyj",
     ]
     .iter()
-    .any(|p| message.contains(p))
+    .any(|p| lower.contains(p))
     {
         "[credential-like details omitted]".into()
     } else {

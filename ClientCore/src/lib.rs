@@ -1,6 +1,7 @@
 //! Native client owns credentials/files/network; the webview only renders UI.
 pub mod diagnostics;
 pub mod image_headers;
+pub mod image_transfer;
 pub mod session;
 pub mod storage;
 #[cfg(test)]
@@ -66,12 +67,19 @@ pub struct Draft {
     pub sha256: String,
     pub version: u32,
     pub state: String,
+    #[serde(default = "included_by_default")]
+    pub included: bool,
     pub request_id: Uuid,
     pub job_id: Option<Uuid>,
     pub text: String,
     pub error: String,
     #[serde(default)]
     pub layout: Option<String>,
+    #[serde(default)]
+    pub transfer_note: String,
+}
+fn included_by_default() -> bool {
+    true
 }
 #[derive(Clone)]
 struct CachedResultTicket {
@@ -249,7 +257,12 @@ impl Client {
     pub async fn import(&self, bytes: Vec<u8>, name: String) -> Result<Draft, String> {
         self.import_for(self.user().await?, bytes, name).await
     }
-    async fn import_for(&self, owner: Uuid, bytes: Vec<u8>, name: String) -> Result<Draft, String> {
+    pub async fn import_for(
+        &self,
+        owner: Uuid,
+        bytes: Vec<u8>,
+        name: String,
+    ) -> Result<Draft, String> {
         if bytes.len() < 16 || bytes.len() > 16 * 1024 * 1024 {
             return Err("Ảnh hỗ trợ 16 byte..16 MiB; crop ảnh lớn trước".into());
         }
@@ -268,11 +281,13 @@ impl Client {
             sha256: format!("{:x}", Sha256::digest(&bytes)),
             version: 1,
             state: "draft".into(),
+            included: true,
             request_id: Uuid::new_v4(),
             job_id: None,
             text: String::new(),
             error: String::new(),
             layout: None,
+            transfer_note: String::new(),
         };
         self.save_draft(&draft).await?;
         Ok(draft)

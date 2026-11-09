@@ -1,8 +1,15 @@
 import 'dart:async';
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
+import 'package:image/image.dart' as img;
+import '../ocr/image_processing.dart';
 import '../domain/app_controller.dart';
 import '../services/gateway_client.dart';
+import '../services/scoped_token.dart';
+
+Uint8List mirrorCameraPhoto(Uint8List bytes) => Uint8List.fromList(
+  img.encodePng(img.flipHorizontal(decodePhoto(bytes)), level: 3),
+);
 
 class PiCameraPage extends StatefulWidget {
   const PiCameraPage({super.key, required this.app});
@@ -19,27 +26,53 @@ class _PiCameraPageState extends State<PiCameraPage>
   Uint8List? frame, review;
   StreamSubscription<Uint8List>? stream;
   Timer? reviewTimer;
-  bool capturing = false;
+  bool capturing = false, mirror = false;
   int seconds = 0;
   DateTime last = DateTime.fromMillisecondsSinceEpoch(0);
+  late final String? owner;
+  int generation = 0;
+  bool get sameAccount => owner == widget.app.cloud.userId;
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    owner = widget.app.cloud.userId;
+    widget.app.cloud.addListener(accountChanged);
     client = makeClient();
     unawaited(load());
+  }
+
+  void accountChanged() {
+    if (sameAccount || !mounted) return;
+    generation++;
+    client.close();
+    unawaited(stream?.cancel());
+    reviewTimer?.cancel();
+    setState(() {
+      frame = null;
+      review = null;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && !sameAccount) {
+        Navigator.of(context).popUntil((route) => route.isFirst);
+      }
+    });
   }
 
   VietOcrRemote makeClient() => VietOcrRemote(
     widget.app.serverUrl,
     '',
     allowInsecureLan: widget.app.serverInsecureLan,
-    tokenProvider: widget.app.cloud.accessToken,
+    tokenProvider: scopedToken(
+      owner: owner,
+      currentOwner: () => widget.app.cloud.userId,
+      fetch: widget.app.cloud.accessToken,
+    ),
   );
   Future<void> load() async {
     try {
       final items = await client.cameras();
-      if (!mounted) return;
+      if (!mounted || !sameAccount) return;
       setState(() => cameras = items);
       if (items.isNotEmpty) await open(items.first['id'] as String);
     } catch (e) {
@@ -48,10 +81,12 @@ class _PiCameraPageState extends State<PiCameraPage>
   }
 
   Future<void> open(String id) async {
+    if (!sameAccount) return;
+    final current = ++generation;
     client.close();
     await stream?.cancel();
+    if (!mounted || !sameAccount || current != generation) return;
     client = makeClient();
-    if (!mounted) return;
     setState(() {
       selected = id;
       error = null;
@@ -62,6 +97,8 @@ class _PiCameraPageState extends State<PiCameraPage>
         .listen(
           (bytes) {
             if (!mounted ||
+                !sameAccount ||
+                current != generation ||
                 review != null ||
                 DateTime.now().difference(last).inMilliseconds < 60) {
               return;
@@ -70,23 +107,43 @@ class _PiCameraPageState extends State<PiCameraPage>
             setState(() => frame = bytes);
           },
           onError: (Object e) {
-            if (mounted) setState(() => error = e.toString());
+            if (mounted && sameAccount && current == generation) {
+              setState(() => error = e.toString());
+            }
           },
         );
   }
 
   Future<void> capture() async {
-    if (selected == null || capturing) return;
+    if (!sameAccount || selected == null || capturing) return;
     setState(() => capturing = true);
+    final account = widget.app.cloud.userId, mirrored = mirror;
     try {
       final bytes = await client.snapshot(selected!);
-      if (!mounted) return;
-      await widget.app.importImages([
-        (bytes, 'Raspberry_${DateTime.now().millisecondsSinceEpoch}.jpg'),
-      ], preserveResolution: true);
-      if (!mounted) return;
+      if (!mounted || account != widget.app.cloud.userId) return;
+      final stamp = DateTime.now().millisecondsSinceEpoch;
+      final name = 'Raspberry_$stamp.jpg';
+      await widget.app.importImages([(bytes, name)], preserveResolution: true);
+      if (!mounted || account != widget.app.cloud.userId) return;
+      final original = widget.app.documents
+          .where((d) => d.name == name)
+          .firstOrNull;
+      if (original == null) throw StateError(widget.app.message);
+      var captured = bytes;
+      if (mirrored) {
+        captured = await compute(mirrorCameraPhoto, bytes);
+        if (!mounted || account != widget.app.cloud.userId) return;
+        final mirrorName = 'Mirror_$stamp.png';
+        await widget.app.importImages([
+          (captured, mirrorName),
+        ], preserveResolution: true);
+        if (!widget.app.documents.any((d) => d.name == mirrorName)) {
+          throw StateError(widget.app.message);
+        }
+        widget.app.setIncluded(original.id, false);
+      }
       setState(() {
-        review = bytes;
+        review = captured;
         seconds = 3;
         error = null;
       });
@@ -122,9 +179,10 @@ class _PiCameraPageState extends State<PiCameraPage>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state != AppLifecycleState.resumed) {
+      generation++;
       client.close();
       unawaited(stream?.cancel());
-    } else if (selected != null) {
+    } else if (sameAccount && selected != null) {
       unawaited(open(selected!));
     }
   }
@@ -132,6 +190,8 @@ class _PiCameraPageState extends State<PiCameraPage>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    widget.app.cloud.removeListener(accountChanged);
+    generation++;
     reviewTimer?.cancel();
     client.close();
     unawaited(stream?.cancel());
@@ -163,6 +223,17 @@ class _PiCameraPageState extends State<PiCameraPage>
               },
             ),
           ),
+          SwitchListTile.adaptive(
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+            title: const Text('Lật gương trái–phải'),
+            subtitle: const Text(
+              'Áp dụng cho preview và ảnh chụp; giữ bản gốc.',
+            ),
+            value: mirror,
+            onChanged: capturing || review != null
+                ? null
+                : (value) => setState(() => mirror = value),
+          ),
           if (error != null)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -179,11 +250,14 @@ class _PiCameraPageState extends State<PiCameraPage>
                     ? const CircularProgressIndicator()
                     : InteractiveViewer(
                         maxScale: 5,
-                        child: Image.memory(
-                          review ?? frame!,
-                          gaplessPlayback: true,
-                          cacheWidth: review == null ? 1280 : null,
-                          fit: BoxFit.contain,
+                        child: Transform.flip(
+                          flipX: review == null && mirror,
+                          child: Image.memory(
+                            review ?? frame!,
+                            gaplessPlayback: true,
+                            cacheWidth: review == null ? 1280 : null,
+                            fit: BoxFit.contain,
+                          ),
                         ),
                       ),
               ),

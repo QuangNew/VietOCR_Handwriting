@@ -1,17 +1,10 @@
-# Desktop theme attribution
+# AI release attribution
 
-The desktop includes **Sun Valley ttk theme 2.6.1** by rdbende,
-licensed under the MIT License.
+The original VietOCR-derived recognizer retains its Apache2.0 notice in
+[LICENSE_VietOCR.txt](LICENSE_VietOCR.txt). Model configuration/provenance is
+retained alongside the AI release and mirrored into Server/models.
 
-- Project: https://github.com/rdbende/Sun-Valley-ttk-theme
-- Full copyright and permission notice: [desktop/vendor/sunvalley/LICENSE](desktop/vendor/sunvalley/LICENSE).
-- Source/version/archive checksum: [SOURCE.json](desktop/vendor/sunvalley/SOURCE.json).
-
-The Tcl themes and sprite assets are retained unchanged. VietOCR loads the two
-themes directly and supplies its own widget styles, palettes and application
-layout; it does not use the upstream Python wrapper or global palette hook.
-
-Keep the license and vendored theme directory with distributions of this UI.
-No font files are bundled: Segoe UI is requested from the operating system.
-This notice covers the newly bundled theme, not a replacement for licenses of
-the project's existing Python, model or firmware dependencies.
+The retired Python/Tk desktop and vendored Sun Valley theme are no longer
+distributed on refactor. Desktop/ui is the new locally authored native-webview
+workspace. Its Rust dependencies and exact versions are recorded in the Cargo
+manifests/lockfiles. See [Desktop](../Desktop/README.md) for the current client.

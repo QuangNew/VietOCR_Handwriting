@@ -35,7 +35,8 @@ List<int> _rotateForServer((String, int) input) {
   );
 }
 
-class RemoteEngine implements OcrEngine, AcceptedResultRecovery {
+class RemoteEngine
+    implements OcrEngine, AcceptedResultRecovery, ConcurrentOcrEngine {
   RemoteEngine(
     String origin,
     String key, {
@@ -49,6 +50,8 @@ class RemoteEngine implements OcrEngine, AcceptedResultRecovery {
        );
   final VietOcrRemote _client;
   bool _closed = false;
+  @override
+  int get parallelRequests => 2;
   Future<File> _image(String path, int rotation, {bool create = true}) async {
     final original = File(path);
     if (rotation % 4 == 0) return original;

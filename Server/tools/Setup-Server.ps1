@@ -2,7 +2,7 @@ param([string]$ProjectRef='rrdxhztiikizgogxtlhu', [switch]$SkipInstall)
 $ErrorActionPreference='Stop'
 $serverRoot=Split-Path $PSScriptRoot -Parent
 $repoRoot=Split-Path $serverRoot -Parent
-$pythonPath=Join-Path $repoRoot 'VietHandOCR_API_Release/.venv/Scripts/python.exe'
+$pythonPath=Join-Path $serverRoot '.venv/Scripts/python.exe'
 & $pythonPath -X utf8 (Join-Path $PSScriptRoot 'configure_supabase.py') --project-ref $ProjectRef
 if($LASTEXITCODE -ne 0){throw 'Supabase configuration failed. Login/link with Supabase CLI first.'}
 $account=[System.Security.Principal.WindowsIdentity]::GetCurrent().Name

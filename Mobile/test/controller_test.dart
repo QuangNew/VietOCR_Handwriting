@@ -43,6 +43,11 @@ class FakeEngine implements OcrEngine {
   Future<void> close() async {}
 }
 
+class ParallelFakeEngine extends FakeEngine implements ConcurrentOcrEngine {
+  @override
+  int get parallelRequests => 2;
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   late Directory folder;
@@ -101,6 +106,43 @@ void main() {
       expect(app.documents.last.status, DocumentStatus.ready);
       await app.recognize();
       expect(engine.calls, 2);
+    },
+  );
+  test(
+    'remote batch uses two slots without auto-sending photos captured later',
+    () async {
+      final parallel = ParallelFakeEngine()..gate = Completer<void>();
+      app.engine = parallel;
+      await app.importImages([
+        (bytes, 'one.png'),
+        (bytes, 'two.png'),
+        (bytes, 'three.png'),
+      ]);
+      final operation = app.recognize();
+      await Future<void>.delayed(Duration.zero);
+      expect(parallel.calls, 2);
+      await app.importImages([(bytes, 'later.png')]);
+      expect(parallel.calls, 2);
+      parallel.gate!.complete();
+      await operation;
+      expect(parallel.calls, 3);
+      expect(app.documents.last.status, DocumentStatus.ready);
+    },
+  );
+  test(
+    'an unchecked source stays on disk and only the chosen derivative is submitted',
+    () async {
+      await app.importImages([(bytes, 'source.png'), (bytes, 'crop.png')]);
+      final source = app.documents.first;
+      app.setIncluded(source.id, false);
+      await app.flush();
+      expect(app.sendCount, 1);
+      expect((await store.load()).first.included, false);
+      await app.recognize();
+      expect(engine.calls, 1);
+      expect(app.documents.first.status, DocumentStatus.ready);
+      expect(await File(source.path).exists(), true);
+      expect(app.documents.last.status, DocumentStatus.done);
     },
   );
 

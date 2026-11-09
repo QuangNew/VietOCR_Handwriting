@@ -50,9 +50,8 @@ void main() {
 }
 
 class VietOcrApp extends StatefulWidget {
-  const VietOcrApp({super.key, this.controller, this.enableBluetooth = false});
+  const VietOcrApp({super.key, this.controller});
   final AppController? controller;
-  final bool enableBluetooth;
   @override
   State<VietOcrApp> createState() => _VietOcrAppState();
 }

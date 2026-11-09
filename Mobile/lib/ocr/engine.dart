@@ -20,3 +20,7 @@ abstract interface class AcceptedResultRecovery {
     required int rotation,
   });
 }
+
+abstract interface class ConcurrentOcrEngine {
+  int get parallelRequests;
+}

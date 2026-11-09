@@ -28,7 +28,9 @@ def main():
     config['Server'].update(SupabaseUrl=f'https://{args.project_ref}.supabase.co',SupabasePublishableKey=public,SupabaseServiceKey=secret)
     destination.write_text(json.dumps(config,indent=2),encoding='utf-8')
     client_config=json.dumps({'url':config['Server']['SupabaseUrl'],'publishableKey':public},indent=2)
-    for path in [REPO/'Mobile/assets/config/supabase.json',REPO/'VietHandOCR_API_Release/desktop/cloud_config.json']:
+    # Tauri embeds the same public file at compile time. Never recreate the
+    # retired Python/BLE desktop tree or place a service credential in clients.
+    for path in [REPO/'Mobile/assets/config/supabase.json']:
         path.parent.mkdir(parents=True,exist_ok=True);path.write_text(client_config,encoding='utf-8')
     print(f'Configured {args.project_ref}. Private service credential: Server/server.local.json; clients contain publishable key only.')
 

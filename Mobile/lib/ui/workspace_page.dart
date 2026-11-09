@@ -172,13 +172,11 @@ class _HomePageState extends State<HomePage> {
                           )
                         else
                           FilledButton.icon(
-                            onPressed: app.documents.isEmpty || !app.canSend
+                            onPressed: app.sendCount == 0 || !app.canSend
                                 ? null
                                 : () => app.recognize(),
                             icon: const Icon(Icons.send_outlined),
-                            label: Text(
-                              'Gửi ${app.documents.where((d) => d.status != DocumentStatus.done).length} ảnh',
-                            ),
+                            label: Text('Gửi ${app.sendCount} ảnh'),
                           ),
                       ],
                     ),
@@ -303,7 +301,20 @@ class _HomePageState extends State<HomePage> {
                             _ => 'Đã tạm dừng · có thể tiếp tục',
                           },
                   ),
-                  trailing: const Icon(Icons.open_in_full),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Checkbox(
+                        value: item.included,
+                        onChanged: app.busy
+                            ? null
+                            : (value) =>
+                                  app.setIncluded(item.id, value ?? false),
+                        semanticLabel: 'Gửi ${item.name}',
+                      ),
+                      const Icon(Icons.open_in_full),
+                    ],
+                  ),
                   onTap: () {
                     app.select(index);
                     Navigator.push<void>(

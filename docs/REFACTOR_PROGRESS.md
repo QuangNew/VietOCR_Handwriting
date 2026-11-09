@@ -44,9 +44,9 @@ Current source includes recovery/header/load-probe changes newer than these arti
 ### Remaining acceptance work
 
 1. Finish named Cloudflare tunnels for `api.quangnew.tech` and `ocr.quangnew.tech`, after domain/Authorize is ready. The latest CLI login expired without a certificate; no DNS record or public endpoint is claimed ready.
-2. Build/run the1000-identity fixture on the actual Pi and measure combined RSS/FD, then separate capture/relay/Internet and real compute measurements. Include sustained load and failure recovery; loopback fixture alone does not prove production throughput.
+2. The1000-identity fixture passed on Pi (see below); longer resource plateau tests, separate upload/slow-client relay and Internet/real-compute measurements remain. A loopback fixture is not production throughput.
 3. Complete the client parity review (including image optimization profiles, edited-image selection and camera orientation), release builds/installer and interaction checks. Keep original AI preprocessing/model hashes unchanged.
-4. Remove the remaining retired Python IoT client code/tools after parity. Keep the Python/CUDA environment required by compute until it is relocated safely; do not delete user images, signing material, sessions or models.
+4. Retired Python IoT client removal has now completed for80 tracked files (see follow-up below). Finish cleaning generated build artifacts after the new release is verified; user images/signing/sessions/models are retained.
 5. Finalise setup/run/rollback instructions in DevTodo only after the deployment state is verified. Hardware GPIO remains off until the user wires it and authorises that later test.
 
 ---
@@ -116,7 +116,20 @@ Also removed generated old Android intermediates (`Mobile/build`, ~405.5MiB) and
 2. C# internal OCR ingress/resumable spool/receipts, read-only result tickets, and shared hardware-capacity protocol.
 3. Wire Rust admission/fair scheduler/streaming OCR relay to restricted DB roles and compute; capacity autoscaling with server admission authority.
 4. New Windows Tauri client and Flutter gateway client: Google-only, Pi camera, private drafts, explicit Send, crop/optimization and direct result recovery.
-5. Remove legacy IoT client code/dependencies/permissions and old Python client after parity; separate server Python environment before deleting its current parent folder.
+5. Legacy client source removal and safe server Python-environment relocation completed in the follow-up; generated-cache cleanup follows verified release artifacts.
 6. Named Internet tunnels, cross-network Google session flow, real Pi memory/FD/network/1,000-client load/soak and client release builds.
 
 Checkpoint 1 starts the approved phased implementation; it is not a completed migration of every client or a production-ready end-to-end OCR release.
+
+
+## Follow-up: Pi measurements and client image parity
+
+- [CI42616584875](https://github.com/QuangNew/VietOCR_Handwriting/actions/runs/42616584875) at `187f007` passed both ARM64 and Windows. It fixes the earlier Tauri command macro error (async logging command required a Result return). Source changes below are newer and still require their own release build.
+- On real Pi,30 consecutive rounds ×1000 distinct local signed-identity clients completed in90.53s. Every round admitted all1000 metadata intents; round p95 was2.688–2.798s. Combined probe process peakRSS64,932KiB (~63.4MiB), finalRSS54,636KiB, final76FDs. This includes the load generator and fake DB/compute in one process; it does **not** measure image ingestion or real Supabase/Google traffic. Upstream-offline503, ban403/no forwarding and health200 checks passed. Temperature after the short probe53.5°C. First attempt under the SSH shell's1024FD limit failed; reruns used4096, matching the deployed gateway unit's explicit limit. No production clients were created.
+- New ARM64 gateway binary from the verified bundle installed atomically and systemd restarted; loopback health200 reports the v2 gateway. Camera capture service and private config/tokens retained.
+- Python/CUDA environment relocated within this workspace to `Server/.venv` and interpreter to `Server/.python`. `pyvenv.cfg`/activation scripts updated; the relocated interpreter successfully imported torch2.14.1+cu126, Pillow10.2.0 and OpenCV and detected CUDA. No wheel/model/runtime was downloaded. Server defaults/setup now use `.venv/Scripts/python.exe`. Use `python -m pip`, not old absolute launcher shortcuts.
+- Added image inclusion checkboxes in both clients: only checked drafts are sent. Creating crop/BW/optimized versions deselects the source without deleting it. Mirroring now affects saved captures as well as preview; a lossless PNG derivative retains the JPEG original. Tests verify pixel orientation, source retention and selected-image submission.
+- Flutter's actual remote engine now uses two bounded request slots, while freezing the explicit-Send batch; newly captured images remain drafts. Test fixtures without the concurrency interface keep one slot.
+- Added optional OCR transfer optimization on a background worker/isolate. It never resizes and only uses a candidate smaller by at least1024bytes; compares PNG and high-quality JPEG95, retains the original, and skips ICC-managed images rather than silently changing their colour. Default remains original. All six existing JPEG fixtures (two public samples plus the four user-supplied camera photos) were already smaller than candidates, so their original bytes were kept. This is not a claim of unchanged OCR quality for arbitrary lossy candidates; labelled regression/encode-cost measurements remain before changing the default.
+- Removed unused Flutter permission_handler and its platform packages. No BLE/local-camera permission is required for the new client.
+- Added reviewed named-tunnel preparation/start scripts and a Pi connector systemd template. They require an actual Cloudflare certificate and do not overwrite conflicting DNS. Tunnel ingress rules and PowerShell syntax validate locally; no named tunnel has been provisioned without the user's Authorize step.

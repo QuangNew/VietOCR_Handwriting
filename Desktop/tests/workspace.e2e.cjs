@@ -14,16 +14,22 @@ const mime={'.html':'text/html','.css':'text/css','.mjs':'application/javascript
    const draft={id:'10000000-0000-4000-8000-000000000001',ownerId:'aaaaaaaa-1111-4444-8888-aaaaaaaaaaaa',name:'Trang ghi chú.jpg',state:'draft',imageBytes:204800,mediaType:'image/jpeg',text:'',jobId:null};window.nativeCalls=[];
    window.__TAURI__={core:{Channel:class{onmessage=()=>{};},invoke:async(name,args)=>{
     window.nativeCalls.push({name,args});
-    if(name==='bootstrap')return{config:{gateway:'https://pi.example.invalid',supabaseUrl:'https://example.supabase.co',publishableKey:'sb_publishable_fixture'},session:{email:'fixture@example.invalid',userId:draft.ownerId},verified:{},workspaceAllowed:true,drafts:[]};
+    if(name==='bootstrap')return{config:{gateway:'https://pi.example.invalid'},session:{email:'fixture@example.invalid',userId:draft.ownerId},verified:{},workspaceAllowed:true,drafts:[]};
     if(name==='pick_import')return[draft];if(name==='draft_image')return jpeg;
+    if(name==='set_included')return{...draft,included:args.included};
     if(name==='send_draft')return{...draft,state:'queued',jobId:'20000000-0000-4000-8000-000000000001'};
     if(name==='read_result')return{...draft,state:'succeeded',text:'Văn bản kiểm thử'};
     return null;
    }}};
   },{jpeg});
   await page.goto('http://127.0.0.1:'+server.address().port);await page.locator('#workspace').waitFor({state:'visible'});
+  await page.click('#settingsButton');assert.equal(await page.locator('#supabase, #publicKey').count(),0);
+  await page.click('#saveSettings');await page.waitForFunction(()=>!document.querySelector('#settings').open);
+  assert.deepEqual(await page.evaluate(()=>nativeCalls.find(c=>c.name==='configure').args),{gateway:'https://pi.example.invalid'});
   await page.click('#original');await page.waitForFunction(()=>document.querySelectorAll('.draft-row').length===1);
   assert.equal(await page.evaluate(()=>nativeCalls.filter(c=>c.name==='send_draft').length),0,'import must never upload');
+  await page.uncheck('.draft-row input[type=checkbox]');await page.waitForFunction(()=>document.querySelector('#send').disabled);assert.equal(await page.locator('#send').isDisabled(),true);
+  await page.check('.draft-row input[type=checkbox]');await page.waitForFunction(()=>!document.querySelector('#send').disabled);
   const before=await page.locator('h1').boundingBox();await page.click('#theme');assert.deepEqual(await page.locator('h1').boundingBox(),before);
   await page.click('#edit');await page.locator('#editor').waitFor({state:'visible'});assert.equal(await page.locator('#editor').evaluate(e=>e.scrollWidth<=e.clientWidth),true);
   await page.click('#editorClose');await page.click('#send');await page.waitForFunction(()=>document.querySelector('#jobState').textContent==='Hoàn tất');

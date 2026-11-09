@@ -22,7 +22,19 @@ See the root [DevTodo.md](../DevTodo.md) for deployment, OAuth callbacks and pai
 - Camera binary IPC has one outstanding frame. Frontend ACK permits the next;
   slow renderers skip frames instead of accumulating native/JS queues.
 - JPEG/PNG originals are copied unchanged. Crops and threshold images are lossless
-  PNG derivatives. The original is retained. 16MiB upload cap matches server default.
+  PNG derivatives. Mirror applies to both preview and the saved capture. Edited
+  originals are unchecked while the new derivative is selected; nothing uploads
+  before explicit Send. Optional transfer optimization compares same-size PNG /
+  JPEG95 and keeps the original when there is no saving. Default is original.
+  16MiB upload cap matches server default.
+- Connection settings expose only the Raspberry URL. The public Supabase file
+  is compiled into Rust, not supplied by the end user. It is a publishable key,
+  not a server credential. DPAPI, Google/current-session checks and DB grants/RLS
+  protect access; hiding UI text is not the security boundary.
+- `tools/check_client_secrets.py` checks current host-secret values against tracked
+  files / EXE / unpacked APK without printing them. `tools/check_public_access.py`
+  makes read-only anonymous table probes. These are scoped checks, not a full
+  security assessment. CI also rejects non-publishable client configuration.
 
 This is the new client source; successful builds, device checks and remaining
 deployment dependencies are recorded in `docs/REFACTOR_PROGRESS.md`.

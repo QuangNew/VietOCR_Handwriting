@@ -26,6 +26,12 @@ flutter build apk --release --target-platform android-arm64 --no-pub
 
 Dùng JDK **21**, không dùng Oracle JDK25 mặc định cho Gradle hiện tại. SDK hiện tại: `C:/Users/QuangNew/AppData/Local/Android/sdk`; Flutter: `C:/Services/Flutter/flutter`. Gradle giới hạn heap2GB và2worker để tránh chiếm hết RAM. Chạy kiểm tra/build lần lượt khi máy đang nhiều ứng dụng.
 
-Bản APK đã build trước checkpoint phục hồi: `dist/VietOCR-4.0.0-refactor-arm64.apk` (~19.6MiB). Kiểm [báo cáo tiến độ](../docs/REFACTOR_PROGRESS.md) để phân biệt artifact và mã nguồn mới hơn. Chưa xác nhận chạy APK v4 trên điện thoại thật; sideload hiện vẫn dùng signing baseline, không coi là bản Play Store.
+Bản hiện tại: **4.0.1+19**, đầu ra `dist/VietOCR-4.0.1-refactor-arm64.apk` sau khi kiểm tra build. Bản4.0.0 giữ để rollback. Kiểm [báo cáo tiến độ](../docs/REFACTOR_PROGRESS.md) để đối chiếu artifact/mã nguồn. Chưa xác nhận chạy APK v4 trên điện thoại thật; sideload vẫn dùng signing baseline, không coi là bản Play Store.
 
 `assets/config/supabase.json` chỉ chứa project URL/publishable key công khai. Callback Google: `vn.pbl4.vietocr://auth/callback`. Không đặt service-role, Google Client Secret hoặc machine token vào app.
+
+Chọn ảnh cần gửi bằng checkbox. Crop/đen trắng/lật gương tạo bản nháp mới và giữ
+nguyên bản gốc, bỏ chọn bản nguồn để tránh gửi trùng. Tối ưu truyền ảnh là tuỳ chọn
+PNG/JPEG95 không đổi kích thước; mặc định gửi bản gốc. Log che token/key trước khi
+lưu hoặc xuất. Đổi tài khoản đóng camera/trình sửa và chặn cả token refresh đang
+dở, không chuyển tác vụ ảnh cũ sang tài khoản mới.

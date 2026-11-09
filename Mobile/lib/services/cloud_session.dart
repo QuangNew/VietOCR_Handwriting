@@ -37,6 +37,14 @@ class CloudSession extends ChangeNotifier {
     final config =
         jsonDecode(await rootBundle.loadString('assets/config/supabase.json'))
             as Map<String, dynamic>;
+    if (config.keys.length != 2 ||
+        config['url'] is! String ||
+        config['publishableKey'] is! String ||
+        !(config['publishableKey'] as String).startsWith('sb_publishable_')) {
+      throw StateError(
+        'Cấu hình đăng nhập trong ứng dụng không hợp lệ. Liên hệ quản trị.',
+      );
+    }
     await Supabase.initialize(
       url: config['url'] as String,
       publishableKey: config['publishableKey'] as String,
