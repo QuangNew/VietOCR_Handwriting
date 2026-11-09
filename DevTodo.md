@@ -1,7 +1,127 @@
-# VietOCR v4 — hướng dẫn setup và triển khai
+# VietOCR v4 — hướng dẫn cấu hình và vận hành cho người mới
 
 Cập nhật **09/11/2026, Asia/Saigon**. Nhánh triển khai: **`refactor`**.
-Các lệnh Windows chạy từ root repo bằng **PowerShell 7.2+ (`pwsh`)**.
+Tài liệu dùng cấu hình của **máy Windows và Raspberry hiện tại của bạn**.
+Mỗi bước ghi rõ: làm ở đâu, làm để làm gì, kết quả cần thấy và cách xử lý lỗi.
+Bạn có thể mở bản xem trước Markdown trong VS Code bằng **Ctrl + Shift + V**
+để bấm mục lục và đọc bảng dễ hơn.
+
+**Lộ trình lần đầu:** đọc mục 0–2 → kiểm mục 3 → đối chiếu mục 4 → làm lần
+lượt mục **5 → 6 → 7 → 8 → 9 → 10**. Như vậy bạn đi từ tên miền, bật dịch vụ,
+ghép Pi–server, kiểm model, mở app rồi kiểm toàn bộ qua Internet.
+Phần “máy mới” trong mục 3 và phần build ở mục 12 chưa cần làm để dùng bản
+app/cấu hình đã có. Sau khi xong lần đầu, mỗi ngày chỉ cần mục **8.4**.
+
+| Bạn cần làm gì? | Mở phần nào? |
+|---|---|
+| Hiểu các dịch vụ và terminal | [Mục 0](#cach-doc), [mục 2](#so-do) |
+| Biết phần nào đã làm, phần nào chưa | [Mục 1](#hien-trang) |
+| Cấu hình tên miền, tunnel lần đầu | [Mục 5](#cloudflare), [mục 6](#tunnel-windows), [mục 7](#tunnel-pi) |
+| Mở server và nạp model | [Mục 8](#server) |
+| Mở desktop/Android và gửi ảnh thử | [Mục 9](#client) |
+| Kiểm hệ thống chạy đúng | [Mục 10](#kiem-thu) |
+| Ngày mai bật lại, tắt hoặc khởi động lại | [Mục 8.4–8.6](#van-hanh-moi-ngay) |
+| Có lỗi và chưa biết đọc log ở đâu | [Mục 13](#tra-loi) |
+| Cài lại từ máy trắng hoặc build source | [Mục 3](#cong-cu), [mục 12](#build) |
+| Đánh dấu các bước đã làm | [Checklist mục 14.1](#hoan-tat) |
+
+<a id="cach-doc"></a>
+
+## 0. Đọc trước khi chạy lệnh
+
+### 0.1 Bạn đang điều khiển hai máy khác nhau
+
+**Windows** là laptop/máy tính có RTX 4050: giữ repo, chạy model, web quản trị
+và app desktop. **Pi** là `rasp4gb`: cắm webcam, xác minh người dùng và chuyển
+ảnh sang Windows. Điện thoại là client cài APK, không cần cài công cụ lập trình.
+
+Chuẩn bị ba tab trong Windows Terminal, có thể đổi tên tab để đỡ nhầm:
+
+| Tab | Dùng để làm gì? | Có thể đóng không? |
+|---|---|---|
+| **A — Windows / Cấu hình** | Chạy script, kiểm DNS, chép file sang Pi | Có, sau khi lệnh xong |
+| **B — Windows / Server** | Chạy `Server/Run-Server.cmd` | Giữ mở trong lúc dùng server |
+| **C — SSH / Pi** | Điều khiển Pi bằng lệnh Linux | Đóng được; service Pi vẫn chạy |
+
+Các khối **powershell** chạy trên Windows. Các khối **sh** chạy trong SSH của
+Pi. Khối **text** chỉ là kết quả minh hoạ, không phải lệnh để chạy.
+Không dán tất cả khối trong file này cùng lúc: làm từng bước, xem kết quả rồi
+mới sang bước tiếp theo. Lệnh trong phần sửa lỗi chỉ chạy khi gặp đúng lỗi đó.
+
+### 0.2 Mở đúng thư mục trên Windows
+
+**Chạy tại tab A trên Windows:**
+
+```powershell
+pwsh
+```
+
+Lệnh trên mở PowerShell 7 trong tab hiện tại. Sau đó chạy:
+
+```powershell
+$PSVersionTable.PSVersion
+Set-Location 'C:\DevLanguage\Works\PBL\PBL4\VietOCR_Handwriting'
+Get-Location
+```
+
+**Đạt khi:** phiên bản PowerShell là 7.2 trở lên; đường dẫn kết thúc bằng
+`VietOCR_Handwriting`. Thư mục này là **root repo**. Mọi lệnh Windows bên dưới
+đều bắt đầu ở đây, trừ khi bước đó yêu cầu đổi thư mục.
+
+Nếu `pwsh` báo không tìm thấy, mở terminal tên **PowerShell 7**. Máy hiện tại
+đã có PowerShell 7.6.9. Không cần mở toàn bộ terminal bằng quyền Administrator.
+
+### 0.3 Vào và thoát Pi bằng SSH
+
+**Chạy tại tab C, ban đầu vẫn là terminal Windows:**
+
+```powershell
+ssh admin@rasp4gb
+```
+
+Nhập mật khẩu SSH đã đặt cho Pi. Khi gõ mật khẩu, terminal **không hiện ký tự
+hay dấu sao**; đó là bình thường, gõ xong nhấn Enter.
+Lần đầu có thể hỏi xác nhận host key: đối chiếu đúng Pi trước khi chấp nhận.
+Không tắt kiểm tra host key để vượt lỗi.
+
+**Đạt khi:** đầu dòng giống `admin@rasp4gb:~ $`. Từ đây bạn đang chạy lệnh
+trên Pi. Muốn quay lại Windows, chạy trong Pi:
+
+```sh
+exit
+```
+
+Nếu SSH không tìm thấy `rasp4gb`, kiểm Pi đã bật và có mạng. Dùng IP hiện tại
+của Pi trong router/Tailscale thay cho hostname khi cần; không dùng IP minh
+hoạ cũ như thể IP đó luôn đúng. Nếu có `Connection refused`, kiểm SSH được bật
+trên Pi. Nếu `Permission denied`, kiểm username/mật khẩu, không reset project.
+
+### 0.4 Ba thao tác terminal dễ nhầm
+
+| Thao tác | Tác dụng |
+|---|---|
+| `q` khi đang xem `systemctl status` hoặc `journalctl` có trang cuộn | Thoát màn hình xem log, service vẫn chạy |
+| `Ctrl + C` trong tab Server | Dừng launcher server; backend/worker của launcher cũng dừng |
+| `exit` trong SSH | Đóng phiên SSH; gateway/camera/tunnel chạy bằng systemd vẫn hoạt động |
+
+Khi dừng launcher `.cmd`, Windows có thể hỏi `Terminate batch job (Y/N)?`.
+Nếu bạn đang chủ động tắt server, chọn `Y`. Đừng đóng tab Server chỉ để mở
+tab khác chạy lệnh kiểm tra; dùng tab A.
+
+Ví dụ `127.0.0.1` hoặc `localhost` nghĩa là **chính máy đang thực hiện kết nối**.
+`127.0.0.1:5080` trên Windows là compute Windows; cùng địa chỉ đó trên Pi lại
+chỉ về Pi. Điện thoại không dùng `localhost` để kết nối laptop hoặc Pi.
+
+### 0.5 Giá trị tự lấy và đường dẫn ví dụ
+
+`$piUuid` ở Windows và `$pi_uuid` ở Pi là các biến giữ **mã định danh tunnel**.
+Mục 7.1 có lệnh tự lấy mã từ file cấu hình; bạn chạy lệnh đó thay vì tự nghĩ
+UUID hoặc gõ nguyên chữ `PI_UUID`. Các đường dẫn ghi là ví dụ, như
+`C:/offline-wheels`, phải thay bằng nơi thật của bạn nếu làm phần máy mới.
+File hướng dẫn không chứa mật khẩu/token thật; không tự điền secret vào
+các file được Git theo dõi.
+
+<a id="hien-trang"></a>
 
 ## 1. Máy hiện tại đã có gì?
 
@@ -17,24 +137,39 @@ Các lệnh Windows chạy từ root repo bằng **PowerShell 7.2+ (`pwsh`)**.
 | Cloudflare | Có binary, bạn còn cần làm DNS/Authorize và triển khai connector |
 | Internet | **Chưa kiểm chứng**; chỉ coi sẵn sàng sau checklist mục 10 |
 
-**Bắt đầu từ mục 5 Cloudflare**, rồi mục 6–10. Không cần cài lại Google OAuth,
-Python/CUDA, SDK, xoá tài khoản hoặc chạy migration từ đầu.
+Đây là ghi nhận của lần triển khai trước, không phải màn hình trạng thái trực
+tiếp. Mục 3 và 8 giúp bạn tự kiểm lại các thành phần đang bật hôm nay.
+**Còn thiếu chính:** DNS/Authorize Cloudflare, chạy hai connector, chuyển Pi
+sang địa chỉ compute công khai và kiểm thử qua hai mạng.
 
-Đã kiểm EXE tại checkpoint `86525e1` với phiên Google thật và webcam Pi qua SSH: 1920 × 1080,
-khoảng 25,3 FPS trong 5 giây, ảnh lật gương lưu đủ kích thước, review 3 giây,
-không tự gửi OCR hay tính lượt. Đây không phải số đo qua Cloudflare hoặc
-1000 client. Bản EXE/APK mới nhất từ `f21acdc` bổ sung chờ model warmup và quota
-phút; CI hai nền tảng đã qua, kiểm retry bằng fixture. Lần chạy lại native debug
-cuối bị duyệt tự động chặn, nên số đo camera trên là của checkpoint trước.
-APK đã build, kiểm chữ ký v2/alignment 16 KiB và 54 tests;
-chưa QA trên điện thoại thật. EXE là portable; APK dùng signing sideload hiện có,
-chưa phải signing phân phối Play Store.
+Không cần cài lại Google OAuth, Python/CUDA hoặc SDK trên máy hiện tại.
+Không xoá tài khoản, tạo lại project Supabase hay chạy migration từ đầu.
 
-Bằng chứng và SHA256: [tiến độ](docs/REFACTOR_PROGRESS.md),
-[báo cáo](docs/validation/refactor-checkpoint2.json),
-[Android](Mobile/validation-v4.json).
+<a id="so-do"></a>
 
 ## 2. Luồng mới
+
+### 2.1 Mỗi dịch vụ làm một việc
+
+| Thành phần | Chạy ở đâu? | Nhiệm vụ, nói đơn giản |
+|---|---|---|
+| App desktop / Android | Thiết bị người dùng | Đăng nhập Google, xem camera Pi, giữ ảnh nháp và gửi ảnh khi bạn bấm Gửi |
+| **Gateway** viết bằng Rust | Raspberry | Người gác cổng: kiểm phiên Google, ban/hạn mức, chuyển ảnh cho compute |
+| **µStreamer** | Raspberry | Đọc JPEG từ webcam USB; gateway chia sẻ luồng hình này cho app |
+| **Compute/API** viết bằng C# | Windows | Nhận ảnh từ Pi, quản lý hàng đợi, giao cho worker và trả kết quả |
+| **Worker Python** | Windows | Tiến trình nạp model AI để đọc chữ; một worker xử lý một ảnh tại một thời điểm |
+| **Web admin** viết bằng Next.js | Windows, trình duyệt | Cho bạn xem tải, job, tài khoản, hạn mức và thêm/dừng worker |
+| **Supabase** | Dịch vụ cloud | Giữ tài khoản Google, database, quyền và số lượt đã dùng |
+| **Cloudflare Tunnel** | Một connector trên Pi, một trên Windows | Đưa hai API ra tên miền HTTPS khi Pi/server ở khác mạng |
+
+Bạn có **hai kiểu đăng nhập khác nhau**: Google trong app là tài khoản OCR;
+username/password ở web `127.0.0.1:3000` là tài khoản **admin server**.
+Tài khoản đăng nhập Cloudflare chỉ dùng quản lý tên miền/tunnel.
+
+Một vài từ bạn sẽ gặp: **API** là kênh app gửi/nhận dữ liệu; **request** là
+một yêu cầu; **queue** là hàng đợi khi worker đang bận; **token/credential**
+là thông tin chứng minh quyền truy cập. **Origin** là địa chỉ dịch vụ gốc
+mà tunnel gọi tới. **Connector** là process cloudflared đang giữ tunnel.
 
 ```mermaid
 flowchart LR
@@ -46,6 +181,29 @@ flowchart LR
     C -->|Vé ngắn hạn · đọc kết quả| S
     S -->|Stats CPU / RAM / worker| P
 ```
+
+**Ví dụ một lượt sử dụng:** bạn đăng nhập Google → chụp ảnh từ webcam Pi →
+ảnh nằm trong nháp → bấm Gửi → Pi xác minh → compute nhận đủ ảnh và tính
+một lượt → worker đọc chữ → app lấy văn bản trực tiếp từ compute.
+Pi không phải máy chạy model AI.
+
+### 2.2 Các địa chỉ cần nhớ
+
+| Địa chỉ | Bạn dùng nó ở đâu? |
+|---|---|
+| `https://api.quangnew.tech` | Nhập trong ô **Địa chỉ Raspberry** của app |
+| `https://ocr.quangnew.tech` | Pi dùng gửi ảnh; app tự dùng địa chỉ này để nhận kết quả |
+| `http://127.0.0.1:3000` | Mở trình duyệt **trên máy Windows server** để quản trị |
+| `http://127.0.0.1:5080/api/health/live` | Kiểm API compute ngay trên Windows |
+| `http://127.0.0.1:5082/health/live` | Kiểm gateway ngay trên Pi, bằng SSH |
+| `http://127.0.0.1:8080` | Nguồn webcam nội bộ trên Pi; app không nhập địa chỉ này |
+
+`3000`, `5080`, `5082`, `8080` là **cổng**: nhiều chương trình trên cùng máy
+có thể nhận kết nối ở những cổng khác nhau. Tunnel tự nối tên miền tới đúng
+cổng. Khi dùng Internet, app nhập HTTPS tên miền, không thêm `:5082` ở cuối.
+Không tạo thêm tên miền cho web admin trong hướng dẫn này.
+
+### 2.3 Quy tắc sử dụng ảnh và hàng đợi
 
 - Webcam cắm **Pi**, không mở camera điện thoại/máy tính. Các tài khoản hợp lệ
   dùng chung khung nhìn; file import và bản nháp vẫn riêng từng tài khoản.
@@ -69,7 +227,41 @@ flowchart LR
 Hợp đồng hiện tại: [OpenAPI v2](Contracts/openapi-v2.json).
 API v1 mặc định tắt; không bật fallback gửi OCR đi tắt Pi.
 
+<a id="cong-cu"></a>
+
 ## 3. Công cụ và dữ liệu cần giữ
+
+### 3.1 Kiểm nhanh trên máy hiện tại, không cài lại
+
+**Windows, tab A ở root repo:**
+
+```powershell
+Test-Path Desktop/dist/vietocr-desktop.exe
+Test-Path Mobile/dist/VietOCR-4.0.1-refactor-arm64.apk
+Test-Path Server/.venv/Scripts/python.exe
+Test-Path Server/server.local.json
+Test-Path .toolchain/cloudflared/cloudflared-windows-amd64.exe
+```
+
+**Đạt khi:** cả năm dòng là `True`. Nếu có `False`, ghi lại chính dòng nào;
+không chạy cài đặt tất cả. Thiếu EXE/APK xử lý ở mục 9/12; thiếu cấu hình riêng
+`server.local.json` xử lý theo phần máy mới bên dưới.
+
+**Pi, tab C sau SSH:**
+
+```sh
+systemctl is-active vietocr-gateway.service vietocr-camera@desk.service
+curl --fail --max-time 5 http://127.0.0.1:5082/health/live
+```
+
+**Đạt khi:** hai dòng `active`, sau đó JSON có `status` là `alive` và `service`
+là `raspberry-gateway`. Camera có `active` mới chỉ nói tiến trình đang chạy;
+vẫn cần mở hình thật ở mục 9. Chưa cài tunnel thì chưa có `vietocr-tunnel.service`
+là bình thường; mục 7 sẽ tạo nó.
+
+Nếu một service không `active`, xem log đúng service ở mục 13 trước khi restart.
+
+### 3.2 Bản đồ thư mục/công cụ
 
 | Công cụ/dữ liệu | Vị trí trên máy hiện tại |
 |---|---|
@@ -103,7 +295,7 @@ Helper kiểm SHA256 trọng số, recognizer và preprocessing giữa bản AI/
 Không đổi vocab/input size để ép model chạy; đối chiếu bản nhóm AI trước khi
 chạy `Server/tools/sync_model.py`.
 
-### Nếu triển khai từ một máy mới
+### 3.3 Chỉ khi triển khai từ một máy mới
 
 Đây là phần bổ sung, **không chạy lại trên máy hiện tại**. `.venv`, model,
 credential và binary build không được commit vào Git.
@@ -145,14 +337,26 @@ staging phải0700 trước SCP; giữ token live0600. Các service/config mẫu
 
 ## 4. Supabase và Google
 
+**Máy hiện tại: đối chiếu, không cấu hình lại từ đầu.** Supabase là database
+và nơi xử lý đăng nhập Google. XAMPP/MySQL không còn là database chính.
+Bạn không cần bật XAMPP để chạy luồng này.
+
 Project: `https://rrdxhztiikizgogxtlhu.supabase.co`. Google đã bật.
-Giữ hai Redirect URLs trong Authentication → URL Configuration:
+Mở project trong Supabase Dashboard → **Authentication → URL Configuration**.
+Trong **Redirect URLs**, giữ chính xác hai dòng sau rồi Save nếu có thay đổi:
 
 - `http://127.0.0.1:47821/auth/callback` cho desktop;
 - `vn.pbl4.vietocr://auth/callback` cho Android.
 
 Google OAuth Web Client giữ callback Supabase cung cấp. Hostname Pi/compute
 không thay thế callback này. Client Secret chỉ ở Supabase, không trong app.
+
+Hai dòng trên cho phép Supabase trả người dùng về app sau khi đăng nhập.
+Chúng **không** phải địa chỉ gateway. Trong Google Cloud Console, callback
+của Web OAuth Client là
+`https://rrdxhztiikizgogxtlhu.supabase.co/auth/v1/callback`; trong Supabase mới
+là hai callback app. Giữ Google bật trong Authentication → Sign In / Providers.
+App chỉ cho đăng nhập bằng Google.
 
 Migrations đã áp dụng: `202611030001`, `202611090001`–`202611090004`.
 
@@ -162,6 +366,9 @@ supabase migration list --linked
 
 Không `db reset`, không chạy lại `UPGRADE_V2.sql`, không xoá bảng để sửa lỗi.
 Máy/schema mới đọc [runbook database](docs/REFACTOR_DB_ROLLOUT.md).
+Runbook đó ghi lại checkpoint database ban đầu và quy trình cho môi trường mới;
+trạng thái live hiện tại là các migrations đã áp dụng ở trên. Không copy khối
+rollback SQL từ runbook để thực hiện cấu hình Cloudflare.
 23 fake-client cũ đã dọn; tài khoản Google thật và admin được giữ.
 
 `Mobile/assets/config/supabase.json` chứa project URL/publishable key công khai;
@@ -174,7 +381,18 @@ thời, ban và quota bảo vệ dữ liệu; không dựa vào việc giấu ke
 Windows, Git-ignore. Pi giữ public key và hai credential máy tách biệt.
 Access/refresh token dùng DPAPI/Android Keystore, không vào WebView, URL hay log.
 
+**Cách nhớ về khoá:** URL project và publishable key dùng cho app; service-role
+chỉ dùng trên server. Hai token máy Pi–compute phải khớp nhau, helper mục 7 tạo/
+tái sử dụng giúp bạn. Không cần chép bất kỳ secret nào vào hộp cấu hình của app.
+
+<a id="cloudflare"></a>
+
 ## 5. Cloudflare — bạn làm trên tài khoản tên miền
+
+**Làm một lần. Nơi thao tác:** trình duyệt Windows và tab A.
+Bạn đang nối tên miền với hai máy đã có chương trình, không chuyển model hay
+database sang Cloudflare. `cloudflared` là chương trình giữ kết nối tunnel;
+DNS là phần giúp tên miền tìm đến đúng tunnel.
 
 Làm theo thứ tự: **zone Active → Authorize trên Windows → tạo hai tunnel →
 chạy connector Windows/Pi → đổi origin của Pi → kiểm HTTPS**. Các mục 5–7
@@ -188,14 +406,23 @@ Hai địa chỉ sau khi hoàn tất:
 
 ### 5.1 Thêm zone và đổi nameserver
 
-1. Đăng nhập Cloudflare Dashboard, thêm **`quangnew.tech`**, chọn gói Free.
-2. Lưu DNS hiện có tại nhà quản lý: A/AAAA/CNAME, MX, TXT, SPF/DKIM/DMARC và
-   bản ghi xác minh dịch vụ. Kiểm từng bản ghi sau import; quét tự động có thể thiếu.
+1. Mở [Cloudflare Dashboard](https://dash.cloudflare.com/), đăng nhập tài khoản
+   quản lý tên miền. Ở danh sách website/domain, chọn thêm domain rồi nhập
+   **`quangnew.tech`**, chọn gói **Free**. Nếu domain đã có trong tài khoản,
+   mở domain đó, không thêm lần hai.
+2. Mở trang quản lý DNS cũ và lưu lại danh sách hiện có, có thể export hoặc chụp
+   màn hình: A/AAAA/CNAME, MX, TXT, SPF/DKIM/DMARC, bản ghi xác minh dịch vụ.
+   Đối chiếu với danh sách Cloudflare import. Không tự xoá record chỉ vì chưa
+   biết chức năng của nó; MX/TXT có thể đang phục vụ email của bạn.
 3. Lấy **đúng hai nameserver Cloudflare cấp cho zone này**, không tự đoán tên.
 4. Nếu đang bật DNSSEC/DS ở nhà đăng ký cũ, tắt DNSSEC và gỡ DS cũ theo hướng
    dẫn của nhà đăng ký trước khi đổi NS để tránh SERVFAIL.
-5. Tại **nhà đăng ký tên miền**, thay nameserver cũ bằng hai NS Cloudflare.
-   Chỉ thêm bản ghi NS trong DNSHost không tương đương đổi NS tại registrar.
+5. Vào nơi bạn **mua/đăng ký tên miền** → chọn `quangnew.tech` → tìm mục
+   **Nameservers / Máy chủ DNS / Đổi DNS tên miền**. Thay NS cũ bằng đúng hai
+   NS Cloudflare vừa cấp, rồi Save. Tên menu tuỳ nhà đăng ký. Nếu trang bạn mở
+   chỉ có bảng thêm A/CNAME/TXT, đó có thể chỉ là trang quản lý record;
+   hãy tìm mục quản lý nameserver của tên miền. Thêm một record NS vào bảng
+   DNSHost không thực hiện việc chuyển nameserver của domain.
 6. Chờ zone báo **Active**; sau đó bật lại DNSSEC theo thông số Cloudflare nếu cần.
 
 Nguồn: [Cloudflare full setup](https://developers.cloudflare.com/dns/zone-setups/full-setup/setup/).
@@ -209,9 +436,15 @@ Resolve-DnsName quangnew.tech -Type NS
 Kết quả phải là hai NS Dashboard cấp, không còn `ns*.dns.host` sau khi DNS
 cập nhật. Kiểm Dashboard nếu resolver còn cache; không tạo lại zone để thử.
 
+**Đạt khi:** Cloudflare báo `quangnew.tech` **Active**, và kết quả NS khớp
+hai tên trong Dashboard. Có thể phải chờ nhà đăng ký và DNS cập nhật.
+Nếu vẫn `Pending Nameserver Update`, kiểm NS đã Save đúng tại nơi đăng ký;
+đừng làm tiếp bằng cách tạo thêm zone/tunnel thử. Không có tên NS chung cho
+tất cả người dùng, nên tài liệu không điền sẵn hai giá trị này.
+
 ### 5.2 Authorize tunnel từ Windows
 
-Từ root repo:
+**Chạy trên Windows, tab A ở root repo, sau khi zone Active:**
 
 ```powershell
 & ./.toolchain/cloudflared/cloudflared-windows-amd64.exe tunnel login
@@ -226,10 +459,17 @@ không gửi nội dung file vào chat/repo.
 Test-Path "$env:USERPROFILE/.cloudflared/cert.pem"
 ```
 
+**Đạt khi:** lệnh trả `True` và CLI thông báo đăng nhập thành công.
+Nếu trả `False`, chưa sang bước 5.3: kiểm bạn đang dùng đúng tài khoản
+Cloudflare sở hữu zone; chạy lại `tunnel login` nếu lần trước hết thời gian.
+Authorize ở đây là cho CLI quản lý tunnel, khác với đăng nhập Google của app.
+
 `cert.pem` có quyền quản lý tunnel tài khoản: **không chép lên Pi**.
 Nguồn: [tạo tunnel bằng CLI](https://developers.cloudflare.com/tunnel/features/locally-managed-tunnels/create-local-tunnel/).
 
 ### 5.3 Tạo hai named tunnel và DNS
+
+**Chạy trên Windows, tab A:**
 
 ```powershell
 pwsh -File tools/Prepare-InternetTunnels.ps1
@@ -241,6 +481,20 @@ Helper tạo/tái sử dụng:
 |---|---|---|---|
 | `vietocr-pi` | `api.quangnew.tech` | Pi | `http://127.0.0.1:5082` |
 | `vietocr-compute` | `ocr.quangnew.tech` | Windows | `http://127.0.0.1:5080`, có path filter |
+
+**Đạt khi:** cuối lệnh có `Prepared project connectors in ...` và không có
+lỗi đỏ. Kiểm tiếp các file cấu hình mà không mở nội dung credential:
+
+```powershell
+Test-Path .toolchain/refactor/tunnels/pi.yml
+Test-Path .toolchain/refactor/tunnels/compute.yml
+Select-String -Path .toolchain/refactor/tunnels/pi.yml -Pattern '^tunnel:'
+```
+
+Hai dòng `True` và một dòng `tunnel: <mã UUID>` là kết quả mong đợi.
+UUID giống mã dài có dấu `-`; UUID là tên định danh, **nội dung file JSON
+credential mới là bí mật**. Tạo tunnel chưa làm chương trình chạy; mục 6–7
+mới bật connector trên từng máy.
 
 Nó tạo CNAME tới `<UUID>.cfargotunnel.com`, không overwrite DNS. Nếu `api`/`ocr`
 đã có record xung đột, kiểm và sửa đúng record ở Dashboard; không xoá cả zone.
@@ -260,10 +514,27 @@ Resolve-DnsName ocr.quangnew.tech
 Record proxied có thể trả IP Cloudflare thay vì CNAME công khai. DNS có record
 chưa chứng minh connector/backend đang chạy.
 
+Mở **Cloudflare → quangnew.tech → DNS → Records** để đối chiếu:
+
+| Type | Name | Target | Proxy |
+|---|---|---|---|
+| CNAME | `api` | UUID của `vietocr-pi` + `.cfargotunnel.com` | Proxied |
+| CNAME | `ocr` | UUID của `vietocr-compute` + `.cfargotunnel.com` | Proxied |
+
+Helper đã thêm hai record này; bạn chỉ kiểm, không cần thêm bản trùng.
+`api` và `ocr` có UUID khác nhau. Nếu helper báo DNS conflict, đối chiếu đúng
+hai tên đó với tunnel cần dùng trước khi sửa record xung đột; giữ các record
+khác của website/email. Nếu `Resolve-DnsName` còn báo NXDOMAIN, xử lý DNS
+trước khi thử sửa code app hoặc mật khẩu Google.
+
 Nếu cần đối chiếu bước đổi NS tại nhà đăng ký, xem riêng
 [Cloudflare nameservers](https://developers.cloudflare.com/dns/nameservers/update-nameservers/).
 
 ### 5.4 Giữ đúng ingress/cache/auth
+
+**Bước này để đối chiếu; helper đã tạo cấu hình cần dùng.** `Ingress` nghĩa
+là quy tắc chọn request nào đi vào dịch vụ nào. File `.yml` là cấu hình tunnel;
+không thay bằng file credential `.json`.
 
 Mẫu ở `infra/tunnel/`. Pi hostname chỉ đưa vào gateway 5082. Compute chỉ cho:
 
@@ -284,7 +555,37 @@ Client→Cloudflare và connector→Cloudflare dùng TLS. HTTP trong mẫu chỉ
 loopback trên từng host; không dùng `noTLSVerify` hay public HTTP thay HTTPS.
 Tham khảo [ingress configuration](https://developers.cloudflare.com/tunnel/features/locally-managed-tunnels/configuration-file/).
 
+<a id="tunnel-windows"></a>
+
 ## 6. Connector compute trên Windows
+
+**Điều kiện:** mục 5.3 đã tạo `compute.yml`. Ở bước này bạn bật backend và
+connector Windows. Phần 8 sẽ giải thích dashboard/model sâu hơn.
+
+### 6.1 Mở backend nếu hôm nay chưa mở
+
+Nếu tab Server đang chạy rồi thì bỏ qua bước này, không mở thêm instance.
+Nếu chưa, **mở tab B / Windows** rồi chạy:
+
+```powershell
+Set-Location 'C:\DevLanguage\Works\PBL\PBL4\VietOCR_Handwriting'
+Server/Run-Server.cmd
+```
+
+Giữ tab B mở. **Đạt khi:** launcher có dòng
+`Dashboard: http://127.0.0.1:3000 | API: http://127.0.0.1:5080`.
+Model có thể đang nạp; kiểm API sống bằng **tab A / Windows**:
+
+```powershell
+Invoke-RestMethod -Uri http://127.0.0.1:5080/api/health/live -TimeoutSec 5
+```
+
+Kết quả cần có `status` là `alive`. Nếu lỗi, xem mục 8.1/13 trước khi thử
+tunnel. Nếu được, chuyển ngay bước 6.2; mục 8.2 sẽ kiểm worker ready sau.
+
+### 6.2 Mở connector Windows
+
+**Chạy trên Windows, tab A:**
 
 ```powershell
 pwsh -File tools/Start-ComputeTunnel.ps1
@@ -293,6 +594,22 @@ Get-Content .toolchain/refactor/tunnels/compute.err.log -Tail 40
 
 Helper chạy nền, lưu PID/log private; không có token trên command line.
 Cần thấy kết nối tunnel được đăng ký. Backend cũng phải chạy để API phục vụ.
+
+**Đạt khi:** helper in `Started project compute connector, pid=...` hoặc báo
+connector project đã chạy; log sau đó có kết nối được đăng ký, thường chứa
+`Registered tunnel connection`. Chỉ thấy `Started...` chưa chứng minh đã nối
+Cloudflare: process còn có thể lỗi sau khi khởi động. Đợi một chút rồi đọc log
+lại nếu chưa có kết nối. Khi không có request, log đứng yên là bình thường.
+
+Các trường hợp chưa đạt:
+
+- `Prepare authorized named tunnels first`: quay lại mục 5.2–5.3.
+- Thiếu credential/không đọc được file: kiểm đúng `compute.yml` và UUID credential
+  của Windows; không chép credential Pi đè vào đó.
+- Lỗi mạng/không kết nối edge: kiểm Internet/firewall cho cloudflared; giữ
+  log để phân biệt lỗi mạng với lỗi backend. Không mở port 5080 trên router.
+- Tunnel đã kết nối nhưng HTTP 502: kiểm API Windows ở mục 8.2.
+
 Dừng đúng connector project:
 
 ```powershell
@@ -303,29 +620,63 @@ pwsh -File tools/Start-ComputeTunnel.ps1 -Stop
 server và helper. Cloudflared tự thử lại mạng khi process còn chạy; không đánh
 thức máy đã ngủ/tắt.
 
+<a id="tunnel-pi"></a>
+
 ## 7. Connector Pi và đổi compute origin sang HTTPS
+
+Mục này có hai việc độc lập: **7.1** cho client truy cập Pi từ Internet;
+**7.2** cho Pi gọi được compute Windows qua Internet. Chỉ làm 7.1 thì app
+có thể thấy Pi nhưng OCR vẫn lỗi vì Pi còn trỏ vào địa chỉ kiểm thử cũ.
 
 ### 7.1 Chép credential Pi
 
-Xác định UUID từ `.toolchain/refactor/tunnels/pi.yml`. Thay `PI_UUID` trong lệnh
-bằng UUID đó; đây không phải secret hay tên tunnel.
+**Windows, tab A, root repo:** lấy UUID tự động từ file cấu hình:
+
+```powershell
+$piUuid = ((Select-String -Path .toolchain/refactor/tunnels/pi.yml -Pattern '^tunnel:\s+').Line -replace '^tunnel:\s+', '').Trim()
+$piUuid
+Test-Path ".toolchain/refactor/tunnels/$piUuid.json"
+```
+
+**Đạt khi:** hiện một UUID và `True`. Nếu mã rỗng/file không có, dừng ở đây và
+kiểm bước 5.3. Giữ tab A này để biến `$piUuid` vẫn còn giá trị.
+
+Chạy tiếp **trên Windows** để chuẩn bị thư mục riêng và chép đúng file:
 
 ```powershell
 ssh admin@rasp4gb "install -d -m 700 /home/admin/vietocr-tunnel-upload"
 scp .toolchain/refactor/tunnels/pi.yml admin@rasp4gb:/home/admin/vietocr-tunnel-upload/
-scp .toolchain/refactor/tunnels/PI_UUID.json admin@rasp4gb:/home/admin/vietocr-tunnel-upload/
+scp ".toolchain/refactor/tunnels/$piUuid.json" admin@rasp4gb:/home/admin/vietocr-tunnel-upload/
 scp infra/raspberry/install-tunnel.sh infra/raspberry/vietocr-tunnel.service admin@rasp4gb:/home/admin/vietocr-tunnel-upload/
-ssh admin@rasp4gb
 ```
 
-Trên **Pi**:
+`scp` là chép file qua SSH; nó có thể hỏi mật khẩu Pi ở từng lệnh. Chép xong
+sẽ quay lại dấu nhắc Windows, không tự chuyển tab thành Linux. Không chép
+`cert.pem` hoặc credential compute lên Pi.
+
+**Chuyển sang tab C, SSH vào Pi nếu chưa vào**, rồi chạy:
 
 ```sh
+pi_uuid=$(sed -n 's/^tunnel:[[:space:]]*//p' /home/admin/vietocr-tunnel-upload/pi.yml)
+printf '%s\n' "$pi_uuid"
 sh -n /home/admin/vietocr-tunnel-upload/install-tunnel.sh
-sudo sh /home/admin/vietocr-tunnel-upload/install-tunnel.sh /home/admin/vietocr-tunnel-upload PI_UUID
+sudo sh /home/admin/vietocr-tunnel-upload/install-tunnel.sh /home/admin/vietocr-tunnel-upload "$pi_uuid"
 systemctl status vietocr-tunnel.service --no-pager
 journalctl -u vietocr-tunnel.service -n 30 --no-pager
 ```
+
+`sh -n` kiểm cú pháp và thường **không in gì khi đúng**. `sudo` cho phép
+installer cài service hệ thống. Nếu hỏi mật khẩu, dùng mật khẩu Pi.
+
+**Đạt khi:** service có `Active: active (running)` và log có kết nối tunnel
+được đăng ký. Không chạy lại installer mỗi khi bật Pi; systemd sẽ tự mở
+connector sau boot. Cài thành công sẽ xoá credential bản chép tạm, nên muốn
+cài lại có chủ đích thì chép lại file từ Windows trước.
+
+Nếu báo `not found`/`Syntax error` dù file có tồn tại, kiểm file `.sh` có bị
+đổi thành CRLF khi chép/sửa không. Nếu báo `Unit ... could not be found`,
+installer chưa hoàn tất; đọc lỗi ngay trước đó. Đừng tạo tunnel khác để sửa
+lỗi cài service Pi.
 
 Installer dùng service user `cloudflared`, credential 0600, config 0640; xoá bản
 credential staging khi thành công. Service active chưa đủ, phải qua mục 10.
@@ -333,20 +684,47 @@ Shell scripts cần LF, không CRLF; repo đã có `.gitattributes` cho định 
 
 ### 7.2 Tái sử dụng pairing hiện có
 
+`Pairing` ở đây là ghép **Pi và compute bằng hai credential máy**, không phải
+Bluetooth. Token ingress cho phép chuyển ảnh; token telemetry cho phép đọc
+stats server. Compute lưu bản hash để đối chiếu, không dùng mật khẩu Google.
+
 Máy hiện tại đã có hai credential máy. **Không dùng `-Rotate`** chỉ để đổi
 hostname. Giữ hash compute khớp token Pi. Trên **Windows**, sau khi connector
 và hostname hoạt động:
+
+**Windows, tab A:** kiểm hai file cũ còn trước khi chạy helper:
+
+```powershell
+Test-Path .toolchain/refactor/pairing/ingress.token
+Test-Path .toolchain/refactor/pairing/telemetry.token
+```
+
+Cả hai phải `True` trên máy hiện tại. Nếu bị mất file, khôi phục từ bản lưu
+private hoặc lên kế hoạch ghép lại **cả hai phía**; không tạo token mới ở
+Windows rồi để Pi giữ token cũ. Không gửi nội dung token lên chat.
+
+Sau đó:
 
 ```powershell
 pwsh -File tools/Prepare-V2Pairing.ps1 -ComputeOrigin https://ocr.quangnew.tech -ResultsOrigin https://ocr.quangnew.tech
 pwsh -File tools/Merge-V2Pairing.ps1
 ```
 
-Lệnh thứ hai chỉ kiểm patch. Đóng đúng server, áp dụng rồi mở lại:
+**Đạt khi:** helper thứ nhất tạo/tái sử dụng pairing; helper thứ hai in
+`Validated pairing patch...`. `Patch` là các trường cấu hình cần thay, và
+chưa có thay đổi nào vào server ở lệnh kiểm này.
+
+Chuyển tab B Server, nhấn **Ctrl + C**, chờ launcher dừng; nếu hiện `pause`
+thì nhấn một phím để về terminal. Trở lại tab A, áp dụng:
 
 ```powershell
 pwsh -File tools/Merge-V2Pairing.ps1 -Apply
 ```
+
+**Đạt khi:** hiện `Merged pairing fields only...`. Sau đó quay tab B, mở lại
+`Server/Run-Server.cmd` và kiểm worker theo mục 8. Lệnh `-Apply` không tự
+khởi động lại backend đang chạy. Connector compute có thể giữ chạy trong
+lần restart này; nó sẽ tạm trả 502 khi backend đang dừng.
 
 Helper chỉ merge pairing/AllowedHosts, giữ Supabase/Python và settings khác.
 Không thay nguyên `server.local.json` bằng `compute.patch.json`.
@@ -354,6 +732,10 @@ Không thay nguyên `server.local.json` bằng `compute.patch.json`.
 Các runtime settings DB như worker/retention vẫn quản lý bằng dashboard.
 
 Trên **Pi hiện có**, chỉ đổi origin, không chép lại token:
+
+**Tab C / Pi:** copy **cả khối** dưới đây, từ `sudo cp` tới restart. Khối
+Python đọc file cũ và thay đúng ba địa chỉ, giữ token/camera/GPIO.
+`PY` kết thúc khối phải đứng đầu dòng, không thêm dấu cách trước nó.
 
 ```sh
 sudo cp -p /etc/vietocr/gateway.json /etc/vietocr/gateway.before-public.json
@@ -380,6 +762,26 @@ sudo -u vietocr /opt/vietocr/vietocr-gateway /etc/vietocr/gateway.json --check-c
 sudo systemctl restart vietocr-gateway.service
 ```
 
+Kiểm lại **ngay trên Pi**, chỉ in hostname và trạng thái GPIO, không in key:
+
+```sh
+sudo python3 - <<'PY'
+import json
+c = json.load(open('/etc/vietocr/gateway.json'))
+print('Compute:', c['compute']['origin'])
+print('Results:', c['compute']['publicResultsOrigin'])
+print('Telemetry:', c['telemetry']['url'])
+print('GPIO enabled:', c['panel']['enabled'])
+PY
+systemctl is-active vietocr-gateway.service
+journalctl -u vietocr-gateway.service -n 25 --no-pager
+```
+
+**Đạt khi:** compute/results đều `https://ocr.quangnew.tech`, telemetry kết
+thúc `/api/internal/v2/status`, GPIO là `False`, service `active`; không có
+lỗi cấu hình hay credential lặp lại trong log. Nếu compute báo 401, đọc
+mục 13.5, không xoay token nhiều lần để thử.
+
 `panel.enabled` vẫn false. Origin thử `127.0.0.1:15080` phải được thay ở cả
 compute và telemetry; SSH forward kiểm thử 15080/15082 đã dừng, không phải
 dịch vụ production.
@@ -389,35 +791,178 @@ Chỉ khi cài **Pi mới/rotate chủ đích** mới chuyển đầy đủ pair
 `infra/raspberry/install.sh` với bundle ARM64. Installer đặt token 0600 rồi xoá
 hai bản staging. Rotate một phía gây 401; dừng, đồng bộ hai phía, mở lại.
 
+<a id="server"></a>
+
 ## 8. Compute và admin
 
+### 8.1 Mở server Windows
+
+**Nếu đã mở server ở mục 6.1 và tab B còn chạy, bỏ qua việc mở lại; đi thẳng
+8.2 để kiểm model, rồi 8.3 để mở dashboard.** Mục 8.1 cũng dùng khi bạn mở
+lại hệ thống vào ngày khác.
+
+**Nơi làm:** tab B trên **máy Windows có RTX 4050**. Tab A vẫn dùng để chạy
+lệnh kiểm tra; đừng chạy một server thứ hai ở tab A.
+
+Mở PowerShell 7 ở tab B, vào root repo:
+
 ```powershell
+Set-Location 'C:\DevLanguage\Works\PBL\PBL4\VietOCR_Handwriting'
 Server/Run-Server.cmd
 ```
 
-Launcher build backend/web production, admin ở `http://127.0.0.1:3000`, compute
-loopback 5080. Đóng phiên server cũ bằng terminal của nó trước khi mở phiên
-mới; không chạy hai coordinator trên cùng DB lease.
-Admin cũ được giữ; tạo admin khác bằng `Server/tools/New-Admin.ps1`, nhập mật
-khẩu tại máy. Không ghi credential admin vào tài liệu/repo.
+Launcher cần thời gian build backend/web và khởi động model. Giữ tab này mở.
+**Đạt khi:** có dòng tương tự:
 
-WorkerSpace chọn **auto: GPU rời → iGPU được hỗ trợ → CPU**, hoặc chọn rõ CPU/
-adapter. Giữ tối thiểu 1 GiB RAM/VRAM dự phòng. `(6 GiB−1 GiB)/300 MiB≈17`
-chỉ là dự toán: còn CUDA context, activation, RAM và preprocessing. Trước đây
-đo khoảng 1,1 GiB RAM/process. Máy chơi game/thiếu RAM có thể không nạp thêm
-worker; không bỏ guard để ép nạp.
+```text
+Dashboard: http://127.0.0.1:3000 | API: http://127.0.0.1:5080
+API log: ...\Server\runtime\logs\api-....log
+```
 
-Backend phục hồi receipt và queued job định kỳ, kể cả commit mất phản hồi/client
-đã đóng. Duplicate polling không tự chạy lại job đang bận. Host chết giữa
-inference có thể retry; không cam kết exactly-once inference. Quota commit
-idempotent. Model không chạy trên Pi.
+Mở trình duyệt Windows tới **`http://127.0.0.1:3000`**. Dùng tài khoản admin
+đã có. Đây không phải nút đăng nhập Google trong app.
+
+Nếu launcher dừng vì build lỗi, API có thể chưa được mở dù thư mục `bin`
+đã tồn tại. Giữ nguyên lỗi để tra mục 13; không mở thêm nhiều launcher.
+Nếu báo `Port 5080/3000 is already in use`, kiểm tab server cũ trước.
+
+### 8.2 Phân biệt “API đã bật” với “model đã sẵn sàng”
+
+**Windows, tab A:**
+
+```powershell
+Invoke-RestMethod -Uri http://127.0.0.1:5080/api/health/live -TimeoutSec 5
+```
+
+**Đạt khi:** có `status` là `alive`. Chỉ có nghĩa API còn sống, chưa khẳng
+định AI đã nạp xong. Kiểm tiếp:
+
+```powershell
+Invoke-WebRequest -Uri http://127.0.0.1:5080/api/health/ready -SkipHttpErrorCheck -TimeoutSec 5 | Select-Object StatusCode, Content
+```
+
+| Kết quả | Hiểu thế nào? | Làm tiếp |
+|---|---|---|
+| `200`, `status: ready` | Coordinator và ít nhất một worker đã sẵn sàng | Có thể kiểm tunnel/gửi ảnh |
+| `503`, `status: not_ready` ngay lúc khởi động | API đang lên nhưng chưa có worker sẵn sàng | Xem WorkerSpace/log, chờ nạp model |
+| Không kết nối được | Chưa có backend nghe cổng 5080 | Quay tab B, đọc lỗi launcher |
+
+`-SkipHttpErrorCheck` giúp hiện nội dung 503 thay vì chỉ một lỗi đỏ; lệnh này
+cần PowerShell 7. Nếu 503 kéo dài và log có lỗi lặp lại, xử lý lỗi đó,
+không cứ thêm worker để thử. Mục 10 kiểm đường Internet riêng với kiểm nội bộ này.
+
+### 8.3 Kiểm và thêm worker từ dashboard
+
+Trong web admin mở **WorkerSpace**. Cấu hình mặc định trong repo xin một
+worker lúc khởi động; cấu hình đã lưu có thể khác. Nếu worker đang nạp,
+đợi nó sang `idle` trước khi quyết định thêm.
+
+| Trạng thái | Ý nghĩa |
+|---|---|
+| Đang khởi tạo/nạp model | Python đang nạp trọng số và chạy thử để làm nóng model |
+| `idle` | Worker rảnh, nhận được ảnh mới |
+| `busy` | Worker đang nhận diện một ảnh |
+| Đang dừng/draining | Hoàn tất việc đang chạy rồi dừng worker |
+
+Muốn thêm worker: chọn **Thiết bị cho worker** → để **Tự động: GPU rời →
+GPU tích hợp → CPU**, hoặc chọn rõ CPU/thiết bị hiện khả dụng → nhấn
+**Thêm worker** một lần → xem card mới và RAM/VRAM. Không phải mọi iGPU đều
+có backend hỗ trợ; device không khả dụng sẽ không được dùng.
+
+Với máy 16 GB RAM/4050 6 GB, bắt đầu ít worker rồi đo thời gian/queue. Thêm
+nhiều worker trên cùng GPU có thể làm mỗi ảnh chậm hơn. Con số lý thuyết 17
+không phải hướng dẫn bấm tạo 17 worker. Nếu guard từ chối, xem RAM còn trống,
+VRAM và log của worker; đừng tắt guard để ép nạp.
+
+Tab **Tích hợp API** trên admin còn ví dụ v1 cũ; luồng refactor dùng
+[Contracts/openapi-v2.json](Contracts/openapi-v2.json). Dùng app v4 và hướng
+dẫn này, không bật API v1 theo ví dụ cũ để đi tắt Pi.
+
+Admin cũ được giữ. Chỉ khi cần tạo **admin mới**, trên Windows root repo chạy
+`pwsh -File Server/tools/New-Admin.ps1`, nhập username/mật khẩu tại máy;
+không ghi credential admin vào repo hoặc dùng mật khẩu SSH thay thế.
+
+Backend có cơ chế tìm lại ảnh/job đã nhận khi bị mất phản hồi, không yêu cầu
+app giữ mở mãi. Retry cùng mã job được bảo vệ tránh tính lượt trùng; nếu host
+dừng giữa inference thì việc xử lý có thể phải chạy lại khi phục hồi. Giữ
+model/env và dữ liệu job trên compute để việc khôi phục còn thực hiện được.
 
 Next.js giữ Agentation trong dev (`Server/Run-Server.cmd -Dev`), không nhúng
 vào production. Không publish admin qua hostname kết quả.
 
+<a id="van-hanh-moi-ngay"></a>
+
+### 8.4 Mỗi ngày bật hệ thống theo thứ tự nào?
+
+Phần này dùng **sau khi đã cấu hình Cloudflare một lần và mục 10 đã qua**.
+Không làm lại nameserver, Authorize, pairing hoặc migrations mỗi ngày.
+
+1. Bật Pi, cắm webcam, chờ Pi vào mạng. Trên Pi, kiểm ba service bằng lệnh
+   bên dưới. Các service đã enable sẽ tự chạy sau boot.
+2. Windows: mở tab B chạy `Server/Run-Server.cmd`, đợi worker sẵn sàng theo 8.2.
+3. Windows tab A: chạy `pwsh -File tools/Start-ComputeTunnel.ps1`.
+4. Nếu hôm nay có lỗi mạng/tunnel, chạy kiểm mục 10.1.
+5. Mở app desktop/Android, đăng nhập nếu phiên cũ cần đăng nhập lại, rồi dùng.
+
+**Pi, tab C:**
+
+```sh
+systemctl is-active vietocr-camera@desk.service vietocr-gateway.service vietocr-tunnel.service
+```
+
+**Đạt khi:** ba dòng `active`. `systemctl` là công cụ quản lý chương trình
+chạy nền trên Linux; `service` là một chương trình do hệ điều hành quản lý.
+Không cần giữ SSH mở để ba chương trình này hoạt động.
+
+Pi, máy server và client đều cần Internet. Máy Windows phải bật và không
+ngủ trong lúc xử lý OCR. Đóng trình duyệt admin không tắt server; đóng/dừng
+tab launcher server thì có. Connector Windows hiện chưa tự chạy sau boot.
+
+### 8.5 Đang dùng thì sửa cấu hình hoặc restart thế nào?
+
+| Bạn vừa sửa gì? | Phải khởi động lại gì? |
+|---|---|
+| `Server/server.local.json`, gồm pairing | Dừng/mở lại launcher Windows theo 8.1 |
+| `/etc/vietocr/gateway.json` | Check-config, restart `vietocr-gateway.service` |
+| `/etc/vietocr/camera-desk.env` | Restart `vietocr-camera@desk.service` |
+| `compute.yml` | Helper compute `-Stop`, rồi chạy helper lại |
+| `pi.yml` | Dùng installer tunnel với file mới, kiểm log service |
+| Worker/giới hạn trên dashboard | Dùng đúng nút Save/Thêm/Dừng; theo dõi phản hồi, không mặc định cần reboot Pi |
+| Địa chỉ Raspberry trong app | Lưu & kiểm tra, đăng nhập/xác minh lại nếu được yêu cầu |
+
+Ví dụ **trên Pi**, chỉ khi đã sửa gateway và cần áp dụng:
+
+```sh
+sudo -u vietocr /opt/vietocr/vietocr-gateway /etc/vietocr/gateway.json --check-config
+sudo systemctl restart vietocr-gateway.service
+systemctl is-active vietocr-gateway.service
+```
+
+Chỉ chạy dòng restart sau khi check-config thành công. Restart gateway làm
+ngắt preview đang mở; app cần mở lại. Không restart để chữa một lỗi DNS
+chưa được sửa ở Cloudflare.
+
+### 8.6 Tắt khi dùng xong
+
+1. Đóng cửa sổ preview trong các app để ngừng truyền video.
+2. Nếu đang có ảnh gửi/xử lý, chờ xong và queue về 0 trước khi tắt có chủ đích.
+3. Windows tab A: `pwsh -File tools/Start-ComputeTunnel.ps1 -Stop`.
+4. Windows tab B: `Ctrl + C`, chờ launcher dừng. Nếu hiện yêu cầu nhấn phím,
+   nhấn một phím để trở về terminal.
+5. Pi có thể để chạy nền. Nếu muốn tắt hẳn, chạy `sudo poweroff` trong SSH,
+   chờ Pi tắt rồi mới rút nguồn, không rút nguồn ngay lúc đang ghi thẻ nhớ.
+
+Nếu tắt đột ngột, ảnh đã được compute nhận có cơ chế phục hồi khi server mở
+lại; vẫn cần retention còn hiệu lực. Đừng tạo hàng loạt lượt gửi mới chỉ vì
+vừa mở app lại mà kết quả chưa xuất hiện.
+
+<a id="client"></a>
+
 ## 9. Webcam và client
 
-### Webcam Pi
+### 9.1 Kiểm webcam trên Pi
+
+**Tab C / Pi:**
 
 ```sh
 systemctl is-active vietocr-camera@desk.service vietocr-gateway.service
@@ -425,6 +970,11 @@ curl -f http://127.0.0.1:5082/health/live
 v4l2-ctl --list-devices
 v4l2-ctl -d /dev/video0 --list-formats-ext
 ```
+
+Hai lệnh đầu phải cho service `active` và health `alive`. Hai lệnh `v4l2-ctl`
+chỉ đọc thông tin webcam: danh sách thiết bị và các độ phân giải/FPS hỗ trợ.
+Trong danh sách mode, cần có MJPG ở độ phân giải đã chọn. Chỉ cắm thêm webcam
+không tự bảo đảm camera mới có cùng số `/dev/video0` sau reboot.
 
 Service dùng `/etc/vietocr/camera-desk.env`, MJPEG/HW encoder, 1920×1080@30,
 3 buffers, 1 worker, `--slowdown` khi không có viewer. Không mở µStreamer tay
@@ -436,19 +986,33 @@ giờ cho một viewer; đây là phép tính ví dụ, không phải bitrate c�
 Đóng camera khi không dùng, hoặc giảm FPS trong camera env khi cần tiết kiệm.
 Không mở stream lâu để đo tải qua hotspot có hạn mức.
 
-Thêm webcam: dùng `/dev/v4l/by-id/...` ổn định nếu có; tạo `camera-<id>.env`
+**Thêm webcam khác, khi cần:** dùng `/dev/v4l/by-id/...` ổn định nếu có; tạo `camera-<id>.env`
 với device/port loopback riêng, enable `vietocr-camera@<id>.service`, thêm
 camera id/upstream vào `gateway.json`, restart gateway. Client đổi camera Pi
 công bố bằng dropdown. Chọn mode MJPG/V4L2 được hỗ trợ; mode cao hơn có thể giảm FPS.
 
-### Desktop
+### 9.2 Mở và đăng nhập desktop
+
+**Windows**, từ root repo; có thể dùng tab riêng cho app:
 
 ```powershell
 Desktop/Run-Desktop.cmd
 ```
 
-Chọn Raspberry URL **`https://api.quangnew.tech`**, đăng nhập Google trong
-system browser. Không nhập Supabase URL hay `ocr.quangnew.tech` vào ô Raspberry.
+Bạn cũng có thể double-click `Desktop/dist/vietocr-desktop.exe` trong Explorer.
+
+1. Nhấn **Cấu hình Raspberry** ở màn hình đăng nhập, hoặc biểu tượng bánh răng
+   nếu app đã mở workspace.
+2. Ô **Địa chỉ Raspberry** nhập **`https://api.quangnew.tech`**, nhấn
+   **Lưu & kiểm tra**. Không thêm `/stream`, `:5082` hay địa chỉ Supabase.
+3. Nhấn **Đăng nhập bằng Google**. Trình duyệt mặc định mở trang đăng nhập;
+   chọn tài khoản Google rồi hoàn tất. Giữ app mở trong lúc trình duyệt trả về.
+4. Sau khi Pi xác minh thành công, workspace hiện email của bạn và khu vực
+   tài liệu. Nếu đăng nhập Google xong mà vẫn chưa vào được, kiểm gateway
+   URL/Internet và callback ở mục 4, chưa phải lỗi model.
+
+**Đạt khi:** app nhận đúng tài khoản và có thể mở camera hoặc thêm ảnh nháp.
+Không nhập `ocr.quangnew.tech` vào ô Raspberry.
 Tài khoản đã xác minh có thể sửa bản nháp offline; gửi/camera cần mạng.
 Trên máy này URL test 15082 đã được trả về URL production.
 
@@ -459,21 +1023,73 @@ Frontend desktop là HTML/CSS/JS tĩnh do Rust phục vụ, không chạy Next.j
 Artifact CI hiện giữ 3 ngày. Nếu đã hết hạn, vào Actions → Refactor foundation →
 Run workflow trên nhánh `refactor` để tạo bản mới; giữ bản đã tải trong `dist`.
 
-### Android
+### 9.3 Cài và đăng nhập Android
 
-Cài APK bằng trình quản lý file hoặc ADB đã có:
+File hiện có: **`Mobile/dist/VietOCR-4.0.1-refactor-arm64.apk`**.
+Đây là bản ARM64, Android tối thiểu 8.0/API26. APK hiện dùng ký sideload,
+chưa phải bản phát hành Play Store.
+
+**Cách A — qua file:** chép APK sang điện thoại, mở bằng trình quản lý file,
+cho phép cài từ nguồn bạn đang dùng nếu Android hỏi, rồi cài. Chỉ cần cho
+phép nguồn đó khi cài APK của bạn; không gửi credential cùng file APK.
+
+**Cách B — dùng ADB trên Windows:** cắm cáp, bật USB debugging, chấp nhận
+hộp thoại cấp quyền của chính máy tính bạn. Chạy ở root repo:
 
 ```powershell
 adb devices
 adb install -r Mobile/dist/VietOCR-4.0.1-refactor-arm64.apk
 ```
 
-Bật USB debugging/chấp nhận thiết bị nếu dùng ADB. Chọn Google & Raspberry,
-nhập gateway HTTPS, đăng nhập Google. Import dùng Photo Picker, không cần quyền
+**Đạt khi:** `adb devices` có máy ở trạng thái `device`, lệnh cài trả `Success`.
+`unauthorized` nghĩa là điện thoại chưa chấp nhận hộp thoại; danh sách trống
+thì kiểm cáp/chế độ USB. Nếu báo khác chữ ký bản cũ, giữ bản nháp cần thiết
+trước khi quyết định gỡ app; gỡ app có thể xoá dữ liệu local của nó.
+
+Mở VietOCR → phần **Google & Raspberry** → đặt gateway
+`https://api.quangnew.tech` → đăng nhập Google. Dùng cùng tài khoản desktop
+nếu muốn xem lịch sử OCR của cùng người dùng. Ảnh chưa gửi là nháp local:
+chụp nháp trên điện thoại không tự xuất hiện trong danh sách nháp desktop.
+
+Import dùng Photo Picker, không cần quyền
 Bluetooth/camera/microphone local. Đổi tài khoản khoá cache cũ, đóng camera/
 editor và chặn cả token refresh đang dở chuyển tác vụ sang tài khoản mới.
 
-### Ảnh
+### 9.4 Một lượt chụp và gửi ảnh đúng cách
+
+Thực hiện lần đầu với **một ảnh** để biết toàn bộ đường truyền hoạt động:
+
+1. Trong desktop nhấn **Camera Raspberry**, chọn webcam ở dropdown. Trên
+   Android mở nguồn chụp Raspberry tương ứng.
+2. Đặt giấy đủ sáng, giữ cố định, chờ hình hiện. Có thể bật **Lật gương**
+   nếu muốn đổi trái–phải; hướng này được áp dụng vào ảnh lưu.
+3. Nhấn **Chụp ảnh**. App xem ảnh vừa chụp khoảng 3 giây rồi trở lại preview;
+   **Bỏ qua · Chụp tiếp** kết thúc review sớm, ảnh đã chụp vẫn vào nháp.
+4. Cửa sổ camera giữ mở cho lần chụp tiếp. Đóng cửa sổ này khi đã chụp đủ.
+   Đến đây **chưa có request OCR, chưa tính lượt**.
+5. Chọn ảnh nháp trong danh sách. Có thể bấm **Tải ảnh lên** hoặc vùng trống
+   **Ảnh gốc** để thêm file từ máy thay cho chụp.
+6. Nếu cần, mở **Zoom & crop** hoặc bấm vào ảnh đã có để chỉnh. Vùng cắt có
+   chữ nhật/elip/vẽ tự do, xoay, zoom, đen trắng. Lưu thành ảnh mới giữ bản gốc;
+   bản nguồn tự bỏ chọn để không gửi cả hai bản ngoài ý muốn.
+7. Kiểm checkbox những ảnh thực sự muốn nhận diện. Chọn **Tự tách dòng** cho
+   trang văn bản; **Một dòng chữ** cho ảnh đã crop chỉ còn một dòng.
+8. Nhấn **Gửi bản nháp →**. Chờ upload → xếp hàng → xử lý → kết quả.
+   Đừng nhấn lại liên tục khi đang chờ. Pi/compute có thể phải chờ lượt hoặc
+   đợi worker nạp xong; app giữ cùng mã yêu cầu để tránh tính trùng.
+9. Xem/chỉnh kết quả ở **Văn bản**, **Sao chép** hoặc **Xuất .txt**.
+   **Lịch sử trên server** đọc các job của tài khoản, không thay việc lưu nháp.
+
+Giới hạn là **500 ảnh được nhận/ngày/tài khoản, 30 ảnh trong 60 giây**,
+dùng chung điện thoại và desktop. Khi hạn mức phút hết, chờ cửa sổ phút qua;
+khi hạn mức ngày hết, chờ ngày mới hoặc liên hệ admin. Admin chỉ hạ giới hạn
+từng tài khoản trong trần chính sách hiện tại.
+
+Nếu đã gửi xong rồi mất mạng, mở app lại để xem job đã nhận; đừng import lại
+và tạo lượt gửi mới chỉ để tìm kết quả. Khi đóng app trước upload hoàn tất,
+giữ nguyên file/cache local để app còn dữ liệu phục hồi.
+
+### 9.5 Chất lượng ảnh và dung lượng truyền
 
 Mặc định giữ nguyên JPEG/PNG và kích thước; file nhỏ không chứng minh bị giảm
 độ phân giải. Crop/BW/lật tạo bản mới, bỏ chọn bản nguồn để tránh gửi trùng;
@@ -481,13 +1097,30 @@ vẫn tải được bản gốc. Tối ưu OCR tuỳ chọn so PNG/JPEG95, ch�
 không resize. JPEG95 có thể đổi chi tiết nhỏ, không tự bật lossy cho mọi ảnh.
 Profile màu đặc biệt được giữ bằng cách bỏ qua nén lại ảnh đó.
 
+Ví dụ ảnh 1920×1080 được nén JPEG có thể vài trăm KB; số KB không thể dùng
+riêng để kết luận ảnh có bị hạ độ phân giải. Zoom vào chữ thật để kiểm nét.
+Chụp từng trang, đặt camera gần vuông góc giấy, giữ ổn định và tránh bóng
+đổ giúp OCR hơn việc chỉ tăng kích thước file. Đen trắng không khôi phục
+chi tiết đã mất do rung hoặc lấy nét sai.
+
+<a id="kiem-thu"></a>
+
 ## 10. Kiểm trước khi dùng qua Internet
 
-Sau DNS/connector/compute/origin đúng, từ máy ngoài mạng Pi chạy:
+### 10.1 Kiểm đường đi công khai
+
+**Chỉ làm sau khi:** NS/zone Active, hai connector chạy, Windows API live,
+Pi đã đổi compute origin và pairing hai phía khớp. **Windows, tab A**;
+tốt nhất máy kiểm ở khác mạng Pi:
 
 ```powershell
 pwsh -File tools/Check-PublicDeployment.ps1
 ```
+
+**Đạt khi:** tất cả dòng có `Passed=True`, cuối lệnh có
+`Public routing/TLS and anonymous denial checks PASS...`.
+Một số dòng **401/404 là kết quả đúng**, vì script cố ý không đưa credential.
+Nếu script báo đỏ, đọc dòng nào `Passed=False`, dùng mục 13 theo HTTP đó.
 
 | Kiểm không có credential | HTTP |
 |---|---:|
@@ -497,8 +1130,16 @@ pwsh -File tools/Check-PublicDeployment.ps1
 | Compute `/api/v2/results/<uuid>` |401|
 | Compute `/api/admin/auth/csrf`, `/api/v1/jobs` |404|
 
-Đây là kiểm TLS/routing/deny, không thay kiểm OAuth/model thật. Dùng 4G hoặc
-mạng khác để thử tiếp:
+Mở `https://ocr.quangnew.tech/` trong browser được 404 có thể hoàn toàn đúng:
+hostname compute chỉ công bố các đường dẫn API đã cho phép, không có trang
+web ở `/`. Web quản trị mở ở `http://127.0.0.1:3000` trên Windows server.
+
+Health 200 chỉ nói gateway sống, còn 401 nghĩa là đã tới đúng API nhưng chưa
+đăng nhập. Script không đăng nhập Google hay chạy OCR. Làm thêm bước tiếp theo.
+
+### 10.2 Thử thật bằng một tài khoản Google
+
+Dùng điện thoại 4G hoặc mạng khác với Pi/server, mở app rồi kiểm:
 
 - Google login → Pi xác minh → xem/chụp webcam;
 - import ảnh mẫu, chưa Gửi phải chưa có job/lượt;
@@ -506,6 +1147,15 @@ mạng khác để thử tiếp:
 - mất mạng sau khi nhận đủ → mở lại nhận job cũ, không tự gửi nháp mới;
 - đổi Google → không thấy nháp/text tài khoản trước;
 - thử quota/ban có chủ đích qua admin, không reset counter để tạo số đo đẹp.
+
+**Đạt khi:** ảnh một trang hiện được trong app, bấm Gửi xong nhận văn bản;
+dashboard có job tương ứng và số lượt chỉ tăng một. Đây mới là kiểm cả
+Google → Pi → worker → kết quả về client. Sau đó đóng preview để tiết kiệm data.
+
+Nếu mạng hiện tại đang dùng hotspot giới hạn, chỉ thử ngắn với một ảnh.
+Để đo tải lớn hãy dùng mạng và môi trường staging riêng.
+
+### 10.3 Giới hạn của các kết quả kiểm thử đã có
 
 Không load-test 1000 Google thật/tiêu quota project hiện tại. Fixture Pi đã đo
 30 đợt ×1000 danh tính local; chưa đo 1000 upload thật/Supabase/Internet.
@@ -522,9 +1172,13 @@ Server/.venv/Scripts/python.exe -X utf8 tools/check_public_access.py
 Đây là kiểm phạm vi hẹp, không phải pentest/toàn bộ lịch sử Git. Không chia sẻ
 raw config hay ảnh màn hình có session/tunnel credential.
 
+<a id="phan-cung"></a>
+
 ## 11. TFT/còi — sau khi nối dây
 
-**Giữ GPIO tắt hiện tại.** Khi nối/xác minh phần cứng, dùng BCM Pi:
+**Bạn có thể bỏ qua mục này khi triển khai phần mềm. GPIO đang tắt vì chưa
+nối dây và phải tiếp tục giữ tắt.** Camera/OCR chạy được mà không cần TFT/còi.
+Khi nối/xác minh phần cứng, dùng BCM Pi:
 
 | TFT ILI9341 | BCM | Chân header vật lý |
 |---|---:|---:|
@@ -545,7 +1199,15 @@ CPU **hoặc** RAM **hoặc** busy-worker≥85% liên tục 5 giây mới kêu 1
 cooldown 60 giây, rearm khi các chỉ số hợp lệ đều<80%. Offline/stale/không có
 worker không tự báo động. Logic/renderer đã test, GPIO thật chưa test.
 
+<a id="build"></a>
+
 ## 12. Build và kiểm mã
+
+**Không cần build lại chỉ để cấu hình Cloudflare.** Các EXE/APK ở `dist` đã
+có để dùng. Phần này dành cho lúc bạn sửa mã nguồn hoặc dựng máy mới.
+`Build` nghĩa là biên dịch mã thành app; `run` là mở app đã build.
+
+### 12.1 Kiểm source, cho người phát triển
 
 ```powershell
 cargo test --workspace --locked
@@ -555,7 +1217,24 @@ node --test Desktop/tests/*.test.mjs
 ```
 
 Desktop: `cd Desktop/src-tauri; cargo build --release --locked` bằng MSVC.
-Máy này dùng CI, không tải C++ SDK mới.
+Máy này dùng CI, không tải C++ SDK mới. CI là máy build tự động của GitHub;
+không phải worker chạy OCR trên laptop.
+
+### 12.2 Lấy EXE từ GitHub Actions
+
+1. Mở repo GitHub → **Actions → Refactor foundation**.
+2. Chọn run thành công trên nhánh `refactor`. Nếu artifact hết hạn 3 ngày,
+   **Run workflow**, chọn branch `refactor`, chờ build mới thành công.
+3. Trong phần **Artifacts**, tải `vietocr-desktop-windows`, giải nén.
+4. Đóng app desktop đang mở, giữ bản EXE trước nếu cần quay lại, chép EXE mới
+   vào `Desktop/dist/vietocr-desktop.exe`.
+5. Mở lại bằng `Desktop/Run-Desktop.cmd`. App không cần môi trường Python AI;
+   Python/weights chỉ nằm ở compute Windows.
+
+Workflow còn tạo bundle gateway ARM64 dành Pi. Đừng chép EXE Windows lên Pi;
+hai hệ điều hành/kiến trúc chạy binary khác nhau.
+
+### 12.3 Build APK khi có sửa Flutter
 
 Android từ root, dùng JDK21 thay Oracle JDK25 mặc định:
 
@@ -576,7 +1255,31 @@ sai JDK path. Build lần lượt lúc máy ít ứng dụng. APK đầu ra ở
 SQL tests ở `Contracts/tests`; native race suite chỉ nhận PostgreSQL loopback
 database tên `*_test`, không dùng production. Mock UI không thay QA thiết bị thật.
 
+Sau khi build APK xong, mở tab Windows mới ở root repo nếu tiếp tục chạy lệnh
+khác: tab build hiện đang đứng trong `Mobile/`. Dùng `Set-Location ..` để quay
+lại root repo từ thư mục này. Khi thay APK ở `dist`, ghi lại version/hash và
+kiểm trên điện thoại; build thành công chưa chứng minh luồng Google/camera đã đúng.
+
+<a id="tra-loi"></a>
+
 ## 13. Tra lỗi và rollback
+
+### 13.1 Tìm chỗ lỗi trước khi sửa
+
+Kiểm theo thứ tự sau, mỗi lần chỉ đổi một thứ:
+
+1. **Nội bộ Windows:** API 5080 live và ready chưa? Xem mục 8.2.
+2. **Nội bộ Pi:** gateway/camera active chưa? Xem mục 3.1 và 9.1.
+3. **Internet:** domain/tunnel kiểm mục 10.1 có qua không?
+4. **Danh tính:** Google trở về app và Pi xác minh được không?
+5. **OCR:** ảnh đã được nhận chưa, job nằm ở queue hay worker báo lỗi?
+
+Ví dụ Windows `/api/health/live` còn không kết nối được thì sửa launcher
+trước; thay DNS không giúp backend đang tắt. Nếu hai máy nội bộ đều ổn nhưng
+Cloudflare 1033, tập trung connector. Tránh thay token, callback, model và
+DNS cùng lúc, vì sẽ không biết thay đổi nào gây lỗi.
+
+### 13.2 Bảng tra nhanh
 
 | Triệu chứng | Kiểm tra |
 |---|---|
@@ -592,15 +1295,120 @@ database tên `*_test`, không dùng production. Mock UI không thay QA thiết 
 |507 spool capacity|Đĩa compute, upload dở/retention; không xoá ảnh job đang chạy|
 |410 result expired|Hết retention; ảnh local vẫn giữ, gửi bản mới nếu cần|
 
+### 13.3 Lấy log đúng nơi
+
+**Tab C / Pi**, chọn đúng service đang lỗi:
+
 ```sh
 journalctl -u vietocr-gateway.service -n 50 --no-pager
 journalctl -u vietocr-camera@desk.service -n 30 --no-pager
+journalctl -u vietocr-tunnel.service -n 30 --no-pager
 vcgencmd measure_temp
 free -m
 ```
 
-Server logs: `Server/runtime/logs/`; client: tab Log/appdata riêng. Log không
-được chứa credential, ảnh hay văn bản nhận diện.
+Ba lệnh `journalctl` lần lượt là gateway, webcam và tunnel. `vcgencmd` xem
+nhiệt độ Pi, `free -m` xem RAM. Muốn xem log trực tiếp có thể thêm `-f`;
+khi đó `Ctrl + C` chỉ dừng **việc theo dõi log**, không dừng service.
+
+**Windows / tab A**, xem lỗi backend mới nhất:
+
+```powershell
+$recentError = Get-ChildItem Server/runtime/logs -Filter 'api-*.error.log' -File -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+if ($recentError) { Get-Content -LiteralPath $recentError.FullName -Tail 60 } else { Write-Output 'Chưa có log backend. Kiểm tab launcher Server.' }
+```
+
+File lỗi rỗng có thể bình thường; xem log hoạt động gần nhất:
+
+```powershell
+$recentApi = Get-ChildItem Server/runtime/logs -Filter 'api-*.log' -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -notlike '*.error.log' } | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+if ($recentApi) { Get-Content -LiteralPath $recentApi.FullName -Tail 60 } else { Write-Output 'Chưa có log hoạt động backend.' }
+```
+
+**Tunnel Windows** có log khác backend:
+
+```powershell
+Get-Content .toolchain/refactor/tunnels/compute.err.log -Tail 40
+```
+
+Lỗi trước khi backend mở, như build Next.js/.NET thất bại, nằm ngay ở tab B
+Server. **Client desktop:** mở **Nhật ký lỗi**; **Android:** mở tab **Log**.
+Ghi lại giờ, đang bấm chức năng nào, HTTP/error code và phần log gần đó.
+Không gửi nguyên `server.local.json`, `session.dpapi`, credential tunnel,
+token, ảnh riêng hay văn bản OCR chỉ để báo lỗi.
+
+### 13.4 Domain không mở: NS, 1033 hay 502?
+
+- **NXDOMAIN/Pending NS:** làm lại phần kiểm ở 5.1/5.3. Chưa có đường từ tên
+  miền tới tunnel, nên sửa app/worker chưa giải quyết được.
+- **1033:** Cloudflare không thấy connector hoạt động cho tunnel đó.
+  `api` thì kiểm service tunnel **Pi**, `ocr` thì kiểm helper **Windows**.
+- **502:** kiểm origin ngay tại máy đang giữ connector: gateway 5082 trên
+  Pi hoặc compute 5080 trên Windows; xem log connector để xác định nó không
+  kết nối được origin nào. Kiểm hostname đang trỏ đúng UUID.
+- **404 ở trang gốc `ocr.../`:** bình thường theo ingress, kiểm đúng các
+  API trong mục 10.1 thay vì trang `/`.
+- **HTML trang đăng nhập/challenge thay JSON:** kiểm Cloudflare Access/WAF
+  cho đúng hostname/API; app không giải một màn hình đăng nhập Cloudflare
+  thay cho Supabase Google.
+
+Nguồn đối chiếu: [Cloudflare 1033](https://developers.cloudflare.com/support/troubleshooting/http-status-codes/cloudflare-1xxx-errors/error-1033/),
+[troubleshooting tunnel](https://developers.cloudflare.com/tunnel/troubleshooting/).
+
+### 13.5 401: sai đăng nhập Google hay sai ghép máy?
+
+Trước hết xem **401 ở đường dẫn nào**:
+
+| Trường hợp | Kiểm gì? |
+|---|---|
+| Script mục 10 gọi camera/results mà không có credential | 401 là đúng, không sửa token |
+| App sau Google login bị Pi từ chối | Gateway URL, Google provider, callback, phiên còn hiệu lực; thử đăng xuất/đăng nhập lại đúng tài khoản |
+| Pi gọi compute `/api/internal/v2/...` bị 401 | Token máy Pi phải khớp hash trong cấu hình compute; kiểm đã Apply và restart backend chưa |
+| Web admin báo sai đăng nhập | Dùng username/password admin, không dùng access token Google hoặc mật khẩu SSH |
+
+Nếu token pairing gốc còn ở Windows, chạy lại **đúng** mục 7.2 không có
+`-Rotate`, Apply và restart. Nếu đã chủ động thay token, phải cập nhật cả
+Pi lẫn compute trong đợt bảo trì. Mật khẩu Google không phải token máy và
+không được điền thay vào `.token`.
+
+### 13.6 Có hình nhưng không nhận diện, hoặc chờ quá lâu
+
+1. Chụp/import xong chỉ ở nháp là đúng: chọn checkbox rồi bấm **Gửi**.
+2. Nếu báo đang chờ server, kiểm `/api/health/ready` ở 8.2 và WorkerSpace.
+3. `server_not_ready`: worker/điều phối chưa sẵn sàng hoặc admission đang tạm
+   dừng. Kiểm worker và cài đặt nhận request trên admin.
+4. `minute_quota`/429: đợi lượt trong 60 giây. Hạn ngày đã hết thì không tự
+   retry mãi. Tài khoản bị ban/403 kiểm ở admin.
+5. Worker lỗi model/GPU: đọc log Python/backend, kiểm `Check-ModelRelease.ps1`,
+   Python path, RAM/VRAM. Chỉ thêm worker CPU khi máy còn tài nguyên, không
+   cài lại PyTorch/CUDA ngay trên hotspot để thử.
+6. 507/spool đầy: kiểm đĩa Windows và retention/partial upload. Không xoá file
+   job đang chạy hoặc database để dọn dung lượng.
+
+Nếu ảnh đã được compute nhận, giữ job cũ để nhận kết quả. Nút gửi lại với
+ảnh/job mới có thể là một lượt OCR mới, không phải cách tra lịch sử.
+
+### 13.7 Quay lại cấu hình trước khi sửa sai
+
+`Rollback` nghĩa là quay về cấu hình trước thay đổi. Chỉ rollback đúng phần
+vừa sửa, không xoá cả project. Ví dụ sau khi đổi Pi origin ở 7.2 mà cần
+khôi phục, **trên Pi**, kiểm bản backup tồn tại trước:
+
+```sh
+sudo test -f /etc/vietocr/gateway.before-public.json
+```
+
+Nếu lệnh thành công và đó đúng là bản bạn muốn phục hồi, chạy:
+
+```sh
+sudo cp -p /etc/vietocr/gateway.before-public.json /etc/vietocr/gateway.json
+sudo -u vietocr /opt/vietocr/vietocr-gateway /etc/vietocr/gateway.json --check-config
+sudo systemctl restart vietocr-gateway.service
+```
+
+Chỉ restart nếu check-config qua. Bản backup trên máy hiện tại có thể còn
+origin kiểm thử `127.0.0.1:15080`: khôi phục nó **không** làm OCR Internet
+hoạt động. Mục đích là quay lại trạng thái trước đổi cấu hình để kiểm tra.
 
 Rollback connector: dừng đúng `vietocr-tunnel.service` hoặc helper compute
 `-Stop`. Không xoá DNS zone để rollback nameserver; dùng bản DNS/NS đã lưu,
@@ -608,7 +1416,64 @@ hướng dẫn registrar, kiểm cả MX/TXT. Nếu chỉ Pi origin sai, khôi p
 `/etc/vietocr/gateway.before-public.json`, check-config rồi restart gateway.
 Giữ token/hash đồng bộ, API v1 tắt. Không rollback DB bằng drop/reset.
 
+<a id="hoan-tat"></a>
+
 ## 14. Dọn dẹp và phần còn chờ
+
+### 14.1 Đánh dấu tiến độ của chính bạn
+
+Bạn có thể tích các ô này trong bản Markdown local khi làm xong từng bước:
+
+- [ ] Biết tab nào là Windows, tab nào đang SSH trên Pi.
+- [ ] Máy hiện tại có EXE/APK, Python server, cấu hình riêng và cloudflared.
+- [ ] Cloudflare zone `quangnew.tech` Active, hai NS đúng.
+- [ ] Windows Authorize thành công, có `cert.pem` riêng trên máy.
+- [ ] Có hai tunnel, DNS `api`/`ocr` trỏ đúng UUID.
+- [ ] Windows API live và model ready, admin đăng nhập được.
+- [ ] Connector compute và service tunnel Pi đều kết nối được.
+- [ ] Pairing giữ đúng hai token, Pi dùng compute HTTPS thay địa chỉ thử.
+- [ ] Script mục 10.1 tất cả `Passed=True`.
+- [ ] Desktop đăng nhập Google, chụp thành nháp, Gửi một ảnh nhận kết quả.
+- [ ] Android đăng nhập/chụp/gửi thành công trên điện thoại thật.
+- [ ] Đã thử khi Pi, server, client không ở cùng mạng.
+- [ ] Biết bật lại theo 8.4, đóng preview và tắt theo 8.6.
+- [ ] GPIO vẫn tắt trong lúc TFT/còi chưa nối.
+
+Hoàn tất phần mềm không đồng nghĩa phải bật TFT/còi hay đo 1000 client thật
+ngay. Hai phần đó có checklist kiểm riêng và không chặn một lượt OCR thông thường.
+
+### 14.2 Những dữ liệu cần giữ khi dọn/cài lại
+
+| Dữ liệu | Giữ ở đâu / vì sao? |
+|---|---|
+| `Server/server.local.json` | Cấu hình private Supabase/pairing; sao lưu riêng, không commit |
+| `.toolchain/refactor/pairing/` | Token máy gốc để ghép đúng Pi–compute |
+| `%USERPROFILE%/.cloudflared/`, `.toolchain/refactor/tunnels/` | Chứng chỉ quản lý và credential/config tunnel; giữ private |
+| `/etc/vietocr/`, `/etc/cloudflared/` trên Pi | Config/token đang dùng của Pi, không dán nguyên thư mục vào chat |
+| `Server/.venv/`, `Server/.python/`, model AI | Công cụ/trọng số lớn đã có; xoá sẽ phải dựng/tải lại |
+| Nháp app và khoá ký Android | Giữ ảnh chưa gửi, phiên local và khả năng nâng cấp đúng app đã ký |
+| `Desktop/dist/`, `Mobile/dist/` | Bản app đã build để mở/cài lại nhanh |
+
+Phiên desktop được mã hoá bằng Windows DPAPI: chép file session sang một
+tài khoản/máy Windows khác không thay cho đăng nhập Google trên máy mới.
+Lưu ảnh/văn bản quan trọng ra nơi bạn quản lý; kết quả trên server có retention.
+
+### 14.3 Trạng thái kiểm thử đã ghi nhận
+
+Đã kiểm EXE tại checkpoint `86525e1` với phiên Google thật và webcam Pi qua
+SSH: 1920×1080, khoảng 25,3 FPS trong 5 giây, lưu lật gương đúng kích thước,
+review 3 giây và không tự gửi OCR. Đây không phải số đo qua Cloudflare hay
+1000 client. EXE/APK mới nhất từ `f21acdc` bổ sung chờ warmup/quota phút;
+CI qua, retry được kiểm bằng fixture. Lần chạy native debug cuối bị duyệt
+tự động chặn, nên không gán số đo camera checkpoint trước cho binary cuối.
+
+APK đã build, kiểm chữ ký v2/alignment 16 KiB, 54 tests và analyzer qua;
+chưa QA trên điện thoại thật. EXE portable; APK dùng signing sideload hiện có.
+Chi tiết: [tiến độ](docs/REFACTOR_PROGRESS.md),
+[báo cáo kiểm](docs/validation/refactor-checkpoint2.json),
+[Android](Mobile/validation-v4.json), [cài gì/ở đâu](docs/INSTALLATION_REPORT.md).
+
+### 14.4 Phần đã dọn và các kiểm còn chờ
 
 Đã gỡ firmware/cache ESP32, 80 file client Tk/BLE/OV cũ; chuyển Python/CUDA
 ra `Server/`, dọn 14 mapping Android cũ (~170 MiB), fake-client và staging-token.
