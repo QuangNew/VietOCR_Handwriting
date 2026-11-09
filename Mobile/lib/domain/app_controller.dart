@@ -25,7 +25,43 @@ class AppController extends ChangeNotifier {
   final cloud = CloudSession.instance;
   String? _accountId;
   String? get accountEmail => cloud.email;
-  String serverUrl = 'http://127.0.0.1:5080';
+  String serverUrl = 'http://127.0.0.1:5082';
+  bool gatewayVerified = false;
+  String? _lastVerifiedAccount;
+  bool get canUseWorkspace =>
+      !_managedEngine ||
+      (_accountId != null &&
+          cloud.userId == _accountId &&
+          (gatewayVerified || _lastVerifiedAccount == _accountId));
+  bool get canSend => !_managedEngine || gatewayVerified;
+  Future<void> verifyGateway() async {
+    final remote = VietOcrRemote(
+      serverUrl,
+      '',
+      allowInsecureLan: serverInsecureLan,
+      tokenProvider: cloud.accessToken,
+    );
+    try {
+      final session = await remote.session();
+      if ((session['account'] as Map)['userId'] != cloud.userId)
+        throw StateError('Tài khoản gateway không trùng phiên Google.');
+      gatewayVerified = true;
+      _lastVerifiedAccount = cloud.userId;
+      await (await SharedPreferences.getInstance()).setString(
+        'v2VerifiedAccount',
+        cloud.userId!,
+      );
+      message = 'Đã xác minh Google qua Raspberry. Ảnh chỉ gửi khi nhấn Gửi.';
+    } catch (e) {
+      gatewayVerified = false;
+      message = readableError(e);
+      rethrow;
+    } finally {
+      remote.close();
+      _notify();
+    }
+  }
+
   bool get serverMode => true;
   bool serverInsecureLan = false;
   final _picker = ImagePicker();
@@ -61,6 +97,7 @@ class AppController extends ChangeNotifier {
       splitLines = prefs.getBool('splitLines') ?? true;
       serverUrl = prefs.getString('ocrServerUrl') ?? serverUrl;
       serverInsecureLan = prefs.getBool('ocrServerInsecure') ?? false;
+      _lastVerifiedAccount = prefs.getString('v2VerifiedAccount');
       if (_managedEngine) {
         await cloud.initialize();
         _accountId = cloud.userId;
@@ -73,7 +110,8 @@ class AppController extends ChangeNotifier {
           tokenProvider: cloud.accessToken,
         );
       }
-      _documents.addAll(await store.load());
+      if (!_managedEngine || _accountId != null)
+        _documents.addAll(await store.load());
       if (_disposed) return;
       if (_documents.isNotEmpty) {
         assistant = AssistantState.received;
@@ -97,6 +135,11 @@ class AppController extends ChangeNotifier {
         message = 'Không khôi phục được ảnh: ${readableError(error)}';
         _notify();
       }
+    }
+    if (_managedEngine && _accountId != null) {
+      try {
+        await verifyGateway();
+      } catch (_) {}
     }
   }
 
@@ -130,10 +173,12 @@ class AppController extends ChangeNotifier {
     await prefs.remove('ocrServerEnabled');
     await engine.close();
     engine = next;
+    gatewayVerified = false;
     serverUrl = origin.trim();
     serverInsecureLan = allowInsecureLan;
     message = 'Nhận diện trên OCR Server. Không có model trên điện thoại.';
     _notify();
+    if (_accountId != null) await verifyGateway();
   }
 
   Future<void> _authWork = Future.value();
@@ -162,12 +207,18 @@ class AppController extends ChangeNotifier {
     _documents.clear();
     selectedIndex = 0;
     _accountId = id;
+    gatewayVerified = false;
     store.setAccount(id);
     _documents.addAll(await store.load());
     message = id == null
         ? 'Đã đăng xuất Google.'
         : 'Đã đăng nhập ${cloud.email}.';
     _notify();
+    if (id != null) {
+      try {
+        await verifyGateway();
+      } catch (_) {}
+    }
   }
 
   Future<void> setSplit(bool value) async {
@@ -197,21 +248,9 @@ class AppController extends ChangeNotifier {
     try {
       final List<XFile> files;
       if (camera) {
-        final file = await _picker.pickImage(
-          source: camera ? ImageSource.camera : ImageSource.gallery,
-          maxWidth: 2200,
-          maxHeight: 2200,
-          imageQuality: 95,
-          requestFullMetadata: false,
-        );
-        files = file == null ? [] : [file];
+        throw StateError('Mở camera Raspberry trong tab Camera.');
       } else {
-        files = await _picker.pickMultiImage(
-          maxWidth: 2200,
-          maxHeight: 2200,
-          imageQuality: 95,
-          requestFullMetadata: false,
-        );
+        files = await _picker.pickMultiImage(requestFullMetadata: false);
       }
       if (!_disposed) {
         await _importFiles(files);
@@ -287,7 +326,7 @@ class AppController extends ChangeNotifier {
     bool enqueue = false,
     bool preserveResolution = false,
   }) async {
-    if ((busy && !enqueue) || importing || _disposed || rows.isEmpty) return;
+    if (importing || _disposed || rows.isEmpty) return;
     importing = true;
     _notify();
     try {
@@ -303,18 +342,12 @@ class AppController extends ChangeNotifier {
       await flush();
       _notify();
     }
-    if (enqueue) _startQueue();
+    // Capture/crop/import are drafts, including legacy callers using enqueue.
   }
 
   void _startQueue() {
-    if (!_queueHalted &&
-        !_background &&
-        !busy &&
-        !importing &&
-        !_disposed &&
-        _documents.any((item) => item.status == DocumentStatus.ready)) {
-      unawaited(recognize(retryErrors: false));
-    }
+    if (_queueHalted || _background) return;
+    // Explicit Send is the only entry point to recognize().
   }
 
   Future<void> addSamples() async {
@@ -470,6 +503,11 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> recognize({bool retryErrors = true}) {
+    if (!canSend) {
+      message = 'Xác minh phiên Google với Raspberry trước khi gửi.';
+      _notify();
+      return Future.value();
+    }
     if (_disposed || busy || importing || _documents.isEmpty) {
       return Future.value();
     }
@@ -489,16 +527,17 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> _recognize(CancellationToken cancel, bool retryErrors) async {
+    final batch = List<Document>.of(_documents);
     var completed = 0, failed = 0;
     var workerStopped = false;
     Document? active;
     try {
-      for (var i = 0; i < _documents.length; i++) {
+      for (var i = 0; i < batch.length; i++) {
         cancel.check();
-        active = _documents[i];
+        active = batch[i];
         if (active.status == DocumentStatus.done) continue;
         if (!retryErrors && active.status != DocumentStatus.ready) continue;
-        selectedIndex = i;
+        selectedIndex = _documents.indexOf(active);
         active.status = DocumentStatus.processing;
         active.error = '';
         _notify();

@@ -4,7 +4,7 @@ using System.Text.Json;
 namespace VietOcr.Server;
 
 public sealed class Coordinator(Store store, ServerOptions options, Hardware hardware,
-    ILogger<Coordinator> logger) : BackgroundService
+    ILogger<Coordinator> logger,V2Spool spool) : BackgroundService
 {
     private readonly FairQueue queue = new();
     private readonly WorkerRotation rotation=new();
@@ -12,6 +12,7 @@ public sealed class Coordinator(Store store, ServerOptions options, Hardware har
     private readonly ConcurrentDictionary<string, ModelWorker> workers = new();
     private readonly ConcurrentDictionary<string, Task> work = new();
     private readonly SemaphoreSlim scaleLock = new(1, 1);
+    private readonly SemaphoreSlim targetLock = new(1,1);
     public SemaphoreSlim Admission { get; } = new(1, 1);
     public SemaphoreSlim Uploads { get; } = new(options.ConcurrentUploads,options.ConcurrentUploads);
     private readonly CancellationTokenSource shutdown = new();
@@ -27,6 +28,12 @@ public sealed class Coordinator(Store store, ServerOptions options, Hardware har
     public double RequiredMiB => Math.Max(Capacity.RequiredMiB(options.WorkerBudgetMiB, Workers),
         workers.Values.Select(w => Math.Max(w.FootprintMiB, w.Memory.PeakMiB + 256) * 1.2).DefaultIfEmpty(768).Max());
     public double RequiredRamMiB => Math.Max(800, Workers.Select(x => x.Memory.RamMiB * 1.2).DefaultIfEmpty(1000).Max());
+    public async Task EnsureWorkers(int desired,CancellationToken ct)
+    {
+        await targetLock.WaitAsync(ct);
+        try{if(Workers.Count(w=>!w.Draining)<desired)await AddWorker(ct,"auto");}
+        finally{targetLock.Release();}
+    }
 
     public async Task<WorkerView> AddWorker(CancellationToken ct = default,string? policy=null)
     {
@@ -155,6 +162,7 @@ public sealed class Coordinator(Store store, ServerOptions options, Hardware har
             },heartStop.Token);
             await Admission.WaitAsync(ct);
             try{
+            await spool.Recover(ct);
             var recovered = await store.Jobs(int.MaxValue, true);
             foreach (var job in recovered)
             {
@@ -182,7 +190,7 @@ public sealed class Coordinator(Store store, ServerOptions options, Hardware har
                     await hardware.Sample(ct);
                     nextSample = DateTime.UtcNow.AddSeconds(3);
                 }
-                if (DateTime.UtcNow >= nextCleanup) { await store.Cleanup(); nextCleanup = DateTime.UtcNow.AddMinutes(10); }
+                if (DateTime.UtcNow >= nextCleanup) { await store.Cleanup(); if(!string.IsNullOrEmpty(options.GatewayIngressKeySha256))await store.V2("ocr_v2_expire",new{}); nextCleanup = DateTime.UtcNow.AddMinutes(10); }
                 for(var dispatched=0;dispatched<workers.Count;dispatched++)
                 {
                     Job? job;ModelWorker worker;

@@ -49,7 +49,7 @@ Future<void> showServerDialog(BuildContext context, AppController app) async {
           return ListenableBuilder(
             listenable: cloud,
             builder: (context, _) => AlertDialog(
-              title: const Text('Tài khoản & OCR Server'),
+              title: const Text('Google & Raspberry'),
               scrollable: true,
               content: SizedBox(
                 width: 480,
@@ -58,7 +58,7 @@ Future<void> showServerDialog(BuildContext context, AppController app) async {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text(
-                      'Nhận diện qua máy host. Model và tiền xử lý chạy trên server; không cài model trên điện thoại.',
+                      'Ảnh gửi qua Raspberry để xác minh, sau đó model chạy trên server. Kết quả trả trực tiếp về ứng dụng.',
                     ),
                     const SizedBox(height: 18),
                     TextField(
@@ -67,8 +67,8 @@ Future<void> showServerDialog(BuildContext context, AppController app) async {
                       autocorrect: false,
                       enabled: !saving,
                       decoration: const InputDecoration(
-                        labelText: 'Địa chỉ máy host',
-                        hintText: 'http://192.168.1.10:5080',
+                        labelText: 'Địa chỉ Raspberry gateway',
+                        hintText: 'https://pi.example.com',
                       ),
                     ),
                     CheckboxListTile(
@@ -81,7 +81,7 @@ Future<void> showServerDialog(BuildContext context, AppController app) async {
                           : (v) => update(() => insecure = v ?? false),
                     ),
                     const Text(
-                      'Dùng IP máy tính; localhost trên điện thoại là chính điện thoại. Máy host cần chạy với -Lan.',
+                      'Dùng địa chỉ HTTPS tunnel của Pi. Không nhập địa chỉ máy chạy model.',
                     ),
                     const Divider(height: 32),
                     Text(
@@ -213,7 +213,7 @@ Future<void> showServerDialog(BuildContext context, AppController app) async {
                           );
                           if (dialog.mounted) Navigator.pop(dialog);
                         }),
-                  child: const Text('Lưu địa chỉ server'),
+                  child: const Text('Lưu Raspberry'),
                 ),
               ],
             ),

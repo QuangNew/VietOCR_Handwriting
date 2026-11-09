@@ -30,7 +30,7 @@ before(async () => {
     create function auth.uid() returns uuid language sql stable as $$ select (auth.jwt()->>'sub')::uuid $$;
     grant usage on schema public,auth to authenticated,anon,service_role;
   `);
-  for (const file of ['202611030001_ocr_control.sql', '202611090001_policy_caps.sql', '202611090002_gateway_sessions.sql', '202611090003_v2_reservations.sql']) {
+  for (const file of ['202611030001_ocr_control.sql', '202611090001_policy_caps.sql', '202611090002_gateway_sessions.sql', '202611090003_v2_reservations.sql','202611090004_gateway_flow.sql']) {
     const sql = await readFile(new URL(`../../supabase/migrations/${file}`, import.meta.url), 'utf8');
     const c = await pool.connect();
     try { await c.query('begin'); await c.query(sql); await c.query('commit'); }

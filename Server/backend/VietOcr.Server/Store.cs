@@ -41,6 +41,20 @@ public sealed class Store : IAsyncDisposable
     }
     private async Task<T?> Call<T>(string action,object? p=null,CancellationToken ct=default) =>
         (await Rpc(action,p,ct)).Deserialize<T>(Json);
+    public async Task<JsonElement> V2(string operation,object parameters,CancellationToken ct=default)
+    {
+        if(operation is not ("ocr_v2_gateway" or "ocr_v2_commit" or "ocr_v2_expire")) throw new ArgumentException("Unknown v2 operation.");
+        try {
+            using var response=await http.PostAsJsonAsync("rpc/"+operation,parameters,Json,ct);
+            if(!response.IsSuccessStatusCode) {
+                // Database errors do not expose SQL, identity records or credentials.
+                if((int)response.StatusCode is 401 or 403) throw new V2Exception(403,"account_or_session_disabled");
+                throw new DatabaseUnavailableException("Apply all v2 migrations and verify compute database credentials.");
+            }
+            return await response.Content.ReadFromJsonAsync<JsonElement>(Json,ct);
+        } catch(HttpRequestException){throw new DatabaseUnavailableException("V2 database unreachable.");}
+        catch(TaskCanceledException)when(!ct.IsCancellationRequested){throw new DatabaseUnavailableException("V2 database timeout.");}
+    }
     public async Task Initialize(CancellationToken ct=default,bool coordinator=true)
     {
         Ready=false;

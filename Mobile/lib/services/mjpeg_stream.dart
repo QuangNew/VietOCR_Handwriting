@@ -1,8 +1,5 @@
-import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 import 'dart:typed_data';
-import 'wifi_camera.dart';
 
 /// Parses fragmented multipart data without collecting a whole HTTP response.
 /// Both header and frame sizes are bounded, including malformed streams.
@@ -14,9 +11,7 @@ class MjpegParser {
     ).firstMatch(contentType);
     if (!contentType.toLowerCase().startsWith('multipart/x-mixed-replace') ||
         match == null) {
-      throw const FormatException(
-        'Nạp firmware 2.4.1-native để xem camera liên tục.',
-      );
+      throw const FormatException('Stream camera không đúng định dạng MJPEG.');
     }
     final value = match.group(1) ?? match.group(2)!;
     if (value.isEmpty || value.length > 70) {
@@ -25,7 +20,7 @@ class MjpegParser {
     _boundary = '--$value';
   }
 
-  static const maxFrame = 2 * 1024 * 1024, maxHeader = 2048;
+  static const maxFrame = 8 * 1024 * 1024, maxHeader = 2048;
   late final String _boundary;
   final List<int> _buffer = [];
   int? _wanted;
@@ -35,6 +30,16 @@ class MjpegParser {
       _buffer.addAll(data.sublist(at, (at + 8192).clamp(0, data.length)));
       yield* _drain();
     }
+  }
+
+  bool _hasEnd(Uint8List frame) {
+    for (var i = frame.length - 2; i >= 2; i--) {
+      if (frame[i] == 255 && frame[i + 1] == 217) {
+        return frame.skip(i + 2).every((b) => b == 0 || b == 255);
+      }
+      if (frame.length - i > 65538) return false;
+    }
+    return false;
   }
 
   Iterable<Uint8List> _drain() sync* {
@@ -95,84 +100,10 @@ class MjpegParser {
       final frame = Uint8List.fromList(_buffer.sublist(0, size));
       _buffer.removeRange(0, size);
       _wanted = null;
-      if (frame[0] != 255 ||
-          frame[1] != 216 ||
-          frame[size - 2] != 255 ||
-          frame[size - 1] != 217) {
+      if (frame[0] != 255 || frame[1] != 216 || !_hasEnd(frame)) {
         throw const FormatException('Khung hình xem trước sai JPEG.');
       }
       yield frame;
-    }
-  }
-}
-
-/// Owns one live HTTP socket, separate from BLE and full-resolution stills.
-class MjpegConnection {
-  MjpegConnection(this.endpoint, {this.port = 81});
-  final WifiEndpoint endpoint;
-  final int port;
-  HttpClient? _client;
-  bool _closed = false;
-
-  void close() {
-    _closed = true;
-    _client?.close(force: true);
-    _client = null;
-  }
-
-  Stream<Uint8List> frames() async* {
-    if (_closed) return;
-    final client = HttpClient()
-      ..connectionTimeout = const Duration(seconds: 3)
-      ..findProxy = (_) => 'DIRECT';
-    _client = client;
-    try {
-      final request = await client
-          .getUrl(
-            Uri(scheme: 'http', host: endpoint.ip, port: port, path: '/stream'),
-          )
-          .timeout(const Duration(seconds: 4));
-      request.followRedirects = false;
-      request.headers.set(
-        HttpHeaders.authorizationHeader,
-        'Bearer ${endpoint.token}',
-      );
-      final response = await request.close().timeout(
-        const Duration(seconds: 25),
-      );
-      if (response.statusCode != 200) {
-        if (response.statusCode == 404) {
-          throw StateError('Nạp firmware 2.4.1-native để xem camera liên tục.');
-        }
-        throw StateError(
-          'Camera stream HTTP ${response.statusCode}. Mở lại camera hoặc kết nối lại BLE.',
-        );
-      }
-      final parser = MjpegParser(
-        response.headers.value(HttpHeaders.contentTypeHeader) ?? '',
-      );
-      await for (final chunk in response.timeout(const Duration(seconds: 25))) {
-        if (_closed) return;
-        for (final frame in parser.add(chunk)) {
-          if (_closed) return;
-          yield frame;
-        }
-      }
-    } on SocketException {
-      if (!_closed) {
-        throw StateError(
-          'Không tới được stream Wi-Fi :$port. Kiểm tra cùng mạng LAN và cổng $port; firmware mới là 2.4.1-native.',
-        );
-      }
-    } on HttpException {
-      if (!_closed) rethrow;
-    } on TimeoutException {
-      if (!_closed) {
-        throw StateError('Stream camera quá hạn. Kiểm tra Wi-Fi rồi mở lại.');
-      }
-    } finally {
-      client.close(force: true);
-      if (identical(_client, client)) _client = null;
     }
   }
 }

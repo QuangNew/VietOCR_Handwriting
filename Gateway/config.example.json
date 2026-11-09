@@ -16,5 +16,6 @@
   "viewerSessionSeconds": 600,
   "authRecheckSeconds": 15,
   "telemetry": null,
+  "compute": null,
   "panel": { "enabled": false, "dcBcm": 25, "resetBcm": 24, "buzzerBcm": 18, "spiHz": 16000000 }
 }

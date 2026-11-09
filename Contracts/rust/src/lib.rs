@@ -1,6 +1,7 @@
 //! Versioned, transport-neutral v2 contracts. No bearer tokens or image data in job metadata.
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+pub mod mjpeg;
 
 pub const API_VERSION: &str = "2";
 pub const DAILY_IMAGE_CAP: u32 = 500;

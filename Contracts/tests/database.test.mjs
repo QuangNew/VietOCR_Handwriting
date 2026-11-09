@@ -55,7 +55,7 @@ before(async () => {
     insert into public.ocr_clients(id,name,prefix,daily_limit,rate_per_minute) values('legacy','existing identity','voc_',1000,60),('lower','lower cap','voc_',20,2);
     insert into public.ocr_daily_usage values('legacy',(now() at time zone 'Asia/Ho_Chi_Minh')::date,777);
   `);
-  for (const name of ['202611090001_policy_caps.sql', '202611090002_gateway_sessions.sql', '202611090003_v2_reservations.sql']) {
+  for (const name of ['202611090001_policy_caps.sql', '202611090002_gateway_sessions.sql', '202611090003_v2_reservations.sql','202611090004_gateway_flow.sql']) {
     await db.exec('begin');
     try { await db.exec(await readFile(new URL(name, schema), 'utf8')); await db.exec('commit'); }
     catch (e) { await db.exec('rollback'); throw e; }
@@ -97,6 +97,28 @@ test('ordinary Google users may verify only their session and cannot reserve or 
   await rejects('select public.ocr_v2_reserve($1,$2,$3,$4,60)', [U1, S1, randomUUID(), 'compute-1'], /permission denied/);
   assert.equal(await scalar("select has_table_privilege('authenticated','public.ocr_v2_intents','INSERT') as v"), false);
   assert.equal(await scalar("select has_function_privilege('anon','public.ocr_gateway_session(uuid)','EXECUTE') as v"), false);
+});
+
+test('new gateway adapter scopes ownership, rounds active demand and syncs execution state',async()=>{
+ await login(U1,S1);await login(U2,S2);
+ const a=await intent(U1,S1),b=await intent(U2,S2);
+ const call=(action,user,session,id)=>rpc('public.ocr_v2_gateway($1,$2)',[action,{userId:user,sessionId:session,jobId:id,serverId:'compute-1'}]);
+ assert.equal((await call('get',U2,S2,a.intent.id)).error,'intent_not_found');
+ assert.equal((await call('reserve',U1,S1,a.intent.id)).generation,1);
+ assert.equal((await call('reserve',U2,S2,b.intent.id)).generation,1);
+ await commit(a.intent.id);
+ await db.query("update public.ocr_jobs set state='running' where id=$1",[a.intent.id]);
+ assert.equal((await call('get',U1,S1,a.intent.id)).state,'running');
+ assert.equal(await scalar("select has_function_privilege('authenticated','public.ocr_v2_gateway(text,jsonb)','EXECUTE') as v"),false);
+ assert.equal((await call('history',U1,S1,a.intent.id)).length,1);
+});
+
+test('expired metadata cleanup is bounded and never erases accepted jobs or quota',async()=>{
+ await login();const a=await intent(),b=await intent();await reserve(a.intent.id);await commit(a.intent.id);
+ await db.exec("update public.ocr_v2_intents set created_at=now()-interval '25 hours'");
+ assert.equal(await rpc('public.ocr_v2_expire()'),1);
+ assert.equal(await usage(),1);assert.equal(await scalar('select state as v from public.ocr_v2_intents where id=$1',[b.intent.id]),'cancelled');
+ assert.equal(await scalar('select state as v from public.ocr_v2_intents where id=$1',[a.intent.id]),'queued');
 });
 test('gateway and compute roles cannot call each other or the private v1 implementation', async () => {
   assert.equal(await scalar("select has_function_privilege('ocr_gateway','public.ocr_v2_commit(uuid,bigint,text,text,bigint)','EXECUTE') as v"), false);

@@ -1,7 +1,7 @@
 name: vietocr_mobile
-description: VietOCR server client with Google login and a Bluetooth camera assistant.
+description: VietOCR Raspberry gateway client with Google login and private image drafts.
 publish_to: none
-version: 3.0.0+17
+version: 4.0.0+18
 
 environment:
   sdk: ^3.11.1
@@ -9,7 +9,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  flutter_reactive_ble: ^5.5.0
+  crypto: ^3.0.7
   image: ^4.12.0
   image_picker: ^1.2.4
   path_provider: ^2.1.5

@@ -1,0 +1,17 @@
+[package]
+name = "vietocr-client-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+vietocr-contracts = { path = "../Contracts/rust" }
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+reqwest.workspace = true
+sha2.workspace = true
+uuid.workspace = true
+futures-util.workspace = true
+bytes.workspace = true
+base64 = "0.22.1"

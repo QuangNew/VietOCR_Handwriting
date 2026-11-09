@@ -11,6 +11,10 @@ public sealed class ServerOptions
     // Only the hash is configured on the server; the Pi keeps the random machine credential.
     public string GatewayTelemetryKeySha256 { get; set; } = "";
     public string ServerId { get; set; } = "compute-1";
+    public string GatewayIngressKeySha256 { get; set; } = "";
+    public string PublicResultsOrigin { get; set; } = "http://127.0.0.1:5080";
+    public bool LegacyClientApiEnabled { get; set; }
+    public bool GatewayAutoScale { get; set; } = true;
     public bool AcceptingRequests { get; set; } = true;
     public bool DispatchPaused { get; set; }
     public string Python { get; set; } = "../VietHandOCR_API_Release/.venv/Scripts/python.exe";

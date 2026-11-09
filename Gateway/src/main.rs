@@ -30,7 +30,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tokio::spawn(telemetry::monitor(config.telemetry.clone(), tx));
     app.start_capture();
     let listener = tokio::net::TcpListener::bind(config.listen).await?;
-    tracing::info!(address = %config.listen, "Gateway v2 camera/status foundation listening; OCR v2 admission is not activated yet");
+    tracing::info!(address = %config.listen, ocr=config.compute.is_some(), "Gateway v2 listening");
     axum::serve(listener, router(app))
         .with_graceful_shutdown(shutdown())
         .await?;

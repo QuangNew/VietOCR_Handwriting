@@ -4,16 +4,10 @@ import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import '../domain/document.dart';
 import '../ocr/image_processing.dart';
-import 'camera_transfer.dart';
 
 bool _validateNativeJpeg(Uint8List bytes) {
   final image = decodePhoto(bytes);
-  return const [
-    (2592, 1944),
-    (1944, 2592),
-    (2048, 1536),
-    (1536, 2048),
-  ].contains((image.width, image.height));
+  return image.width >= 2 && image.height >= 2;
 }
 
 class SessionStore {
@@ -58,20 +52,24 @@ class SessionStore {
     bool preserveResolution = false,
   }) async {
     final nativeCamera =
-        bytes.length <= cameraMaxBytes &&
-        const [(2592, 1944), (2048, 1536)].contains(cameraJpegSize(bytes));
+        bytes.length <= 40 * 1024 * 1024 &&
+        bytes.length > 3 &&
+        bytes[0] == 255 &&
+        bytes[1] == 216;
+    final nativePng =
+        bytes.length <= 40 * 1024 * 1024 &&
+        bytes.length > 8 &&
+        bytes[0] == 137 &&
+        bytes[1] == 80;
     final Uint8List normalized;
-    if (nativeCamera) {
+    if (nativeCamera || nativePng) {
       if (!await compute(_validateNativeJpeg, bytes)) {
-        throw const FormatException('Ảnh camera sai độ phân giải.');
+        throw const FormatException('Ảnh không hợp lệ.');
       }
       // Keep the received JPEG byte-for-byte; no PNG conversion/recompression.
       normalized = bytes;
     } else {
-      normalized = await compute(
-        preserveResolution ? normalizeDerivative : normalizePhoto,
-        bytes,
-      );
+      normalized = await compute(normalizeDerivative, bytes);
     }
     final folder = await directory;
     await folder.create(recursive: true);

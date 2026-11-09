@@ -8,7 +8,7 @@ use serde::Serialize;
 #[derive(Debug)]
 pub struct ApiError {
     pub status: StatusCode,
-    pub code: &'static str,
+    pub code: String,
     pub retry_after: Option<u32>,
 }
 impl ApiError {
@@ -18,21 +18,21 @@ impl ApiError {
     pub fn new(status: StatusCode, code: &'static str) -> Self {
         Self {
             status,
-            code,
+            code: code.into(),
             retry_after: None,
         }
     }
     pub fn busy(code: &'static str) -> Self {
         Self {
             status: StatusCode::TOO_MANY_REQUESTS,
-            code,
+            code: code.into(),
             retry_after: Some(3),
         }
     }
     pub fn unavailable(code: &'static str) -> Self {
         Self {
             status: StatusCode::SERVICE_UNAVAILABLE,
-            code,
+            code: code.into(),
             retry_after: Some(3),
         }
     }
@@ -42,7 +42,7 @@ impl IntoResponse for ApiError {
         #[derive(Serialize)]
         #[serde(rename_all = "camelCase")]
         struct Payload {
-            error: &'static str,
+            error: String,
             retry_after_seconds: Option<u32>,
         }
         let mut response = (

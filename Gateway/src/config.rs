@@ -16,6 +16,7 @@ pub struct Config {
     pub viewer_session_seconds: u64,
     pub auth_recheck_seconds: u64,
     pub telemetry: Option<TelemetryConfig>,
+    pub compute: Option<ComputeConfig>,
     pub panel: PanelConfig,
 }
 impl Default for Config {
@@ -32,6 +33,7 @@ impl Default for Config {
             viewer_session_seconds: 600,
             auth_recheck_seconds: 15,
             telemetry: None,
+            compute: None,
             panel: PanelConfig::default(),
         }
     }
@@ -65,6 +67,31 @@ pub struct CameraConfig {
 pub struct TelemetryConfig {
     pub url: String,
     pub token_file: String,
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ComputeConfig {
+    pub origin: String,
+    pub public_results_origin: String,
+    pub token_file: String,
+    #[serde(default = "default_uploads")]
+    pub concurrent_uploads: usize,
+}
+fn default_uploads() -> usize {
+    4
+}
+pub fn secure_origin(value: &str) -> bool {
+    reqwest::Url::parse(value).is_ok_and(|u| {
+        (u.scheme() == "https"
+            || u.scheme() == "http"
+                && matches!(u.host_str(), Some("127.0.0.1" | "localhost" | "[::1]")))
+            && u.path() == "/"
+            && u.query().is_none()
+            && u.fragment().is_none()
+            && u.username().is_empty()
+            && u.password().is_none()
+    })
 }
 
 #[derive(Clone, Deserialize)]
@@ -186,6 +213,7 @@ impl Config {
             }
         }
         if self.panel.enabled {
+            // TFT is independent of compute ingress configuration.
             let pins = [
                 self.panel.dc_bcm,
                 self.panel.reset_bcm,
@@ -205,6 +233,16 @@ impl Config {
                     "Panel GPIO must use distinct available BCM pins, excluding SPI0 pins".into(),
                 );
             }
+        }
+        if let Some(c) = &self.compute
+            && (!secure_origin(&c.origin)
+                || !secure_origin(&c.public_results_origin)
+                || !(1..=8).contains(&c.concurrent_uploads)
+                || c.token_file.is_empty())
+        {
+            return Err(
+                "Compute needs pinned HTTPS origins, a machine token file and 1..8 uploads".into(),
+            );
         }
         Ok(())
     }

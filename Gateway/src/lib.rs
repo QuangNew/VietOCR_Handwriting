@@ -2,6 +2,7 @@ pub mod auth;
 pub mod camera;
 pub mod config;
 pub mod error;
+pub mod flow;
 pub mod mjpeg;
 pub mod panel;
 pub mod panel_canvas;
@@ -14,7 +15,7 @@ use axum::{
     http::{HeaderMap, HeaderValue},
     middleware,
     response::Response,
-    routing::{get, post},
+    routing::{delete, get, post, put},
 };
 use camera::CameraService;
 use config::Config;
@@ -28,17 +29,16 @@ pub struct App {
     camera: CameraService,
     panel: watch::Receiver<PanelUpdate>,
     auth_admission: Semaphore,
+    compute: Option<Arc<flow::Compute>>,
 }
 impl App {
-    pub fn new(
-        config: &Config,
-        panel: watch::Receiver<PanelUpdate>,
-    ) -> Result<Arc<Self>, reqwest::Error> {
+    pub fn new(config: &Config, panel: watch::Receiver<PanelUpdate>) -> Result<Arc<Self>, String> {
         Ok(Arc::new(Self {
-            auth: Arc::new(Auth::new(config.auth.clone())?),
+            auth: Arc::new(Auth::new(config.auth.clone()).map_err(|e| e.to_string())?),
             camera: CameraService::new(config),
             panel,
             auth_admission: Semaphore::new(32),
+            compute: config.compute.clone().map(flow::Compute::new).transpose()?,
         }))
     }
     pub fn start_capture(&self) {
@@ -53,20 +53,40 @@ impl App {
     }
 }
 pub fn router(app: Arc<App>) -> Router {
-    Router::new()
+    let json_routes=Router::new()
         .route("/health/live", get(|| async { Json(serde_json::json!({ "status": "alive", "apiVersion": "2", "phase": "foundation" })) }))
         .route("/api/v2/session", get(session))
         .route("/api/v2/cameras", get(cameras))
         .route("/api/v2/cameras/{id}/stream", get(stream))
         .route("/api/v2/cameras/{id}/snapshots", post(snapshot))
         .route("/api/v2/server/status", get(status))
-        .layer(tower_http::limit::RequestBodyLimitLayer::new(16 * 1024))
-        .layer(middleware::from_fn(|request: axum::extract::Request, next: middleware::Next| async move {
-            let mut response = next.run(request).await;
-            response.headers_mut().insert("cache-control", HeaderValue::from_static("no-store, private"));
-            response.headers_mut().insert("x-content-type-options", HeaderValue::from_static("nosniff"));
-            response
-        }))
+        .route("/api/v2/intents",post(create_intent).get(history))
+        .route("/api/v2/intents/{id}",get(intent_state))
+        .route("/api/v2/intents/{id}/grant",post(grant))
+        .route("/api/v2/intents/{id}/complete",post(complete))
+        .route("/api/v2/intents/{id}/result-ticket",post(result_ticket))
+        .route("/api/v2/intents/{id}/cancel",delete(cancel_intent))
+        .layer(tower_http::limit::RequestBodyLimitLayer::new(16 * 1024));
+    json_routes
+        .merge(
+            Router::new()
+                .route("/api/v2/intents/{id}/content", put(content))
+                .layer(tower_http::limit::RequestBodyLimitLayer::new(1024 * 1024)),
+        )
+        .layer(middleware::from_fn(
+            |request: axum::extract::Request, next: middleware::Next| async move {
+                let mut response = next.run(request).await;
+                response.headers_mut().insert(
+                    "cache-control",
+                    HeaderValue::from_static("no-store, private"),
+                );
+                response.headers_mut().insert(
+                    "x-content-type-options",
+                    HeaderValue::from_static("nosniff"),
+                );
+                response
+            },
+        ))
         .with_state(app)
 }
 async fn session(
@@ -77,7 +97,91 @@ async fn session(
     Ok(Json(
         serde_json::json!({ "account": identity.account, "authProvider": "google", "apiVersion": "2",
         "quotaTimezone": vietocr_contracts::QUOTA_TIMEZONE, "cameraSource": "raspberry", "cameras": app.camera.views(),
-        "ocrAvailable": false }),
+        "ocrAvailable": app.compute.is_some(), "resultsOrigin":app.compute.as_ref().map(|c|c.public_origin()) }),
+    ))
+}
+impl App {
+    fn compute(&self) -> Result<&Arc<flow::Compute>, ApiError> {
+        self.compute
+            .as_ref()
+            .ok_or_else(|| ApiError::unavailable("compute_not_configured"))
+    }
+}
+async fn create_intent(
+    State(app): State<Arc<App>>,
+    headers: HeaderMap,
+    Json(body): Json<vietocr_contracts::ImageIntent>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let identity = app.identity(&headers).await?;
+    Ok(Json(app.compute()?.create(&identity, body).await?))
+}
+async fn history(
+    State(app): State<Arc<App>>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let identity = app.identity(&headers).await?;
+    Ok(Json(app.compute()?.call("history",serde_json::json!({"userId":identity.claims.sub,"sessionId":identity.claims.session_id})).await?))
+}
+async fn do_command(
+    app: Arc<App>,
+    id: uuid::Uuid,
+    headers: HeaderMap,
+    body: flow::Command,
+    action: &str,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let identity = app.identity(&headers).await?;
+    Ok(Json(
+        app.compute()?.command(id, action, &identity, body).await?,
+    ))
+}
+async fn intent_state(
+    State(app): State<Arc<App>>,
+    Path(id): Path<uuid::Uuid>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    do_command(app, id, headers, flow::Command::default(), "state").await
+}
+async fn grant(
+    State(app): State<Arc<App>>,
+    Path(id): Path<uuid::Uuid>,
+    headers: HeaderMap,
+    Json(body): Json<flow::Command>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    do_command(app, id, headers, body, "grant").await
+}
+async fn complete(
+    State(app): State<Arc<App>>,
+    Path(id): Path<uuid::Uuid>,
+    headers: HeaderMap,
+    Json(body): Json<flow::Command>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    do_command(app, id, headers, body, "complete").await
+}
+async fn result_ticket(
+    State(app): State<Arc<App>>,
+    Path(id): Path<uuid::Uuid>,
+    headers: HeaderMap,
+    Json(body): Json<flow::Command>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    do_command(app, id, headers, body, "result-ticket").await
+}
+async fn cancel_intent(
+    State(app): State<Arc<App>>,
+    Path(id): Path<uuid::Uuid>,
+    headers: HeaderMap,
+    Json(body): Json<flow::Command>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    do_command(app, id, headers, body, "cancel").await
+}
+async fn content(
+    State(app): State<Arc<App>>,
+    Path(id): Path<uuid::Uuid>,
+    headers: HeaderMap,
+    body: axum::body::Body,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let identity = app.identity(&headers).await?;
+    Ok(Json(
+        app.compute()?.content(id, &identity, headers, body).await?,
     ))
 }
 async fn cameras(

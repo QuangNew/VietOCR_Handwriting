@@ -155,13 +155,13 @@ class _ImageDetailPageState extends State<ImageDetailPage> {
       final name = 'Crop_${DateTime.now().millisecondsSinceEpoch}.png';
       await widget.app.importImages(
         [(result, name)],
-        enqueue: true,
+        enqueue: false,
         preserveResolution: true,
       );
       if (!widget.app.documents.any((item) => item.name == name)) {
         throw StateError(widget.app.message);
       }
-      _notice('Đã thêm vùng crop vào hàng đợi. Ảnh gốc được giữ nguyên.');
+      _notice('Đã thêm bản nháp crop. Nhấn Gửi khi sẵn sàng.');
     } catch (failure) {
       _notice(AppController.readableError(failure));
     } finally {

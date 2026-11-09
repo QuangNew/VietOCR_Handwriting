@@ -224,41 +224,21 @@ void main() {
     expect((await store.load()).single.status, DocumentStatus.cancelled);
   });
   testWidgets(
-    'small phone supports dark theme, theme toggle and the Bluetooth button',
+    'small phone supports stable theme and Raspberry camera without Bluetooth',
     (tester) async {
       tester.view.physicalSize = const Size(360, 780);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
-      await tester.pumpWidget(
-        VietOcrApp(controller: app, enableBluetooth: false),
-      );
-      await tester.pump();
-      expect(
-        Theme.of(tester.element(find.text('VietOCR'))).brightness,
-        Brightness.dark,
-      );
-      final headings = [
-        'Đọc chữ từ ảnh',
-        'Hoạt động ngoại tuyến',
-        'Chụp điện thoại',
-      ];
-      final geometry = [
-        for (final text in headings) tester.getRect(find.text(text)),
-      ];
-      await tester.tap(find.byTooltip('Giao diện sáng'));
-      await tester.pump(const Duration(milliseconds: 16));
-      expect([
-        for (final text in headings) tester.getRect(find.text(text)),
-      ], geometry);
-      await tester.pump(const Duration(milliseconds: 300));
-      expect([
-        for (final text in headings) tester.getRect(find.text(text)),
-      ], geometry);
+      await tester.pumpWidget(VietOcrApp(controller: app));
+      await tester.pumpAndSettle();
+      expect(find.text('Camera Raspberry'), findsOneWidget);
+      final rect = tester.getRect(find.text('Tài liệu của bạn'));
+      await tester.tap(find.byTooltip('Đổi giao diện'));
+      await tester.pumpAndSettle();
       expect(app.dark, isFalse);
-      await tester.tap(find.text('Trợ lý'));
-      await tester.pump(const Duration(milliseconds: 300));
-      expect(find.text('Bật Bluetooth'), findsOneWidget);
+      expect(tester.getRect(find.text('Tài liệu của bạn')), rect);
+      expect(find.text('Bật Bluetooth'), findsNothing);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox());
     },

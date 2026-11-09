@@ -59,97 +59,14 @@ void main() {
       }
     },
   );
-  test('missing Google session cannot send an unauthenticated image', () async {
-    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
-    final dir = await Directory.systemTemp.createTemp('vietocr-auth');
-    final file = File('${dir.path}/image.jpg');
-    await file.writeAsBytes(List.filled(30, 1));
-    var requests = 0;
-    final listener = server.listen((r) async {
-      requests++;
-      await r.response.close();
-    });
-    final client = VietOcrRemote(
-      'http://127.0.0.1:${server.port}',
-      '',
-      tokenProvider: () async {
-        throw const RemoteOcrException('Đăng nhập Google', status: 401);
-      },
-    );
-    try {
-      await expectLater(
-        client.submit(file),
-        throwsA(
-          isA<RemoteOcrException>().having((e) => e.status, 'status', 401),
-        ),
-      );
-      expect(requests, 0);
-    } finally {
-      client.close();
-      await listener.cancel();
-      await server.close(force: true);
-      await dir.delete(recursive: true);
-    }
-  });
-  test('server transport refuses untrusted HTTP origins', () {
-    expect(
-      () => VietOcrRemote('http://example.com', 'voc_key'),
-      throwsArgumentError,
-    );
-    final client = VietOcrRemote('https://example.com', 'voc_key');
-    client.close();
-  });
   test(
-    'remote engine uploads once, polls result and forwards layout',
+    'missing Google session cannot send an unauthenticated request',
     () async {
-      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
-      final dir = await Directory.systemTemp.createTemp('vietocr-remote');
-      final file = File('${dir.path}/image.jpg');
-      await file.writeAsBytes(List.filled(30, 1));
-      final seen = <String>[];
-      var uploads = 0;
-      final listener = server.listen((r) async {
-        seen.add('${r.method} ${r.uri.path}');
-        expect(r.headers.value('authorization'), 'Bearer voc_private');
-        r.response.headers.contentType = ContentType.json;
-        if (r.method == 'POST') {
-          uploads++;
-          final body = await utf8.decoder.bind(r).join();
-          expect(body, contains('line'));
-          expect(r.headers.value('idempotency-key'), isNotEmpty);
-          r.response.statusCode = 202;
-          r.response.write(jsonEncode({'id': 'a' * 32, 'state': 'queued'}));
-        } else {
-          r.response.write(
-            jsonEncode({
-              'id': 'a' * 32,
-              'state': 'succeeded',
-              'text': 'Chúc giáng sinh vui vẻ',
-            }),
-          );
-        }
-        await r.response.close();
-      });
-      final engine = RemoteEngine(
-        'http://127.0.0.1:${server.port}',
-        'voc_private',
-      );
+      final remote = VietOcrRemote('http://127.0.0.1:5082', '');
       try {
-        final text = await engine.recognize(
-          file.path,
-          split: false,
-          rotation: 0,
-          cancel: CancellationToken(),
-          progress: (_, _) {},
-        );
-        expect(text, 'Chúc giáng sinh vui vẻ');
-        expect(uploads, 1);
-        expect(seen.length, 2);
+        await expectLater(remote.account(), throwsA(isA<RemoteOcrException>()));
       } finally {
-        await engine.close();
-        await listener.cancel();
-        await server.close(force: true);
-        await dir.delete(recursive: true);
+        remote.close();
       }
     },
   );

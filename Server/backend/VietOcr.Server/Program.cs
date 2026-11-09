@@ -42,6 +42,10 @@ builder.Services.AddSingleton(options); builder.Services.AddSingleton<Store>(); 
 builder.Services.AddSingleton<Coordinator>(); builder.Services.AddHostedService(p => p.GetRequiredService<Coordinator>());
 builder.Services.AddSingleton<Metrics>();
 builder.Services.AddSingleton<GoogleAccounts>();
+builder.Services.AddSingleton<IFlowDatabase,FlowDatabase>();
+builder.Services.AddSingleton<IImageVerifier,PillowImageVerifier>();
+builder.Services.AddSingleton<V2Spool>();
+builder.Services.AddSingleton<ResultTickets>();
 builder.Services.AddSingleton<ServerLoadMonitor>();
 builder.Services.AddHostedService(p=>p.GetRequiredService<ServerLoadMonitor>());
 var protection=builder.Services.AddDataProtection().PersistKeysToFileSystem(new DirectoryInfo(Path.Combine(options.Runtime,"keys")))
@@ -77,6 +81,7 @@ app.Use(async (ctx,next) => {
     ctx.Response.Headers.XContentTypeOptions="nosniff"; ctx.Response.Headers.CacheControl="no-store";
     var started=Stopwatch.GetTimestamp();
     try { await next(); }
+    catch (V2Exception e) {ctx.Response.StatusCode=e.Status;ctx.Response.Headers.RetryAfter="3";await ctx.Response.WriteAsJsonAsync(new{error=e.Code});}
     catch (AntiforgeryValidationException) { ctx.Response.StatusCode=400; await ctx.Response.WriteAsJsonAsync(new { error="csrf",message="Refresh the page and retry." }); }
     catch (DatabaseUnavailableException) { ctx.Response.StatusCode=503; await ctx.Response.WriteAsJsonAsync(new { error="database_unavailable",message="Supabase chưa sẵn sàng. Kiểm tra kết nối và cấu hình server." }); }
     catch (BadHttpRequestException e) { ctx.Response.StatusCode=e.StatusCode; await ctx.Response.WriteAsJsonAsync(new { error="invalid_request",message="Invalid or oversized request." }); }
@@ -93,6 +98,7 @@ app.UseAuthentication(); app.UseAuthorization();
 app.Use(async (ctx,next) => {
     if (ctx.Request.Path.StartsWithSegments("/api/v1"))
     {
+        if(!options.LegacyClientApiEnabled){ctx.Response.StatusCode=410;await ctx.Response.WriteAsJsonAsync(new{error="use_raspberry_gateway_v2"});return;}
         if (!ctx.Request.IsHttps && !options.AllowInsecureLan && ctx.Connection.RemoteIpAddress is { } ip && !System.Net.IPAddress.IsLoopback(ip))
         { ctx.Response.StatusCode=426; await ctx.Response.WriteAsJsonAsync(new { error="https_required" }); return; }
         var header=ctx.Request.Headers.Authorization.ToString();
@@ -245,6 +251,7 @@ api.MapGet("/jobs/{id}",async (string id,int? wait,HttpContext ctx,Store store,C
 api.MapDelete("/jobs/{id}",async (string id,HttpContext ctx,Store store,Coordinator c)=>{
     var job=await store.Find(id,((ApiClient)ctx.Items["client"]!).Id); if(job==null)return Results.NotFound();
     await c.Cancel(job); return Results.Accepted(); }).RequireRateLimiting("poll");
+app.MapV2(options);
 await app.RunAsync();
 
 static object PublicJob(Job j) => new { j.Id,j.ClientId,j.ClientName,j.Layout,j.State,j.ImageBytes,j.CreatedAt,j.StartedAt,j.FinishedAt,
