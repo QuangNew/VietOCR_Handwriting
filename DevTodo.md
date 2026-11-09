@@ -389,6 +389,11 @@ tái sử dụng giúp bạn. Không cần chép bất kỳ secret nào vào h�
 
 ## 5. Cloudflare — bạn làm trên tài khoản tên miền
 
+**Đọc từ 5.1.A nếu đang bắt đầu ở màn hình đầu tiên.** Phần này ghi rõ nút
+cần bấm và giá trị cần nhập. Nhà đăng ký của bạn là **get.tech**, giao diện
+quản lý **Namify** tại `namify.get.tech`, nên đường bấm đổi nameserver bên
+dưới đã ghi riêng cho đúng nhà cung cấp này.
+
 **Làm một lần. Nơi thao tác:** trình duyệt Windows và tab A.
 Bạn đang nối tên miền với hai máy đã có chương trình, không chuyển model hay
 database sang Cloudflare. `cloudflared` là chương trình giữ kết nối tunnel;
@@ -406,26 +411,135 @@ Hai địa chỉ sau khi hoàn tất:
 
 ### 5.1 Thêm zone và đổi nameserver
 
-1. Mở [Cloudflare Dashboard](https://dash.cloudflare.com/), đăng nhập tài khoản
-   quản lý tên miền. Ở danh sách website/domain, chọn thêm domain rồi nhập
-   **`quangnew.tech`**, chọn gói **Free**. Nếu domain đã có trong tài khoản,
-   mở domain đó, không thêm lần hai.
-2. Mở trang quản lý DNS cũ và lưu lại danh sách hiện có, có thể export hoặc chụp
-   màn hình: A/AAAA/CNAME, MX, TXT, SPF/DKIM/DMARC, bản ghi xác minh dịch vụ.
-   Đối chiếu với danh sách Cloudflare import. Không tự xoá record chỉ vì chưa
-   biết chức năng của nó; MX/TXT có thể đang phục vụ email của bạn.
-3. Lấy **đúng hai nameserver Cloudflare cấp cho zone này**, không tự đoán tên.
-4. Nếu đang bật DNSSEC/DS ở nhà đăng ký cũ, tắt DNSSEC và gỡ DS cũ theo hướng
-   dẫn của nhà đăng ký trước khi đổi NS để tránh SERVFAIL.
-5. Vào nơi bạn **mua/đăng ký tên miền** → chọn `quangnew.tech` → tìm mục
-   **Nameservers / Máy chủ DNS / Đổi DNS tên miền**. Thay NS cũ bằng đúng hai
-   NS Cloudflare vừa cấp, rồi Save. Tên menu tuỳ nhà đăng ký. Nếu trang bạn mở
-   chỉ có bảng thêm A/CNAME/TXT, đó có thể chỉ là trang quản lý record;
-   hãy tìm mục quản lý nameserver của tên miền. Thêm một record NS vào bảng
-   DNSHost không thực hiện việc chuyển nameserver của domain.
-6. Chờ zone báo **Active**; sau đó bật lại DNSSEC theo thông số Cloudflare nếu cần.
+#### A. Giữ hai tab trình duyệt
 
-Nguồn: [Cloudflare full setup](https://developers.cloudflare.com/dns/zone-setups/full-setup/setup/).
+| Tab | Mở trang nào? | Dùng để làm gì? |
+|---|---|---|
+| **Cloudflare** | [dash.cloudflare.com](https://dash.cloudflare.com/) | Thêm domain và lấy hai nameserver Cloudflare cấp |
+| **get.tech / Namify** | [namify.get.tech/dashboard/manage-domain](https://namify.get.tech/dashboard/manage-domain) | Đổi domain sang hai nameserver vừa lấy |
+
+Ảnh bạn đã gửi có tiêu đề `quangnew.tech` và các tab **Overview**, **DNS**,
+**Domain Forwarding**, **Email**: đó là tab get.tech/Namify. Giữ tab này mở.
+Trước tiên sang tab Cloudflare để lấy giá trị cần điền.
+
+#### B. Trong Cloudflare, thêm tên miền gốc
+
+1. Mở **[Cloudflare Dashboard](https://dash.cloudflare.com/)** và đăng nhập.
+   Nếu chưa có account, chọn **Sign up**, đăng ký và xác minh email theo
+   yêu cầu, rồi quay lại Dashboard.
+2. Nếu Cloudflare hỏi chọn account, chọn account bạn dùng quản lý project.
+3. Chọn **Domains** trong menu tài khoản. Giao diện cũ có thể gọi là **Websites**.
+4. Nếu danh sách đã có **`quangnew.tech`**, bấm vào domain đó: đang Pending
+   thì đối chiếu DNS theo phần C rồi lấy nameserver ở D; đã Active thì chuyển
+   5.2. Không thêm domain lần hai.
+5. Nếu chưa có domain, bấm **Onboard a domain**. Một số giao diện ghi
+   **Add a domain / Add site** cho nút thêm tên miền.
+
+Trong màn hình vừa mở, điền/chọn như sau:
+
+| Ô hoặc nút | Giá trị/thao tác |
+|---|---|
+| Ô nhập domain/website | Gõ đúng **`quangnew.tech`** |
+| Cách nhập DNS nếu có lựa chọn | Chọn quét/import các record đang có |
+| Các tuỳ chọn khác chưa liên quan | Giữ mặc định trước |
+| Nút đi tiếp | **Continue** |
+
+Tên nhập không có `https://`, không có `/`, chưa thêm `api.` hay `ocr.`.
+Không nhập IP Raspberry hoặc `127.0.0.1` vào ô tên miền.
+
+**Đạt khi:** màn hình chuyển sang chọn gói cho `quangnew.tech`.
+Nếu đang ở **Zero Trust / Networks / Tunnels** hoặc form team name, mở lại
+Dashboard chính và chọn Domains; quy trình repo dùng script tạo tunnel ở 5.3.
+
+#### C. Chọn Free rồi đối chiếu DNS hiện có
+
+1. Trong màn hình gói, chọn thẻ **Free**; cuộn xuống nếu chưa thấy.
+2. Bấm nút đi tiếp của màn hình, thường là **Continue / Confirm plan**.
+3. Khi thấy bảng **Type / Name / Content hoặc Target / Proxy status / TTL**,
+   đó là danh sách DNS Cloudflare đã quét.
+4. Ở tab get.tech, mở **DNS → DNS Records**, lưu/export hoặc chụp danh sách
+   hiện tại để đối chiếu. Giữ các record web/email đang dùng, nhất là
+   A/AAAA/CNAME, MX và TXT. Quét tự động có thể bỏ sót record.
+5. Nếu có record thiếu, chép đúng giá trị từ cấu hình cũ sang Cloudflare.
+   Không tự đặt một IP Pi cho domain gốc chỉ để bỏ cảnh báo thiếu website.
+6. Đối chiếu xong, bấm **Continue** hoặc nút tiếp tục kích hoạt trên màn hình.
+
+Ở bước này chưa cần tự thêm CNAME `api`/`ocr`: helper 5.3 sẽ tạo hai record
+đó. Nếu chưa có dịch vụ web/email cũ, vẫn giữ các record hiện có đến khi
+hiểu chức năng của chúng, không xoá sạch bảng.
+
+**Đạt khi:** Cloudflare hiển thị hướng dẫn đổi nameserver cho domain.
+
+Nguồn đối chiếu thao tác onboarding: [Cloudflare: thêm domain](https://developers.cloudflare.com/fundamentals/manage-domains/add-site/).
+
+#### D. Copy hai nameserver Cloudflare cấp
+
+1. Trong **Cloudflare → quangnew.tech → Overview**, tìm vùng
+   **Cloudflare nameservers / Assigned nameservers** hoặc hướng dẫn kích hoạt.
+2. Copy nguyên **tên thứ nhất** vào ghi chú.
+3. Copy nguyên **tên thứ hai** vào ghi chú.
+
+| Giá trị cần lấy | Nội dung |
+|---|---|
+| Nameserver số 1 | Tên đầu tiên Cloudflare đang hiển thị cho `quangnew.tech` |
+| Nameserver số 2 | Tên thứ hai Cloudflare đang hiển thị cho `quangnew.tech` |
+
+Các tên thường kết thúc bằng `.ns.cloudflare.com`. Mỗi domain có cặp được
+cấp riêng; tài liệu không điền tên ví dụ để bạn tránh copy nhầm. Đây là
+**tên máy chủ DNS**, không phải IP, URL `api`/`ocr`, hay mật khẩu. Bạn có thể
+gửi hai tên này để đối chiếu; không cần gửi token hoặc thông tin đăng nhập.
+
+**Đạt khi:** bạn đã có đúng hai tên Cloudflare. Giữ tab đó mở, sang get.tech.
+
+#### E. Đúng giao diện get.tech của bạn: DNS → Nameservers
+
+Ở tab get.tech đã có `quangnew.tech` như ảnh bạn gửi:
+
+1. Bấm **DNS**, ngay bên phải **Overview**.
+2. Trong phần DNS, chọn **Nameservers**.
+3. Bấm **Edit nameservers**.
+4. Chọn **Custom nameservers**.
+5. Nếu domain đang bật DNSSEC, tắt DNSSEC và gỡ DS cũ theo hướng dẫn nhà
+   đăng ký trước khi lưu đổi nameserver. Nếu chưa rõ trạng thái, kiểm hoặc
+   hỏi hỗ trợ Namify; không tự tạo DS mới.
+6. Trong form custom, điền:
+
+| Ô trong form get.tech | Dán gì? |
+|---|---|
+| Nameserver 1 | **Tên Cloudflare số 1** đã copy ở phần D |
+| Nameserver 2 | **Tên Cloudflare số 2** đã copy ở phần D |
+| Các dòng NS cũ còn lại, nếu hiện | Xoá dòng thừa/để trống để chỉ còn hai nameserver Cloudflare |
+
+7. Kiểm lại hai tên không bị thừa khoảng trắng, không giữ lẫn `ns1–4.dns.host`.
+8. Bấm **Save**, hoàn tất xác nhận nếu hệ thống yêu cầu.
+9. Mở lại **Nameservers** để kiểm hai tên Cloudflare đã được lưu.
+
+Đường bấm đầy đủ của giao diện này:
+
+```text
+get.tech / Namify → quangnew.tech → DNS → Nameservers
+→ Edit nameservers → Custom nameservers → dán hai tên Cloudflare → Save
+```
+
+Không tạo một record loại `NS` ở màn hình **DNS Records** để thay cho form
+Nameservers. Sau khi dùng nameserver Cloudflare, các DNS record phục vụ domain
+sẽ được quản lý bên Cloudflare; phần record ở get.tech có thể báo đang dùng
+DNS bên ngoài. Không chuyển lại default Namify chỉ để sửa record ở đó.
+
+Nguồn khớp giao diện: [Namify: đổi nameserver](https://helpdesk.namify.tech/en/articles/10353279-how-to-change-or-switch-your-nameservers).
+
+#### F. Quay về Cloudflare, chờ Active
+
+1. Sang tab **Cloudflare → quangnew.tech → Overview**.
+2. Nếu có nút báo đã cập nhật/kiểm tra nameserver, bấm để yêu cầu kiểm lại.
+   Nút đó không tự sửa nameserver trong tài khoản get.tech.
+3. Chờ domain chuyển từ **Pending Nameserver Update** sang **Active**.
+4. Nếu còn Pending, đối chiếu lại hai NS trong Namify với hai NS Cloudflare;
+   DNS có thể chưa cập nhật ngay. Chưa sang 5.2 khi domain chưa Active.
+5. Khi domain Active, có thể thiết lập lại DNSSEC bằng thông số Cloudflare
+   theo hướng dẫn của họ nếu bạn cần dùng DNSSEC.
+
+Nguồn: [Cloudflare: chuyển nameserver](https://developers.cloudflare.com/dns/zone-setups/full-setup/setup/).
 Không đổi web/MX đang dùng sang IP Pi. Ta chỉ thêm `api`/`ocr`; không cần IP
 public cố định hoặc mở port router.
 
@@ -444,16 +558,36 @@ tất cả người dùng, nên tài liệu không điền sẵn hai giá trị 
 
 ### 5.2 Authorize tunnel từ Windows
 
-**Chạy trên Windows, tab A ở root repo, sau khi zone Active:**
+**Chỉ làm sau khi domain Active.** Mở PowerShell 7 trên Windows/tab A.
+Đầu tiên vào đúng thư mục:
+
+```powershell
+Set-Location 'C:\DevLanguage\Works\PBL\PBL4\VietOCR_Handwriting'
+```
+
+Trong cùng terminal, chạy:
 
 ```powershell
 & ./.toolchain/cloudflared/cloudflared-windows-amd64.exe tunnel login
 ```
 
-Trong browser chọn `quangnew.tech` → **Authorize**. Thành công tạo
+Lệnh sẽ mở trang cấp quyền trong browser. Trên **trang vừa mở**:
+
+| Màn hình/ô đang thấy | Bấm/chọn gì? |
+|---|---|
+| Yêu cầu đăng nhập Cloudflare | Dùng cùng tài khoản đã thêm domain ở 5.1 |
+| Chọn account, nếu xuất hiện | Chọn account chứa `quangnew.tech` |
+| Danh sách domain/zone | Bấm dòng **`quangnew.tech`** |
+| Nút xác nhận cấp quyền | Bấm **Authorize** khi trang yêu cầu |
+
+Giữ terminal mở trong lúc bấm browser. Nếu không thấy `quangnew.tech`, kiểm
+đúng account và trạng thái Active ở 5.1; không chọn một domain khác.
+Không điền tên tunnel, IP Pi, mật khẩu Google/Supabase trong bước này.
+
+Quay về **terminal Windows**. Thành công tạo
 `%USERPROFILE%/.cloudflared/cert.pem`. Nếu CLI hết thời gian trước khi bạn
-bấm xong, chạy lại. Nếu browser tải certificate, đặt đúng nơi CLI yêu cầu;
-không gửi nội dung file vào chat/repo.
+bấm xong, chạy lại lệnh login. Nếu browser tải certificate, đặt đúng nơi
+CLI yêu cầu; không gửi nội dung file vào chat/repo. Kiểm bằng lệnh:
 
 ```powershell
 Test-Path "$env:USERPROFILE/.cloudflared/cert.pem"
