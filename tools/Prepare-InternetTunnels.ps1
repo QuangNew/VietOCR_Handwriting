@@ -42,8 +42,11 @@ foreach($entry in @(@{name='vietocr-pi';host=$GatewayHost},@{name='vietocr-compu
 $pi=$tunnels['vietocr-pi'];$compute=$tunnels['vietocr-compute']
 $piText=[IO.File]::ReadAllText((Join-Path $repo 'infra/tunnel/pi.example.yml')).Replace('REPLACE_PI_TUNNEL_UUID',$pi.id).Replace('api.quangnew.tech',$GatewayHost)
 $computeText=[IO.File]::ReadAllText((Join-Path $repo 'infra/tunnel/compute.example.yml')).Replace('REPLACE_COMPUTE_TUNNEL_UUID',$compute.id).Replace('C:/ProgramData/cloudflared/'+$compute.id+'.json',$compute.credential.Replace('\','/')).Replace('ocr.quangnew.tech',$ComputeHost)
-[IO.File]::WriteAllText((Join-Path $destination 'pi.yml'),$piText)
-[IO.File]::WriteAllText((Join-Path $destination 'compute.yml'),$computeText)
+# The templates can be CRLF in an older Windows checkout. Always emit LF and
+# no BOM: POSIX sed otherwise includes a hidden CR in the extracted UUID.
+$utf8NoBom=[Text.UTF8Encoding]::new($false)
+[IO.File]::WriteAllText((Join-Path $destination 'pi.yml'),$piText.Replace("`r`n","`n"),$utf8NoBom)
+[IO.File]::WriteAllText((Join-Path $destination 'compute.yml'),$computeText.Replace("`r`n","`n"),$utf8NoBom)
 # Copy only Pi connector credentials, never the account-management certificate.
 Copy-Item -LiteralPath $pi.credential -Destination (Join-Path $destination ($pi.id+'.json')) -Force
 $account=[Security.Principal.WindowsIdentity]::GetCurrent().Name

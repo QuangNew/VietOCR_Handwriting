@@ -1,6 +1,31 @@
-# Refactor progress — 09/11/2026
+# Refactor progress
 
-Branch: [`refactor`](https://github.com/QuangNew/VietOCR_Handwriting/tree/refactor). The implementation/release checkpoint is ready for the user's remaining Cloudflare setup. DevTodo now includes those manual steps; public Internet/device/extended-load acceptance is still pending and is not claimed complete.
+## Tunnel setup repair — 10/11/2026
+
+- Reproduced the user's step7.1 failure on the live Pi: the generated Windows
+  YAML used CRLF, so the documented `sed` expression returned a37-byte UUID
+  with a hidden trailing CR. The old installer rejected it before creating
+  the tunnel service. This was a script/runbook issue, not an invalid tunnel ID.
+- Installer now accepts that trailing line-ending CR while validating canonical
+  UUID shape, and writes the installed YAML with LF. The generator emits
+  UTF-8 without BOM/LF regardless of template checkout endings; Git now pins
+  tunnel templates to LF. Runbook strips CR explicitly for existing files.
+- Tested the updated installer with the actual old37-byte input on Pi. It
+  completed, enabled/started `vietocr-tunnel.service` and registered four edge
+  connections. Installed YAML is LF/mode0640, connector credential mode0600.
+  Gateway/camera remain active and GPIO stays disabled. No credential rotation.
+- The Windows compute connector was not running; restarted the project helper.
+  Both public hosts now pass all six routing/TLS/anonymous-denial checks:
+  gateway200, protected APIs401, admin/legacy404. No Google/model request or
+  quota charge was made in these checks. No model/toolchain downloads.
+- Step7.2 remains: Pi still points compute/telemetry at the loopback test
+  origin15080; switch to the public compute origin before real Internet OCR.
+  Cross-network Google-to-result and physical Android acceptance remain pending.
+
+Branch: [`refactor`](https://github.com/QuangNew/VietOCR_Handwriting/tree/refactor).
+The network update above records10/11/2026. The client/release checkpoints below
+retain their09/11/2026 evidence; their then-pending DNS state is historical.
+Full Google-to-OCR Internet, device and extended-load acceptance remain pending.
 
 ## Latest verified artifacts and deployment handbook
 

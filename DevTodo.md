@@ -1,6 +1,6 @@
 # VietOCR v4 — hướng dẫn cấu hình và vận hành cho người mới
 
-Cập nhật **09/11/2026, Asia/Saigon**. Nhánh triển khai: **`refactor`**.
+Cập nhật **10/11/2026, Asia/Saigon**. Nhánh triển khai: **`refactor`**.
 Tài liệu dùng cấu hình của **máy Windows và Raspberry hiện tại của bạn**.
 Mỗi bước ghi rõ: làm ở đâu, làm để làm gì, kết quả cần thấy và cách xử lý lỗi.
 Bạn có thể mở bản xem trước Markdown trong VS Code bằng **Ctrl + Shift + V**
@@ -134,13 +134,15 @@ các file được Git theo dõi.
 | Database | Supabase, migrations v2 đã áp dụng; không chạy lại/reset |
 | Model | ML_s44 trên compute; client không chứa model |
 | TFT/còi | GPIO **tắt** theo yêu cầu vì chưa nối dây |
-| Cloudflare | Có binary, bạn còn cần làm DNS/Authorize và triển khai connector |
-| Internet | **Chưa kiểm chứng**; chỉ coi sẵn sàng sau checklist mục 10 |
+| Cloudflare | DNS/Authorize đã có; hai connector Pi/Windows đã được kiểm chạy |
+| Internet | Kiểm HTTPS/routing và chặn truy cập không có quyền đã qua; Google→OCR qua Internet còn chờ |
 
 Đây là ghi nhận của lần triển khai trước, không phải màn hình trạng thái trực
 tiếp. Mục 3 và 8 giúp bạn tự kiểm lại các thành phần đang bật hôm nay.
-**Còn thiếu chính:** DNS/Authorize Cloudflare, chạy hai connector, chuyển Pi
-sang địa chỉ compute công khai và kiểm thử qua hai mạng.
+**Điểm đang làm tiếp sau sửa lỗi 7.1:** chuyển Pi sang địa chỉ compute HTTPS
+bằng mục **7.2**, rồi thử Google→OCR theo mục 10.2 qua hai mạng. Pi hiện vẫn
+giữ origin kiểm thử `http://127.0.0.1:15080`; hai tunnel hoạt động không tự
+thay giá trị này. Bạn đã làm xong DNS/Authorize thì không cần làm lại mục 5.
 
 Không cần cài lại Google OAuth, Python/CUDA hoặc SDK trên máy hiện tại.
 Không xoá tài khoản, tạo lại project Supabase hay chạy migration từ đầu.
@@ -744,11 +746,10 @@ Các trường hợp chưa đạt:
   log để phân biệt lỗi mạng với lỗi backend. Không mở port 5080 trên router.
 - Tunnel đã kết nối nhưng HTTP 502: kiểm API Windows ở mục 8.2.
 
-Dừng đúng connector project:
-
-```powershell
-pwsh -File tools/Start-ComputeTunnel.ps1 -Stop
-```
+**Giữ connector Windows chạy để sang mục 7–10.** Lệnh dừng tunnel chỉ dùng
+khi chủ động tắt hệ thống theo mục 8.6, không phải bước cần chạy trong lúc
+cài đặt. Nếu connector đã dừng, log kết nối cũ vẫn còn nhưng hostname có
+thể báo 530/1033; chạy helper mở lại và kiểm trạng thái hiện tại.
 
 Đây chưa là Windows service tự chạy sau boot/logoff. Sau khởi động lại, mở
 server và helper. Cloudflared tự thử lại mạng khi process còn chạy; không đánh
@@ -791,7 +792,7 @@ sẽ quay lại dấu nhắc Windows, không tự chuyển tab thành Linux. Kh�
 **Chuyển sang tab C, SSH vào Pi nếu chưa vào**, rồi chạy:
 
 ```sh
-pi_uuid=$(sed -n 's/^tunnel:[[:space:]]*//p' /home/admin/vietocr-tunnel-upload/pi.yml)
+pi_uuid=$(sed -n 's/^tunnel:[[:space:]]*//p' /home/admin/vietocr-tunnel-upload/pi.yml | tr -d '\r')
 printf '%s\n' "$pi_uuid"
 sh -n /home/admin/vietocr-tunnel-upload/install-tunnel.sh
 sudo sh /home/admin/vietocr-tunnel-upload/install-tunnel.sh /home/admin/vietocr-tunnel-upload "$pi_uuid"
@@ -811,6 +812,14 @@ Nếu báo `not found`/`Syntax error` dù file có tồn tại, kiểm file `.sh
 đổi thành CRLF khi chép/sửa không. Nếu báo `Unit ... could not be found`,
 installer chưa hoàn tất; đọc lỗi ngay trước đó. Đừng tạo tunnel khác để sửa
 lỗi cài service Pi.
+
+**Nếu bạn đã làm theo hướng dẫn cũ và gặp `Invalid UUID`, tiếp theo là
+`Unit vietocr-tunnel.service could not be found`:** file `pi.yml` cũ có thể
+dùng xuống dòng Windows, làm UUID bị dư một ký tự `CR` dù nhìn vẫn đúng.
+Đây không phải yêu cầu tạo tunnel mới. Trên Windows, cập nhật repo/script
+rồi chép lại `install-tunnel.sh` bằng lệnh SCP ở trên. Trong SSH Pi, chạy
+lại khối có `tr -d '\r'` và installer. Installer mới chấp nhận UUID có một
+`CR` ở cuối và chuẩn hoá YAML; không cần đổi DNS hay token để sửa lỗi này.
 
 Installer dùng service user `cloudflared`, credential 0600, config 0640; xoá bản
 credential staging khi thành công. Service active chưa đủ, phải qua mục 10.
