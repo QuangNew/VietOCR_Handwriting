@@ -6,7 +6,7 @@ let drafts=[],selected=null,config=null,verified=false,busy=false,liveURL=null,r
 const runningResults=new Map(),transferRows=new Map(),operations=new Map();
 const sendableStates=['draft','awaiting_upload','upload_granted','uploading','cancelled'];
 const terminalStates=['succeeded','failed','cancelled','expired'];
-let transfersCollapsed=false;
+let transfersCollapsed=false,stoppingAll=false;
 const label=state=>({draft:'Bản nháp · chưa gửi',awaiting_upload:'Chờ lượt gửi',upload_granted:'Được phép gửi',uploading:'Đang gửi',queued:'Đang chờ worker',running:'Đang đọc chữ',succeeded:'Hoàn tất',failed:'Không nhận diện được',cancelled:'Đã dừng',cancel_pending:'Đã dừng trên máy · chờ server xác nhận',expired:'Đã hết hạn lưu kết quả'}[state]??state);
 function toast(text){$('toast').textContent=String(text);$('toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').hidden=true,6000);}
 function fail(e){const text=String(e);$('message').textContent=text;toast(text);invoke('record_log',{message:text}).catch(()=>{});}
@@ -90,7 +90,7 @@ function renderTransfers(){
   $('showTransfers').setAttribute('aria-label',`Mở tiến trình · ${active.length} ảnh chưa xong`);
   $('showTransfers').setAttribute('aria-expanded',String(!transfersCollapsed));
   $('transferTitle').textContent=active.length?`Tiến trình gửi & đọc · ${active.length}`:'Đã xử lý lượt gửi';
-  $('stopAllTransfers').disabled=!active.some(id=>!operations.get(id)?.stopping);
+  $('stopAllTransfers').disabled=stoppingAll||!active.some(id=>!operations.get(id)?.stopping);
   $('transferRows').replaceChildren();
   for(const[id,row]of transferRows){
     const div=document.createElement('div');div.className='transfer-row';div.dataset.id=id;
@@ -99,7 +99,7 @@ function renderTransfers(){
     if(canStop(id)){
       const op=operations.get(id),stop=document.createElement('button');stop.className='stop-transfer';stop.dataset.stopId=id;
       stop.textContent=op?.stopping?'Đang dừng…':op?.controller.signal.aborted||drafts.find(d=>d.id===id)?.state==='cancel_pending'?'Thử dừng lại':'Dừng';
-      stop.disabled=!!op?.stopping;stop.onclick=()=>run(()=>stopTransfer(id));heading.append(stop);
+      stop.disabled=stoppingAll||!!op?.stopping;stop.onclick=()=>run(()=>stopTransfer(id));heading.append(stop);
     }
     const progress=document.createElement('progress');progress.max=1;if(row.done!==null)progress.value=Math.min(1,row.done/Math.max(1,row.total));
     const status=document.createElement('small');status.textContent=row.text;div.append(heading,progress,status);$('transferRows').append(div);
@@ -111,7 +111,13 @@ function transfer(id,text,done=null,total=1){
 }
 $('hideTransfers').onclick=()=>{transfersCollapsed=true;renderTransfers();};
 $('showTransfers').onclick=()=>{transfersCollapsed=false;clearTimeout(transferTimer);renderTransfers();};
-$('stopAllTransfers').onclick=()=>run(()=>Promise.all([...transferRows.keys()].filter(canStop).map(stopTransfer)));
+$('stopAllTransfers').onclick=()=>run(async()=>{
+  if(stoppingAll)return;stoppingAll=true;const epoch=accountEpoch,queue=[...transferRows.keys()].filter(canStop);
+  // Stop local retries immediately; bound remote confirmations and disk writes.
+  for(const id of queue)(operations.get(id)??newOperation(id)).controller.abort();renderTransfers();
+  async function worker(){let id;while(epoch===accountEpoch&&(id=queue.shift()))await stopTransfer(id);}
+  try{await Promise.all([worker(),worker()]);}finally{stoppingAll=false;renderTransfers();}
+});
 async function stopTransfer(id){
   const op=operations.get(id)??newOperation(id);if(op.stopping||!canStop(id))return;
   op.stopping=true;op.controller.abort();transfer(id,'Đã dừng gửi trên máy · đang xác nhận với server');

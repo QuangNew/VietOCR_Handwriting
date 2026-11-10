@@ -12,7 +12,7 @@ const http=require('node:http'),fs=require('node:fs/promises'),path=require('nod
   await page.addInitScript(({mode})=>{
    const owner='aaaaaaaa-1111-4444-8888-aaaaaaaaaaaa';
    const drafts=Array.from({length:mode==='restore'?1:3},(_,i)=>({id:'draft-'+i,ownerId:owner,name:'Ảnh gốc có tên rất dài để kiểm tra xuống dòng '+i+'.png',state:mode==='restore'?'cancel_pending':'draft',included:true,mediaType:'image/png',imageBytes:40000,text:'',jobId:mode==='restore'?'job-0':null}));
-   const pending=new Map(),stops=new Map();window.calls=[];window.progress=[];
+   const pending=new Map(),stops=new Map();window.calls=[];window.progress=[];window.activeStops=0;window.peakStops=0;
    window.__TAURI__={core:{Channel:class{onmessage=()=>{};},invoke:async(name,args={})=>{
     window.calls.push({name,args});const d=drafts.find(d=>d.id===args.id);
     if(name==='bootstrap')return{config:{gateway:'https://pi.example.invalid'},session:{userId:owner,email:'fixture@example.invalid'},verified:{},drafts:structuredClone(drafts)};
@@ -20,6 +20,7 @@ const http=require('node:http'),fs=require('node:fs/promises'),path=require('nod
     if(name==='prepare_send')return drafts.filter(d=>args.ids.includes(d.id)).map(d=>({...d,state:'draft'}));
     if(name==='send_draft'){window.progress.push(args.progress);args.progress.onmessage({stage:'optimizing',done:0,total:0});return new Promise(resolve=>pending.set(args.id,resolve));}
     if(name==='stop_draft'){
+      window.activeStops++;window.peakStops=Math.max(window.peakStops,window.activeStops);await new Promise(r=>setTimeout(r,30));window.activeStops--;
       const attempt=(stops.get(d.id)||0)+1;stops.set(d.id,attempt);
       if(mode==='restore'){
         if(attempt===1)return{...d,state:'cancel_pending',error:'Đã dừng trên máy · chưa xác nhận server'};
@@ -45,6 +46,10 @@ const http=require('node:http'),fs=require('node:fs/promises'),path=require('nod
   assert.equal(await p.evaluate(()=>calls.filter(c=>c.name==='stop_draft').length),3);
   await p.setViewportSize({width:980,height:480});const small=await p.locator('#transfers').boundingBox();assert.ok(small.y>=8&&small.y+small.height<=480-50);
   await fs.mkdir(path.resolve(__dirname,'../../.toolchain/refactor/ui'),{recursive:true});await p.screenshot({path:path.resolve(__dirname,'../../.toolchain/refactor/ui/desktop-stop-compact.png')});
+  const bulk=await page('bulk');await bulk.click('#send');await bulk.waitForFunction(()=>calls.filter(c=>c.name==='send_draft').length===2);await bulk.click('#stopAllTransfers');
+  await bulk.waitForFunction(()=>[...document.querySelectorAll('.draft-name small')].every(e=>e.textContent==='Đã dừng'));
+  assert.ok(await bulk.evaluate(()=>peakStops<=2),'Stop all must bound remote cancellations');
+  assert.equal(await bulk.evaluate(()=>calls.filter(c=>c.name==='send_draft').length),2,'an unsent queued image cannot begin upload after Stop all');
   const restored=await page('restore');await restored.locator('[data-stop-id="draft-0"]').waitFor();assert.equal(await restored.locator('#send').isDisabled(),true);
   await restored.click('[data-stop-id="draft-0"]');await restored.waitForFunction(()=>document.querySelector('.stop-transfer[data-stop-id]')?.textContent==='Thử dừng lại');
   await restored.click('[data-stop-id="draft-0"]');await restored.waitForFunction(()=>document.querySelector('#jobState').textContent==='Hoàn tất');
