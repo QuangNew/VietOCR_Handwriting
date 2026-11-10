@@ -2,10 +2,12 @@
 pub mod diagnostics;
 pub mod image_headers;
 pub mod image_transfer;
+mod operations;
 pub mod session;
 pub mod storage;
 #[cfg(test)]
 mod tests;
+mod transfer;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
@@ -14,9 +16,11 @@ use sha2::{Digest, Sha256};
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
+    sync::Arc,
     time::{Duration, Instant},
 };
 use tokio::sync::{Mutex, Semaphore};
+pub use transfer::TransferImage;
 use uuid::Uuid;
 use vietocr_contracts::mjpeg::MjpegParser;
 
@@ -51,7 +55,7 @@ pub fn secure_origin(value: &str) -> bool {
             && u.fragment().is_none()
     })
 }
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Draft {
     pub id: Uuid,
@@ -77,6 +81,8 @@ pub struct Draft {
     pub layout: Option<String>,
     #[serde(default)]
     pub transfer_note: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transfer: Option<transfer::TransferImage>,
 }
 fn included_by_default() -> bool {
     true
@@ -96,18 +102,31 @@ pub struct Client {
     pub draft_lock: Mutex<()>,
     result_tickets: Mutex<HashMap<Uuid, CachedResultTicket>>,
     result_slots: Semaphore,
+    operations: Mutex<HashMap<Uuid, Arc<operations::Operation>>>,
 }
 impl Client {
     pub async fn remove(&self, id: Uuid) -> Result<(), String> {
+        let operation = self.operation(id).await;
+        let _operation_guard = operation.gate.lock().await;
         let _lock = self.draft_lock.lock().await;
         let root = self.account_root().await?;
         let mut all = self.read_drafts(&root)?;
+        if all.iter().any(|d| {
+            d.id == id
+                && !matches!(
+                    d.state.as_str(),
+                    "draft" | "succeeded" | "failed" | "cancelled" | "expired"
+                )
+        }) {
+            return Err("Dừng lượt gửi và xác nhận với server trước khi xoá ảnh".into());
+        }
         all.retain(|d| d.id != id);
         storage::atomic(
             &root.join("drafts.json"),
             &serde_json::to_vec(&all).map_err(|_| "Không lưu được danh sách")?,
         )?;
         let _ = std::fs::remove_file(root.join(format!("{id}.image")));
+        let _ = std::fs::remove_file(root.join(format!("{id}.upload")));
         Ok(())
     }
     pub fn new(config: Config, root: PathBuf) -> Result<Self, String> {
@@ -126,6 +145,7 @@ impl Client {
             draft_lock: Mutex::new(()),
             result_tickets: Mutex::new(HashMap::new()),
             result_slots: Semaphore::new(4),
+            operations: Mutex::new(HashMap::new()),
         })
     }
     pub async fn response(response: reqwest::Response) -> Result<Value, String> {
@@ -288,6 +308,7 @@ impl Client {
             error: String::new(),
             layout: None,
             transfer_note: String::new(),
+            transfer: None,
         };
         self.save_draft(&draft).await?;
         Ok(draft)
@@ -385,6 +406,24 @@ impl Client {
         &self,
         id: Uuid,
         layout: &str,
+        on_progress: impl FnMut(&str, u64, u64),
+    ) -> Result<Draft, String> {
+        let operation = self.operation(id).await;
+        let _guard = operation.gate.lock().await;
+        let mut stopped = operation.stop.subscribe();
+        if *stopped.borrow() {
+            return Err("operation_stopped".into());
+        }
+        tokio::select! {
+            biased;
+            _ = stopped.wait_for(|value| *value) => Err("operation_stopped".into()),
+            result = self.submit_inner(id, layout, on_progress) => result,
+        }
+    }
+    async fn submit_inner(
+        &self,
+        id: Uuid,
+        layout: &str,
         mut on_progress: impl FnMut(&str, u64, u64),
     ) -> Result<Draft, String> {
         if !matches!(layout, "auto" | "line") {
@@ -398,10 +437,25 @@ impl Client {
             .find(|d| d.id == id)
             .ok_or("Bản nháp không tồn tại")?;
         let owner = draft.owner_id;
+        if draft.state == "cancel_pending" {
+            return Err("cancel_pending: Xác nhận dừng lượt cũ trước khi gửi lại".into());
+        }
+        if draft.layout.is_none() && draft.job_id.is_none() {
+            on_progress("optimizing", 0, 0);
+            self.prepare_transfer(&mut draft).await?;
+        }
         // Retrying a partial upload keeps the original layout/idempotency key.
         let layout = draft.layout.get_or_insert_with(|| layout.into()).clone();
         self.save_draft(&draft).await?;
-        let intent=self.api_for(Some(owner),reqwest::Method::POST,"/api/v2/intents",Some(json!({"requestId":draft.request_id,"sha256":draft.sha256,"imageBytes":draft.image_bytes,"mediaType":draft.media_type,"layout":layout,"imageVersion":draft.version}))).await?;
+        let bytes = self.transfer_bytes(&draft).await?;
+        let intent = self
+            .api_for(
+                Some(owner),
+                reqwest::Method::POST,
+                "/api/v2/intents",
+                Some(Self::intent_metadata(&draft, &layout)),
+            )
+            .await?;
         let job: Uuid = intent["id"]
             .as_str()
             .ok_or("Thiếu job ID")?
@@ -431,10 +485,10 @@ impl Client {
             if grant["accepted"] != true {
                 let generation = grant["generation"].as_u64().ok_or("Thiếu generation")?;
                 let mut offset = grant["offset"].as_u64().ok_or("Thiếu offset")?;
-                let bytes = self.image_bytes(id).await?;
-                while offset < draft.image_bytes {
-                    let end = (offset + 1048576).min(draft.image_bytes);
-                    on_progress("uploading", offset, draft.image_bytes);
+                let image_bytes = bytes.len() as u64;
+                while offset < image_bytes {
+                    let end = (offset + 1048576).min(image_bytes);
+                    on_progress("uploading", offset, image_bytes);
                     let response = self
                         .http
                         .put(format!(

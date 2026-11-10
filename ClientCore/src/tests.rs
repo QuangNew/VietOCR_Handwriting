@@ -197,3 +197,205 @@ async fn result_ticket_survives_pi_outage_but_not_expiry_or_account_switch() {
     assert_eq!(reads.load(Ordering::SeqCst), 2);
     server.abort();
 }
+
+#[tokio::test]
+async fn stopping_a_local_draft_preserves_its_original_and_requires_explicit_resend() {
+    let root = Temporary::new();
+    let client = client("http://127.0.0.1:1".into(), root.0.clone());
+    account(&client, Uuid::new_v4()).await;
+    let image = include_bytes!("../../Mobile/assets/samples/test.jpg").to_vec();
+    let draft = client
+        .import(image.clone(), "original.jpg".into())
+        .await
+        .unwrap();
+    let stopped = client.cancel_draft(draft.id).await.unwrap();
+    assert_eq!(stopped.state, "cancelled");
+    assert_eq!(stopped.request_id, draft.request_id);
+    assert_eq!(client.image_bytes(draft.id).await.unwrap(), image);
+    assert_eq!(
+        client
+            .submit(draft.id, "auto", |_, _, _| {})
+            .await
+            .unwrap_err(),
+        "operation_stopped"
+    );
+    let prepared = client.prepare_send(vec![draft.id]).await.unwrap().remove(0);
+    assert_eq!(prepared.state, "draft");
+    assert_ne!(prepared.request_id, draft.request_id);
+}
+
+#[tokio::test]
+async fn automatic_optimization_is_immutable_across_retries_and_preserves_original() {
+    let root = Temporary::new();
+    let client = client("http://127.0.0.1:1".into(), root.0.clone());
+    account(&client, Uuid::new_v4()).await;
+    let pixels = image::RgbImage::from_fn(512, 256, |x, y| {
+        image::Rgb([(x % 255) as u8, if y % 25 < 3 { 20 } else { 240 }, 120])
+    });
+    let mut source = Vec::new();
+    use image::ImageEncoder;
+    image::codecs::png::PngEncoder::new_with_quality(
+        &mut source,
+        image::codecs::png::CompressionType::Uncompressed,
+        image::codecs::png::FilterType::NoFilter,
+    )
+    .write_image(pixels.as_raw(), 512, 256, image::ExtendedColorType::Rgb8)
+    .unwrap();
+    let mut draft = client
+        .import(source.clone(), "source.png".into())
+        .await
+        .unwrap();
+    client.prepare_transfer(&mut draft).await.unwrap();
+    let wire = client.transfer_bytes(&draft).await.unwrap();
+    assert!(wire.len() + 1024 < source.len());
+    assert_eq!(client.image_bytes(draft.id).await.unwrap(), source);
+    let (_, width, height) = image_headers::inspect(&wire).unwrap();
+    assert_eq!((width, height), (512, 256));
+    let metadata = Client::intent_metadata(&draft, "auto");
+    assert_eq!(metadata["imageBytes"], wire.len());
+    assert_eq!(metadata["sha256"], format!("{:x}", Sha256::digest(&wire)));
+    client.prepare_transfer(&mut draft).await.unwrap();
+    assert_eq!(client.transfer_bytes(&draft).await.unwrap(), wire);
+    assert_eq!(Client::intent_metadata(&draft, "auto"), metadata);
+    assert_eq!(client.drafts().await.unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn stop_interrupts_an_inflight_http_request_and_persists_unconfirmed_cancel_across_restart() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    let owner = Uuid::new_v4();
+    let job = Uuid::new_v4();
+    let requests = Arc::new(Mutex::new(Vec::<(String, Value)>::new()));
+    let grant_started = Arc::new(tokio::sync::Notify::new());
+    let online = Arc::new(AtomicBool::new(false));
+    let server = {
+        let requests = requests.clone();
+        let grant_started = grant_started.clone();
+        let online = online.clone();
+        tokio::spawn(async move {
+            loop {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let requests = requests.clone();
+                let grant_started = grant_started.clone();
+                let online = online.clone();
+                tokio::spawn(async move {
+                    let mut request = Vec::new();
+                    let mut buffer = [0; 4096];
+                    let header_end = loop {
+                        let n = socket.read(&mut buffer).await.unwrap();
+                        if n == 0 {
+                            return;
+                        }
+                        request.extend_from_slice(&buffer[..n]);
+                        if let Some(at) = request.windows(4).position(|b| b == b"\r\n\r\n") {
+                            break at + 4;
+                        }
+                        assert!(request.len() < 16384);
+                    };
+                    let header = String::from_utf8_lossy(&request[..header_end]);
+                    let route = header
+                        .lines()
+                        .next()
+                        .unwrap()
+                        .split_whitespace()
+                        .take(2)
+                        .collect::<Vec<_>>()
+                        .join(" ");
+                    let length = header
+                        .lines()
+                        .find_map(|line| {
+                            line.to_lowercase()
+                                .strip_prefix("content-length: ")
+                                .and_then(|s| s.trim().parse::<usize>().ok())
+                        })
+                        .unwrap_or(0);
+                    while request.len() < header_end + length {
+                        let n = socket.read(&mut buffer).await.unwrap();
+                        if n == 0 {
+                            return;
+                        }
+                        request.extend_from_slice(&buffer[..n]);
+                    }
+                    let body =
+                        serde_json::from_slice(&request[header_end..]).unwrap_or(Value::Null);
+                    requests.lock().await.push((route.clone(), body));
+                    let (status, value) = if route == "GET /api/v2/session" {
+                        ("200 OK", json!({"account":{"userId":owner}}))
+                    } else if route == "POST /api/v2/intents" {
+                        ("200 OK", json!({"id":job,"state":"awaiting_upload"}))
+                    } else if route.ends_with("/grant") {
+                        grant_started.notify_one();
+                        // There is no response until the native client drops the HTTP
+                        // future. A Stop must not wait for the ordinary 30s timeout.
+                        let _ = socket.read(&mut buffer).await;
+                        return;
+                    } else if route.starts_with("DELETE ") && route.ends_with("/cancel") {
+                        if online.load(Ordering::SeqCst) {
+                            ("200 OK", json!({"state":"cancelled","accepted":false}))
+                        } else {
+                            ("503 Unavailable", json!({"error":"compute_unreachable"}))
+                        }
+                    } else {
+                        panic!("Unexpected route {route}");
+                    };
+                    let text = value.to_string();
+                    let response = format!(
+                        "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{text}",
+                        text.len()
+                    );
+                    let _ = socket.write_all(response.as_bytes()).await;
+                });
+            }
+        })
+    };
+    let root = Temporary::new();
+    let client = Arc::new(client(origin.clone(), root.0.clone()));
+    account(&client, owner).await;
+    let draft = client
+        .import(
+            include_bytes!("../../Mobile/assets/samples/test.jpg").to_vec(),
+            "photo.jpg".into(),
+        )
+        .await
+        .unwrap();
+    let sending = {
+        let client = client.clone();
+        tokio::spawn(async move { client.submit(draft.id, "line", |_, _, _| {}).await })
+    };
+    tokio::time::timeout(Duration::from_secs(15), grant_started.notified())
+        .await
+        .unwrap();
+    let stopped = tokio::time::timeout(Duration::from_secs(3), client.cancel_draft(draft.id))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(sending.await.unwrap().unwrap_err(), "operation_stopped");
+    assert_eq!(stopped.state, "cancel_pending");
+    assert!(client.prepare_send(vec![draft.id]).await.is_err());
+    drop(client);
+    let reloaded = self::client(origin, root.0.clone());
+    account(&reloaded, owner).await;
+    assert_eq!(reloaded.drafts().await.unwrap()[0].state, "cancel_pending");
+    online.store(true, Ordering::SeqCst);
+    let stopped = reloaded.cancel_draft(draft.id).await.unwrap();
+    assert_eq!(stopped.state, "cancelled");
+    let fresh = reloaded
+        .prepare_send(vec![draft.id])
+        .await
+        .unwrap()
+        .remove(0);
+    assert_ne!(fresh.request_id, stopped.request_id);
+    let log = requests.lock().await;
+    assert_eq!(
+        log.iter()
+            .filter(|(r, _)| r == "POST /api/v2/intents")
+            .count(),
+        1
+    );
+    assert!(
+        !log.iter()
+            .any(|(r, _)| r.contains("/content") || r.contains("/complete"))
+    );
+    server.abort();
+}

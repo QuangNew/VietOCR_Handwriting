@@ -2,8 +2,8 @@
 Description=VietOCR Raspberry gateway
 After=network-online.target
 Wants=network-online.target
-StartLimitIntervalSec=60
-StartLimitBurst=5
+# Keep recovering after a long Wi-Fi outage; do not exhaust a short boot window.
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple

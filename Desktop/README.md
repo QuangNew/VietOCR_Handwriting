@@ -24,8 +24,11 @@ See the root [DevTodo.md](../DevTodo.md) for deployment, OAuth callbacks and pai
 - JPEG/PNG originals are copied unchanged. Crops and threshold images are lossless
   PNG derivatives. Mirror applies to both preview and the saved capture. Edited
   originals are unchecked while the new derivative is selected; nothing uploads
-  before explicit Send. Optional transfer optimization compares same-size PNG /
-  JPEG95 and keeps the original when there is no saving. Default is original.
+  before explicit Send. Send automatically caches a smaller same-resolution PNG /
+  JPEG95 upload derivative, preserving original exports and stable retry bytes.
+- The transfer panel supports per-image Stop and Stop all, including capacity
+  waits. Unconfirmed remote cancellation persists across restart and blocks
+  resubmission until confirmed. Collapse keeps a reopen arrow visible.
   16MiB upload cap matches server default.
 - Connection settings expose only the Raspberry URL. The public Supabase file
   is compiled into Rust, not supplied by the end user. It is a publishable key,

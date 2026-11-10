@@ -12,7 +12,9 @@ void main() {
       final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
       final dir = await Directory.systemTemp.createTemp('vietocr-quota');
       final file = File('${dir.path}/image.jpg');
-      await file.writeAsBytes(List.filled(30, 1));
+      await file.writeAsBytes(
+        await File('assets/samples/test.jpg').readAsBytes(),
+      );
       var attempts = 0;
       final listener = server.listen((r) async {
         attempts++;

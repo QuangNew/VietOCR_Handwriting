@@ -11,6 +11,7 @@ on:
       - Mobile/**
       - Server/backend/**
       - Contracts/**
+      - infra/raspberry/**
       - supabase/migrations/**
       - .github/workflows/refactor.yml
   workflow_dispatch:

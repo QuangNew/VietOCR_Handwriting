@@ -2,8 +2,8 @@
 Description=VietOCR named Cloudflare connector
 After=network-online.target vietocr-gateway.service
 Wants=network-online.target
-StartLimitIntervalSec=60
-StartLimitBurst=5
+# Retry until Wi-Fi/Internet returns, including outages during boot.
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple

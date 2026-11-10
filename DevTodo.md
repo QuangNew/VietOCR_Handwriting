@@ -17,10 +17,13 @@ app/cấu hình đã có. Sau khi xong lần đầu, mỗi ngày chỉ cần m�
 | Hiểu các dịch vụ và terminal | [Mục 0](#cach-doc), [mục 2](#so-do) |
 | Biết phần nào đã làm, phần nào chưa | [Mục 1](#hien-trang) |
 | Cấu hình tên miền, tunnel lần đầu | [Mục 5](#cloudflare), [mục 6](#tunnel-windows), [mục 7](#tunnel-pi) |
-| Mở server và nạp model | [Mục 8](#server) |
+| Mở server, mở web admin và đăng nhập quản trị | [Mục 8.1](#admin-server) |
+| Kiểm model và thêm worker | [Mục 8.2–8.3](#server) |
 | Mở desktop/Android và gửi ảnh thử | [Mục 9](#client) |
 | Kiểm hệ thống chạy đúng | [Mục 10](#kiem-thu) |
-| Ngày mai bật lại, tắt hoặc khởi động lại | [Mục 8.4–8.6](#van-hanh-moi-ngay) |
+| Đã tắt laptop/rút nguồn Pi: cần mở lại gì? | [Mục 8.4–8.6](#van-hanh-moi-ngay) |
+| Pi tự chạy sau boot / Wi-Fi có lại | [Mục 8.7](#pi-tu-khoi-dong) |
+| Dừng gửi, thu gọn và mở lại bảng tiến trình | [Mục 9.6](#bang-tien-trinh) |
 | Có lỗi và chưa biết đọc log ở đâu | [Mục 13](#tra-loi) |
 | Cài lại từ máy trắng hoặc build source | [Mục 3](#cong-cu), [mục 12](#build) |
 | Đánh dấu các bước đã làm | [Checklist mục 14.1](#hoan-tat) |
@@ -139,10 +142,11 @@ các file được Git theo dõi.
 
 Đây là ghi nhận của lần triển khai trước, không phải màn hình trạng thái trực
 tiếp. Mục 3 và 8 giúp bạn tự kiểm lại các thành phần đang bật hôm nay.
-**Điểm đang làm tiếp sau sửa lỗi 7.1:** chuyển Pi sang địa chỉ compute HTTPS
-bằng mục **7.2**, rồi thử Google→OCR theo mục 10.2 qua hai mạng. Pi hiện vẫn
-giữ origin kiểm thử `http://127.0.0.1:15080`; hai tunnel hoạt động không tự
-thay giá trị này. Bạn đã làm xong DNS/Authorize thì không cần làm lại mục 5.
+**Kiểm lại ngày 10/11/2026:** Pi đã dùng compute/results
+`https://ocr.quangnew.tech`, GPIO vẫn tắt. Không còn phải mở SSH forward
+15080/15082 để vận hành. Nếu dùng máy/Pi mới thì làm mục 7.2; máy hiện tại
+không cần làm lại DNS/Authorize/pairing mỗi ngày. Sau khi tắt laptop phải mở
+lại cả server và connector Windows theo 8.4, rồi thử Google→OCR theo 10.2.
 
 Không cần cài lại Google OAuth, Python/CUDA hoặc SDK trên máy hiện tại.
 Không xoá tài khoản, tạo lại project Supabase hay chạy migration từ đầu.
@@ -938,7 +942,16 @@ hai bản staging. Rotate một phía gây 401; dừng, đồng bộ hai phía, 
 
 ## 8. Compute và admin
 
-### 8.1 Mở server Windows
+<a id="admin-server"></a>
+
+### 8.1 Mở server và đăng nhập web admin, từng thao tác
+
+**Trang quản trị là `http://127.0.0.1:3000`, mở trên máy Windows chạy server.**
+Bạn mở trang này trong browser; app desktop/Android là ứng dụng người dùng.
+Tên miền `api.quangnew.tech` dùng cho Pi, `ocr.quangnew.tech` dùng cho API
+compute, còn trang admin giữ ở localhost.
+
+#### A. Mở chương trình server
 
 **Nếu đã mở server ở mục 6.1 và tab B còn chạy, bỏ qua việc mở lại; đi thẳng
 8.2 để kiểm model, rồi 8.3 để mở dashboard.** Mục 8.1 cũng dùng khi bạn mở
@@ -962,8 +975,89 @@ Dashboard: http://127.0.0.1:3000 | API: http://127.0.0.1:5080
 API log: ...\Server\runtime\logs\api-....log
 ```
 
-Mở trình duyệt Windows tới **`http://127.0.0.1:3000`**. Dùng tài khoản admin
-đã có. Đây không phải nút đăng nhập Google trong app.
+Bạn cũng có thể mở Explorer → thư mục repo → **Server** → double-click
+**Run-Server.cmd**. Nó mở terminal để chạy server, không tự đăng nhập browser.
+Giữ cửa sổ terminal này mở trong suốt lúc vận hành.
+
+#### B. Mở trang đăng nhập admin
+
+1. Trên **cùng máy Windows server**, mở Chrome/Edge/Opera.
+2. Bấm thanh địa chỉ, gõ **`http://127.0.0.1:3000`** rồi Enter.
+3. Chờ hiện trang **VietOCR Control**, form có ô **Tên đăng nhập** và **Mật khẩu**.
+4. Nếu đã có phiên admin, trang có thể vào thẳng Tổng quan; không cần đăng
+   nhập lần nữa.
+
+Nếu muốn mở bằng lệnh, dùng **tab A Windows**, không chạy trong SSH Pi:
+
+```powershell
+Start-Process 'http://127.0.0.1:3000'
+```
+
+Nếu browser báo không kết nối, quay lại terminal Server ở phần A. Dòng
+`Dashboard: ...` xuất hiện trước khi Next.js hoàn tất khởi động; đợi launcher
+báo web đã sẵn sàng rồi thử lại. Nếu cổng 3000 đã mở thì dùng trang đang chạy,
+không mở thêm launcher để đăng nhập.
+
+#### C. Lấy tài khoản hiện có và điền form
+
+Trên máy hiện tại có file private **`Server/runtime/admin-first-login.txt`**.
+Mở trong Explorer → **Server → runtime → admin-first-login.txt**, hoặc tại
+root repo mở riêng bằng Notepad:
+
+```powershell
+notepad.exe Server/runtime/admin-first-login.txt
+```
+
+File có thông tin cấp ban đầu; nếu bạn đã đổi mật khẩu, dùng mật khẩu mới.
+Đọc trên máy và điền form như sau, không copy nội dung file vào chat/repo:
+
+| Ô trên web | Nhập giá trị nào? |
+|---|---|
+| **Tên đăng nhập** | Username admin trong file hoặc username bạn đã tạo; không mặc định dùng email Google |
+| **Mật khẩu** | Mật khẩu admin tương ứng, hoặc mật khẩu mới nhất nếu đã đổi |
+| Nút **Đăng nhập** | Bấm một lần rồi chờ trang chuyển vào workspace |
+
+**Đạt khi:** trang **Tổng quan** hiện uptime/queue/worker và menu
+**WorkerSpace**, **Hàng đợi**, **Tài khoản & API**, **Cấu hình server**.
+Nếu báo sai thông tin, kiểm đúng tài khoản/mật khẩu admin. Đăng nhập bị giới
+hạn số lần thử; không bấm liên tục khi đang dùng thông tin sai.
+
+#### D. Chỉ khi chưa có tài khoản admin hoặc cần tạo admin khác
+
+Máy hiện tại đã có admin; bạn bỏ qua phần này nếu phần C đăng nhập được.
+Nếu cần một tài khoản admin mới, mở **tab A Windows** ở root repo, chạy:
+
+```powershell
+pwsh -File Server/tools/New-Admin.ps1
+```
+
+Terminal sẽ hỏi từng dòng:
+
+| Terminal hỏi | Bạn nhập gì? |
+|---|---|
+| `Admin username:` | Tên admin bạn tự chọn, dài 3–64 ký tự; dùng tên khác tài khoản đã có nếu tạo thêm |
+| `Admin password (12+ characters, hidden):` | Mật khẩu riêng ít nhất 12 ký tự; gõ không thấy ký tự là bình thường, xong Enter |
+
+Thành công hiện `Administrator created...`. Lưu thông tin mới vào nơi riêng
+của bạn, quay browser và đăng nhập bằng chính username/password vừa tạo.
+Lệnh này quản lý tài khoản, không phải lệnh bật web admin hay nạp model.
+
+Không tự tạo lại Supabase project hoặc xoá admin cũ để sửa lỗi đăng nhập.
+Nếu tạo admin báo lỗi kết nối/credential Supabase, xem cấu hình server ở mục
+3–4 và log; không điền publishable key thay cho credential máy chủ.
+
+#### E. Sau khi đăng nhập thì làm gì?
+
+1. Mở **WorkerSpace** và làm mục 8.2–8.3 để kiểm model sẵn sàng.
+2. Mở **Cấu hình server**, kiểm nhận request đang bật và queue không bị pause
+   khi bạn muốn xử lý ảnh. Lưu nếu vừa chủ động thay đổi cài đặt.
+3. Quay app desktop/Android để gửi ảnh; theo dõi job ở **Hàng đợi** và stats
+   trong **Tổng quan**.
+4. Đóng tab browser admin không tắt backend; giữ terminal Server ở phần A chạy.
+
+Trang admin hiện chỉ phục vụ nội bộ Windows. Mở `localhost:3000` trên điện
+thoại/Pi sẽ chỉ vào chính thiết bị đó; hai tunnel trong hướng dẫn không
+công bố trang quản trị này ra Internet.
 
 Nếu launcher dừng vì build lỗi, API có thể chưa được mở dù thư mục `bin`
 đã tồn tại. Giữ nguyên lỗi để tra mục 13; không mở thêm nhiều launcher.
@@ -1035,31 +1129,72 @@ vào production. Không publish admin qua hostname kết quả.
 
 <a id="van-hanh-moi-ngay"></a>
 
-### 8.4 Mỗi ngày bật hệ thống theo thứ tự nào?
+### 8.4 Đã tắt laptop và ngắt Pi: bật lại những gì?
 
-Phần này dùng **sau khi đã cấu hình Cloudflare một lần và mục 10 đã qua**.
-Không làm lại nameserver, Authorize, pairing hoặc migrations mỗi ngày.
+Phần này dùng **sau khi đã cấu hình Cloudflare một lần, làm xong 7.2 và mục
+10 đã qua**. Không chạy lại nameserver, Authorize, pairing, migration hay
+installer mỗi ngày. Nếu Pi vẫn trỏ `127.0.0.1:15080`, làm 7.2 trước: đó là
+địa chỉ thử qua SSH, sẽ mất khi bạn đóng máy; tự khởi động dịch vụ không
+biến một SSH forward đã tắt thành kết nối Internet.
 
-1. Bật Pi, cắm webcam, chờ Pi vào mạng. Trên Pi, kiểm ba service bằng lệnh
-   bên dưới. Các service đã enable sẽ tự chạy sau boot.
-2. Windows: mở tab B chạy `Server/Run-Server.cmd`, đợi worker sẵn sàng theo 8.2.
-3. Windows tab A: chạy `pwsh -File tools/Start-ComputeTunnel.ps1`.
-4. Nếu hôm nay có lỗi mạng/tunnel, chạy kiểm mục 10.1.
-5. Mở app desktop/Android, đăng nhập nếu phiên cũ cần đăng nhập lại, rồi dùng.
+| Thành phần | Sau khi bật máy có tự chạy không? | Bạn cần làm gì? |
+|---|---|---|
+| Pi kết nối Wi-Fi đã lưu | Có, profile đã bật autoconnect | Cấp nguồn, chờ vào đúng mạng có Internet |
+| Webcam Pi, Rust gateway, tunnel Pi | Có, ba systemd service đã enable | Không phải SSH để mở lại; kiểm mục 8.7 khi nghi ngờ lỗi |
+| Backend C# + model + web admin trên laptop | Chưa | Mở `Server/Run-Server.cmd` và giữ terminal chạy |
+| Tunnel compute trên laptop | Chưa | Chạy `pwsh -File tools/Start-ComputeTunnel.ps1` |
+| Trình duyệt web admin | Mở khi cần quản trị | Vào `http://127.0.0.1:3000` trên laptop |
+| App desktop/Android | Bạn tự mở | Đăng nhập Google lại nếu phiên đã hết hạn |
 
-**Pi, tab C:**
+**Làm lần lượt như sau:**
+
+1. Cắm webcam vào Pi, cấp nguồn Pi. Đợi khoảng một phút, lâu hơn nếu Wi-Fi
+   đang khởi động. Pi dùng mạng đã lưu; không nhập lại mật khẩu mỗi lần.
+2. Bật laptop, nối Internet. Không bắt buộc cùng Wi-Fi với Pi khi 7.2 đã
+   hoàn tất. Mở **VS Code → Terminal → New Terminal** hoặc PowerShell.
+3. Trong **terminal Windows thứ nhất**, chạy:
+
+   ```powershell
+   cd 'C:\DevLanguage\Works\PBL\PBL4\VietOCR_Handwriting'
+   .\Server\Run-Server.cmd
+   ```
+
+   Giữ terminal này mở. Đợi web có `Ready` và worker sẵn sàng theo 8.2;
+   chỉ thấy dòng địa chỉ API chưa chứng minh model đã nạp xong.
+4. Bấm nút **+** ở thanh terminal để tạo **terminal Windows thứ hai**.
+   Chạy:
+
+   ```powershell
+   cd 'C:\DevLanguage\Works\PBL\PBL4\VietOCR_Handwriting'
+   pwsh -File tools/Start-ComputeTunnel.ps1
+   ```
+
+   Nếu helper báo connector đã chạy thì giữ nguyên, không chạy thêm một
+   bản thủ công. Helper mở connector nền; tab thứ hai có thể đóng. Tab
+   server ở bước 3 vẫn phải giữ mở. Cách xem log xác nhận kết nối: mục 6.2.
+5. Mở Chrome/Edge/Opera, nhập **`http://127.0.0.1:3000`**, Enter. Đăng nhập
+   **admin server** theo 8.1; đây không phải tài khoản Google của app.
+   Vào **WorkerSpace**, kiểm có worker sẵn sàng. Nếu không dùng admin hôm
+   đó, vẫn phải mở chương trình server ở bước 3, chỉ không cần mở browser.
+6. Mở app desktop hoặc Android. Địa chỉ Raspberry là
+   `https://api.quangnew.tech`. Đăng nhập Google nếu được yêu cầu, chụp/tải
+   ảnh rồi **Gửi**. Ảnh nháp cũ không tự gửi lại khi bạn mở app.
+
+**Kiểm Pi khi cần:** từ một terminal Windows khác, chạy `ssh admin@rasp4gb`,
+nhập mật khẩu Pi (không hiện ký tự khi gõ), rồi chạy:
 
 ```sh
 systemctl is-active vietocr-camera@desk.service vietocr-gateway.service vietocr-tunnel.service
 ```
 
-**Đạt khi:** ba dòng `active`. `systemctl` là công cụ quản lý chương trình
-chạy nền trên Linux; `service` là một chương trình do hệ điều hành quản lý.
-Không cần giữ SSH mở để ba chương trình này hoạt động.
+Đạt khi có ba dòng `active`. Có thể gõ `exit` để đóng SSH; các dịch vụ vẫn
+chạy. Nếu không SSH được bằng hostname, dùng IP Pi theo mục 0.3. Nếu app
+báo không có công suất, kiểm cả worker laptop lẫn hai tunnel, không chỉ
+nhìn camera Pi có hình hay không.
 
-Pi, máy server và client đều cần Internet. Máy Windows phải bật và không
-ngủ trong lúc xử lý OCR. Đóng trình duyệt admin không tắt server; đóng/dừng
-tab launcher server thì có. Connector Windows hiện chưa tự chạy sau boot.
+Máy laptop phải bật và không ngủ trong lúc xử lý OCR. Đóng trình duyệt admin
+không tắt server; đóng/dừng terminal server thì có. Laptop reboot sẽ cần
+làm lại bước 3–6; Pi reboot chỉ cần tự vào lại Wi-Fi và chờ ba service lên.
 
 ### 8.5 Đang dùng thì sửa cấu hình hoặc restart thế nào?
 
@@ -1098,6 +1233,60 @@ chưa được sửa ở Cloudflare.
 Nếu tắt đột ngột, ảnh đã được compute nhận có cơ chế phục hồi khi server mở
 lại; vẫn cần retention còn hiệu lực. Đừng tạo hàng loạt lượt gửi mới chỉ vì
 vừa mở app lại mà kết quả chưa xuất hiện.
+
+<a id="pi-tu-khoi-dong"></a>
+
+### 8.7 Pi tự khởi động dịch vụ và nối lại sau khi Wi-Fi mất
+
+**Đã áp dụng trên `rasp4gb` ngày 10/11/2026:** Wi-Fi đang dùng có
+`connection.autoconnect=yes`; NetworkManager và wait-online được enable;
+webcam, gateway và tunnel có `enabled` và `active`. Ba service dùng restart
+mỗi 5 giây khi lỗi, không hết số lần thử trong một cửa sổ ngắn. Gateway và
+tunnel đợi `network-online.target` lúc boot. Nếu Wi-Fi/Internet lên muộn,
+connector tiếp tục thử lại. Đây là kiểm cấu hình và dịch vụ thật; chưa chủ
+động reboot/rút nguồn Pi của bạn trong lần kiểm này.
+
+**Bình thường không chạy lại các lệnh cài đặt.** Để kiểm trên Pi:
+
+```sh
+systemctl is-enabled vietocr-camera@desk.service vietocr-gateway.service vietocr-tunnel.service
+systemctl is-active vietocr-camera@desk.service vietocr-gateway.service vietocr-tunnel.service
+nmcli -t -f NAME,TYPE,AUTOCONNECT connection show
+```
+
+Hai lệnh đầu lần lượt cần ba `enabled` và ba `active`. Lệnh cuối chỉ in tên
+mạng/profile, không in mật khẩu; profile Wi-Fi cần có `yes`.
+
+Nếu cài lại Pi hoặc lỡ disable service, chép script từ Windows, **sau khi đã
+cài gateway/webcam/tunnel một lần**:
+
+```powershell
+scp infra/raspberry/enable-autostart.sh admin@rasp4gb:/home/admin/enable-autostart.sh
+ssh admin@rasp4gb
+```
+
+Sau khi thấy prompt `admin@rasp4gb:~ $`, chạy **trên Pi**:
+
+```sh
+sudo sh /home/admin/enable-autostart.sh
+```
+
+Nếu `sudo` hỏi, nhập mật khẩu Pi. Script không nạp lại token, không tải gói,
+không reboot; nó enable/start các service đã cài và bật autoconnect cho
+profile Wi-Fi đang hoạt động. Muốn đổi Wi-Fi: trên desktop Raspberry Pi OS,
+bấm biểu tượng mạng góc phải → chọn tên Wi-Fi → nhập mật khẩu → Connect;
+kiểm Internet rồi kiểm lại ba service. Không đưa mật khẩu Wi-Fi vào Git.
+
+Nếu một service không `active`, xem đúng log của nó:
+
+```sh
+journalctl -u vietocr-gateway.service -n 30 --no-pager
+journalctl -u vietocr-tunnel.service -n 30 --no-pager
+journalctl -u vietocr-camera@desk.service -n 30 --no-pager
+```
+
+Không xoá file cấu hình/token để chữa lỗi Wi-Fi. GPIO TFT/còi vẫn **tắt**;
+không cần bật GPIO để các dịch vụ tự khởi động.
 
 <a id="client"></a>
 
@@ -1217,7 +1406,7 @@ Thực hiện lần đầu với **một ảnh** để biết toàn bộ đườ
    bản nguồn tự bỏ chọn để không gửi cả hai bản ngoài ý muốn.
 7. Kiểm checkbox những ảnh thực sự muốn nhận diện. Chọn **Tự tách dòng** cho
    trang văn bản; **Một dòng chữ** cho ảnh đã crop chỉ còn một dòng.
-8. Nhấn **Gửi bản nháp →**. Chờ upload → xếp hàng → xử lý → kết quả.
+8. Nhấn **Gửi**. App tự tối ưu bản truyền trước, rồi upload → xếp hàng → xử lý → kết quả.
    Đừng nhấn lại liên tục khi đang chờ. Pi/compute có thể phải chờ lượt hoặc
    đợi worker nạp xong; app giữ cùng mã yêu cầu để tránh tính trùng.
 9. Xem/chỉnh kết quả ở **Văn bản**, **Sao chép** hoặc **Xuất .txt**.
@@ -1234,17 +1423,49 @@ giữ nguyên file/cache local để app còn dữ liệu phục hồi.
 
 ### 9.5 Chất lượng ảnh và dung lượng truyền
 
-Mặc định giữ nguyên JPEG/PNG và kích thước; file nhỏ không chứng minh bị giảm
-độ phân giải. Crop/BW/lật tạo bản mới, bỏ chọn bản nguồn để tránh gửi trùng;
-vẫn tải được bản gốc. Tối ưu OCR tuỳ chọn so PNG/JPEG95, chỉ dùng khi nhỏ hơn,
-không resize. JPEG95 có thể đổi chi tiết nhỏ, không tự bật lossy cho mọi ảnh.
-Profile màu đặc biệt được giữ bằng cách bỏ qua nén lại ảnh đó.
+**Không cần bấm nút “Tối ưu OCR” nữa.** Khi bạn nhấn Gửi, desktop và
+Android tự so PNG với JPEG chất lượng 95, giữ nguyên độ phân giải, chỉ dùng
+bản truyền nhỏ hơn ít nhất 1 KiB. Nếu không tiết kiệm dung lượng hoặc có
+profile màu cần giữ, gửi nguyên bản. Không tự giảm chiều rộng/cao, không tự
+crop hay làm trắng đen. JPEG95 có thể thay đổi chi tiết rất nhỏ; kích thước
+file giảm không đồng nghĩa giảm số pixel.
+
+Ảnh gốc dùng để xem/tải xuống vẫn giữ nguyên. Bản truyền được cache riêng,
+không tạo thêm một ảnh trùng trong danh sách. Gửi tiếp sau lỗi dùng lại cùng
+bytes/hash/mã yêu cầu; không nén lại nhiều lần. Một lần encode nặng chạy tại
+một thời điểm trên worker/isolate nền để tránh tăng RAM đột biến. Những lượt
+đã bắt đầu bằng bản cũ tiếp tục dùng bản cũ, không thay dữ liệu giữa chừng.
+Crop/BW/lật vẫn là chức năng chỉnh ảnh theo chủ ý, tạo bản nháp mới.
 
 Ví dụ ảnh 1920×1080 được nén JPEG có thể vài trăm KB; số KB không thể dùng
 riêng để kết luận ảnh có bị hạ độ phân giải. Zoom vào chữ thật để kiểm nét.
 Chụp từng trang, đặt camera gần vuông góc giấy, giữ ổn định và tránh bóng
 đổ giúp OCR hơn việc chỉ tăng kích thước file. Đen trắng không khôi phục
 chi tiết đã mất do rung hoặc lấy nét sai.
+
+<a id="bang-tien-trinh"></a>
+
+### 9.6 Dừng, thu gọn và mở lại bảng tiến trình desktop
+
+- Bảng **Tiến trình gửi & đọc** nằm cao hơn mép dưới cửa sổ; danh sách cuộn
+  bên trong khi có nhiều ảnh.
+- **Dừng** ở từng ảnh dừng lần gửi/đợi kết quả của ảnh đó, rồi yêu cầu Pi và
+  server huỷ lượt đang chờ/đang chạy. **Dừng tất cả** làm tương tự cho cả
+  lượt gửi, kể cả ảnh còn đang chờ đến lượt trên client.
+- Ảnh gốc/bản nháp vẫn còn. Khi đã xác nhận **Đã dừng**, bạn có thể chọn và
+  nhấn **Gửi** để bắt đầu lượt mới. Ảnh server đã nhận đầy đủ vẫn tính hạn
+  mức, kể cả khi bạn huỷ xử lý sau đó.
+- Nếu mất mạng: app báo **Đã dừng trên máy · chưa xác nhận server**. Nó không
+  tự gửi tiếp và không tự tạo lượt mới. Khi mạng có lại, bấm **Thử dừng lại**
+  để xác nhận trạng thái server. Kết quả đã hoàn tất trước yêu cầu Dừng được
+  giữ nguyên, không đổi thành “Đã dừng”.
+- Bấm **⌄** ở góc bảng để thu gọn thành nút **↑** bên dưới. Bấm **↑** để mở
+  lại. Cập nhật mới không tự bung bảng sau khi bạn thu gọn. Khi cả lượt đã
+  kết thúc, bảng tự thu gọn sau 5 giây; nút mũi tên vẫn còn để xem lại.
+
+Bản desktop mới có nút Dừng cần backend C# đã cập nhật. Nếu server vẫn đang
+chạy bản trước, dừng/mở lại `Server/Run-Server.cmd` theo 8.5 sau khi queue
+đã xong; không cần đổi token hay chạy migration database cho chức năng này.
 
 <a id="kiem-thu"></a>
 

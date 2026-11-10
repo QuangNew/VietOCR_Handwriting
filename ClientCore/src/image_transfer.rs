@@ -1,5 +1,5 @@
-//! Optional, one-pass transfer derivative. Original remains unchanged. No resize,
-//! no sharpening and no OCR/preprocessing change. Default client profile is original.
+//! Automatic, one-pass transfer derivative. Original remains unchanged. No resize,
+//! no sharpening; only use a smaller PNG or quality95 JPEG, respecting colour profiles.
 use image::{
     DynamicImage, ImageDecoder, ImageEncoder, ImageReader,
     codecs::{

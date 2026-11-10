@@ -173,6 +173,7 @@ impl Client {
         }
     }
     pub async fn logout(&self) -> Result<(), String> {
+        self.stop_operations().await;
         if let Ok(token) = self.access_token().await {
             let _ = self
                 .http

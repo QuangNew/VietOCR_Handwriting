@@ -4,7 +4,7 @@ import 'package:vietocr_mobile/ocr/transfer_image.dart';
 
 void main() {
   test(
-    'optional transfer optimisation never resizes or overwrites the source',
+    'automatic transfer optimisation never resizes or overwrites the source',
     () {
       final photo = img.Image(width: 512, height: 256);
       for (var y = 0; y < photo.height; y++) {

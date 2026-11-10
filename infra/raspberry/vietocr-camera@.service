@@ -1,8 +1,8 @@
 [Unit]
 Description=VietOCR native MJPEG webcam %i
 After=network.target
-StartLimitIntervalSec=60
-StartLimitBurst=5
+# The USB webcam may become available after boot.
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple

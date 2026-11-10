@@ -26,7 +26,7 @@ curl http://127.0.0.1:5082/health/live
 
 `install.sh` giới hạn quyền staging700/token600 trước khi kiểm config, thay binary nguyên tử rồi restart. Thành công sẽ xoá đúng hai bản sao token trong staging; credential live ở `/etc/vietocr/` vẫn giữ0600. Tham số thứ3 tuỳ chọn `gateway-test.json` chỉ dùng phát triển. Mẫu service/config nằm cạnh installer; chỉ chọn UVC mode webcam công bố và giữ capture trên loopback.
 
-Bản đã triển khai thử hiện trỏ compute tới **SSH reverse-forward localhost:15080**, không phải đường truyền production. Khi tunnel compute HTTPS đã hoạt động, đổi `compute.origin` và `telemetry.url` sang `https://ocr.quangnew.tech` rồi restart gateway. Không để một kết nối SSH test trở thành phụ thuộc production ngầm định.
+Kiểm lại 10/11/2026: Pi dùng compute/results `https://ocr.quangnew.tech`, telemetry dùng `/api/internal/v2/status` trên cùng hostname. Không cần SSH reverse-forward 15080/15082. Khi laptop tắt, backend/connector Windows phải mở lại theo DevTodo.md mục 8.4; dịch vụ Pi active không chứng minh compute đang chạy.
 
 `install-tunnel.sh` cài riêng connector Pi bằng user `cloudflared`, config0640 và
 UUID credential0600; không nhận `cert.pem` quản lý tài khoản Cloudflare. Sau khi
@@ -42,3 +42,16 @@ Bundle CI có `admission_probe` chỉ bind loopback, tạo signing key/danh tín
 ```
 
 Nó chạy mã auth/relay thật nhưng **không phải 1000 Google login/Supabase/OCR thật**. RSS bao gồm cả fixture và bộ phát tải trong cùng process. Không expose probe hoặc raw µStreamer ra Internet. `camera_probe http://127.0.0.1:8080 10` đo broker camera riêng.
+
+
+## Tự chạy sau reboot / Wi-Fi lên muộn
+
+Ba service có `WantedBy=multi-user.target`, `Restart=on-failure`, `RestartSec=5`
+và không chặn thử lại sau một vài lần lỗi. Gateway/tunnel đợi network-online.
+Để enable lại runtime đã cài mà không chép credential hoặc restart dịch vụ
+đang hoạt động: `sudo sh enable-autostart.sh`. Script cũng enable NetworkManager
+wait-online và autoconnect cho profile Wi-Fi đang hoạt động.
+
+Đã kiểm trên `rasp4gb` ngày 10/11/2026: cả ba `enabled`/`active`, Wi-Fi autoconnect
+yes; không reboot hoặc ngắt Wi-Fi đang dùng. Hướng dẫn bật lại sau khi tắt laptop
+và Pi: DevTodo.md mục 8.4–8.7. Compute/tunnel Windows vẫn cần mở lại bằng launcher.

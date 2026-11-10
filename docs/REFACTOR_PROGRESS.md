@@ -229,3 +229,42 @@ Checkpoint 1 starts the approved phased implementation; it is not a completed mi
 - Added optional OCR transfer optimization on a background worker/isolate. It never resizes and only uses a candidate smaller by at least1024bytes; compares PNG and high-quality JPEG95, retains the original, and skips ICC-managed images rather than silently changing their colour. Default remains original. All six existing JPEG fixtures (two public samples plus the four user-supplied camera photos) were already smaller than candidates, so their original bytes were kept. This is not a claim of unchanged OCR quality for arbitrary lossy candidates; labelled regression/encode-cost measurements remain before changing the default.
 - Removed unused Flutter permission_handler and its platform packages. No BLE/local-camera permission is required for the new client.
 - Added reviewed named-tunnel preparation/start scripts and a Pi connector systemd template. They require an actual Cloudflare certificate and do not overwrite conflicting DNS. Tunnel ingress rules and PowerShell syntax validate locally; no named tunnel has been provisioned without the user's Authorize step.
+
+
+## 2026-11-10 — Stop, collapsible transfers, automatic Send optimization, Pi startup
+
+- Desktop 4.0.2 source: Stop per image / Stop all, including local capacity waits
+  and queued batch members. Native watch cancellation drops active upload/result
+  futures; per-draft gates prevent late responses overwriting cancellation. A failed
+  remote confirmation persists as `cancel_pending`, blocks resubmission, and offers
+  retry. Explicit resend after confirmed cancellation creates a new intent. Local
+  originals remain. Accepted cancellations do not refund quota; already-finished
+  jobs retain their actual result. No Supabase schema change is needed.
+- C# v2 cancel now validates current owner/session, serializes against acceptance,
+  cancels accepted queued/running jobs, and releases pre-acceptance reservations
+  using the current generation, rather than an omitted/default generation0.
+- Transfer panel is bounded to viewport and lifted64CSSpx, scrolls internally,
+  collapses to a persistent reopen arrow, and stays collapsed through live updates.
+  Completed batches auto-collapse after5s.
+- Desktop and Flutter source automatically optimize only on explicit Send:
+  smaller PNG / JPEG95 derivative, no resize, no overwriting original exports,
+  no extra draft in the list, one background encoder at a time, cached immutable
+  upload bytes across retry/restart. Existing intents retain their original bytes.
+  The editor retains deliberate crop/black-white controls; manual Optimize removed.
+- Local validation passed: Rust client11 tests plus Clippy with warnings denied;
+  backend56 tests; Flutter analyzer clean and56 tests; JS4 tests and two browser
+  fixture flows (workspace and cancellation/layout). Fixtures use local fake
+  transports only, create no live Supabase users/keys/jobs, and leave no fake clients.
+- Real `rasp4gb`: camera/gateway/tunnel enabled+active, StartLimitIntervalUSec=0,
+  Restart=on-failure/5s; active Wi-Fi profile autoconnect=yes; NetworkManager and
+  wait-online enabled. Unit syntax verified with systemd-analyze. Updated unit files
+  in `/etc/systemd/system/`; small helper staged `/home/admin/vietocr-autostart/`.
+  No reboot, Wi-Fi interruption, package installation or GPIO enablement performed.
+- Pi now has HTTPS compute/results origin, confirmed without printing tokens.
+  Windows compute connector was stopped (Cloudflare1033); restarted via the project
+  helper. Subsequent502 identified the Windows backend as stopped, not a Pi
+  autostart failure. Do not claim live OCR/Google end-to-end validation here.
+- DevTodo now has click-by-click admin launch/login, daily startup after laptop/Pi
+  poweroff, exact self-start checks/recovery, shutdown, and transfer-panel behavior.
+  Android release APK remains the previous4.0.1+19 until separately rebuilt.
+- Windows EXE release build: pending CI at this checkpoint; updated handoff follows.

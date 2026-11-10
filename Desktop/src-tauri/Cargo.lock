@@ -4075,7 +4075,7 @@ dependencies = [
 
 [[package]]
 name = "vietocr-desktop"
-version = "4.0.1"
+version = "4.0.2"
 dependencies = [
  "reqwest 0.12.28",
  "serde",

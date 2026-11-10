@@ -49,6 +49,7 @@ async fn configure(state: State<'_, Desktop>, gateway: String) -> Result<(), Str
         ..old.config.clone()
     };
     config.validate()?;
+    old.stop_operations().await;
     state.camera_epoch.fetch_add(1, Ordering::SeqCst);
     vietocr_client_core::storage::atomic(
         &old.root.join("config.json"),
@@ -191,44 +192,22 @@ async fn send_draft(
 }
 #[tauri::command]
 async fn read_result(state: State<'_, Desktop>, id: Uuid) -> Result<Draft, String> {
-    let client = state.client().await;
-    let mut draft = client
-        .drafts()
-        .await?
-        .into_iter()
-        .find(|d| d.id == id)
-        .ok_or("Bản nháp không tồn tại")?;
-    let job = draft.job_id.ok_or("Ảnh chưa gửi")?;
-    let result = match client.result(job).await {
-        Ok(value) => value,
-        Err(error) if error.contains("result_expired") || error.contains("intent_expired") => {
-            draft.state = "expired".into();
-            draft.error = "Kết quả đã hết thời hạn lưu trên server. Ảnh gốc vẫn được giữ.".into();
-            client.save_draft(&draft).await?;
-            return Ok(draft);
-        }
-        Err(error) => return Err(error),
-    };
-    draft.state = result["state"].as_str().unwrap_or("queued").into();
-    draft.text = result["text"].as_str().unwrap_or("").into();
-    draft.error = result["error"].as_str().unwrap_or("").into();
-    client.save_draft(&draft).await?;
-    Ok(draft)
+    state.client().await.read_draft_result(id).await
+}
+#[tauri::command]
+async fn prepare_send(state: State<'_, Desktop>, ids: Vec<Uuid>) -> Result<Vec<Draft>, String> {
+    state.client().await.prepare_send(ids).await
+}
+#[tauri::command]
+async fn stop_draft(state: State<'_, Desktop>, id: Uuid) -> Result<Draft, String> {
+    state.client().await.cancel_draft(id).await
 }
 #[tauri::command]
 async fn save_text(state: State<'_, Desktop>, id: Uuid, text: String) -> Result<(), String> {
     if text.len() > 2 * 1024 * 1024 {
         return Err("Văn bản quá lớn".into());
     }
-    let client = state.client().await;
-    let mut draft = client
-        .drafts()
-        .await?
-        .into_iter()
-        .find(|d| d.id == id)
-        .ok_or("Không có bản nháp")?;
-    draft.text = text;
-    client.save_draft(&draft).await
+    state.client().await.save_text(id, text).await
 }
 #[tauri::command]
 async fn save_edit(
@@ -269,61 +248,7 @@ async fn set_included(
     id: Uuid,
     included: bool,
 ) -> Result<Draft, String> {
-    let client = state.client().await;
-    let mut draft = client
-        .drafts()
-        .await?
-        .into_iter()
-        .find(|d| d.id == id)
-        .ok_or("Bản nháp không tồn tại")?;
-    draft.included = included;
-    client.save_draft(&draft).await?;
-    Ok(draft)
-}
-#[tauri::command]
-async fn optimize_draft(state: State<'_, Desktop>, id: Uuid) -> Result<Option<Draft>, String> {
-    // One image conversion at a time, separate from the async network/runtime.
-    static ENCODER: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(1);
-    let _slot = ENCODER.acquire().await.map_err(|_| "Ứng dụng đã đóng")?;
-    let client = state.client().await;
-    let original = client
-        .drafts()
-        .await?
-        .into_iter()
-        .find(|d| d.id == id)
-        .ok_or("Không có bản nháp")?;
-    let bytes = client.image_bytes(id).await?;
-    let optimized = tauri::async_runtime::spawn_blocking(move || {
-        vietocr_client_core::image_transfer::optimize(&bytes)
-    })
-    .await
-    .map_err(|_| "Chuyển ảnh thất bại")??;
-    let Some(optimized) = optimized else {
-        return Ok(None);
-    };
-    let name = format!(
-        "OCR-{}.{}",
-        original.name,
-        if optimized.media == "image/png" {
-            "png"
-        } else {
-            "jpg"
-        }
-    );
-    let note = if optimized.lossless {
-        "PNG không mất dữ liệu pixel"
-    } else {
-        "JPEG chất lượng95, không giảm độ phân giải"
-    };
-    let mut draft = client
-        .import_for(original.owner_id, optimized.bytes, name)
-        .await?;
-    draft.transfer_note = note.into();
-    client.save_draft(&draft).await?;
-    let mut original = original;
-    original.included = false;
-    client.save_draft(&original).await?;
-    Ok(Some(draft))
+    state.client().await.set_included(id, included).await
 }
 #[tauri::command]
 async fn remove_draft(state: State<'_, Desktop>, id: Uuid) -> Result<(), String> {
@@ -450,11 +375,12 @@ fn main() {
             camera_ack,
             camera_stop,
             send_draft,
+            prepare_send,
+            stop_draft,
             read_result,
             save_text,
             save_edit,
             set_included,
-            optimize_draft,
             remove_draft,
             export_images,
             export_text

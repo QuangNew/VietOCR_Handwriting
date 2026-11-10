@@ -244,8 +244,16 @@ public static class V2Endpoints
                 return Results.Ok(new{accepted=true,jobId=id});
             }finally{c.Admission.Release();}
         });
-        routes.MapPost("/intents/{id:guid}/cancel",async(Guid id,FlowCommand cmd,IFlowDatabase db,CancellationToken ct)=>
-            Results.Ok(FlowJson.Check(await db.Gateway("release",new{cmd.UserId,cmd.SessionId,jobId=id,cmd.Generation,cancel=true},ct))));
+        routes.MapPost("/intents/{id:guid}/cancel",async(Guid id,FlowCommand cmd,IFlowDatabase db,Store store,Coordinator c,CancellationToken ct)=>{
+            // Serialize with acceptance/recovery, and validate the current
+            // user/session before looking up or cancelling any compute job.
+            await c.Admission.WaitAsync(ct);
+            try{
+                var intent=await Find(db,id,cmd,ct);
+                return Results.Ok(await FlowCancellation.Apply(intent,db,
+                    ()=>store.Find(id.ToString("D"),intent.ClientId),c.Cancel,ct));
+            }finally{c.Admission.Release();}
+        });
         routes.MapPost("/intents/{id:guid}/result-ticket",async(Guid id,FlowCommand cmd,IFlowDatabase db,ResultTickets tickets,CancellationToken ct)=>{
             var i=await Find(db,id,cmd,ct);
             return Results.Ok(new{jobId=id,resultUrl=options.PublicResultsOrigin.TrimEnd('/')+"/api/v2/results/"+id.ToString("D"),ticket=tickets.Issue(i),expiresIn=300});

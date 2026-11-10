@@ -2,7 +2,7 @@ import 'dart:typed_data';
 import 'package:image/image.dart' as img;
 import 'image_processing.dart';
 
-/// Explicit optional derivative. Original profile is the default; no resize.
+/// Automatic transfer derivative. Originals and resolution are preserved.
 ({Uint8List bytes, String extension, bool lossless})? optimizeTransfer(
   (Uint8List, int) job,
 ) {

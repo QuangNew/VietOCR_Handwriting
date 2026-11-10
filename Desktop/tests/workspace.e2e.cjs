@@ -17,6 +17,7 @@ const mime={'.html':'text/html','.css':'text/css','.mjs':'application/javascript
     if(name==='bootstrap')return{config:{gateway:'https://pi.example.invalid'},session:{email:'fixture@example.invalid',userId:draft.ownerId},verified:{},workspaceAllowed:true,drafts:[]};
     if(name==='pick_import')return[draft];if(name==='draft_image')return jpeg;
     if(name==='set_included')return{...draft,included:args.included};
+    if(name==='prepare_send')return[draft];
     if(name==='send_draft'){
       const attempt=window.nativeCalls.filter(c=>c.name==='send_draft').length;
       if(attempt===1)throw Error('HTTP 503: server_not_ready');

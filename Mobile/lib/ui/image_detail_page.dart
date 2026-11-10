@@ -8,7 +8,6 @@ import '../domain/app_controller.dart';
 import '../domain/document.dart';
 import '../ocr/image_processing.dart' show blackWhitePhoto;
 import '../ocr/shape_crop.dart';
-import '../ocr/transfer_image.dart';
 
 typedef CropJob = (
   Uint8List bytes,
@@ -219,45 +218,6 @@ class _ImageDetailPageState extends State<ImageDetailPage> {
     }
   }
 
-  Future<void> _optimize() async {
-    if (!sameAccount || saving || widget.app.importing || widget.app.busy) {
-      return;
-    }
-    setState(() => saving = true);
-    final account = widget.app.cloud.userId;
-    try {
-      final result = await compute(optimizeTransfer, (
-        await File(widget.item.path).readAsBytes(),
-        widget.item.rotation,
-      ));
-      if (!mounted || widget.app.cloud.userId != account) return;
-      if (result == null) {
-        _notice(
-          'Ảnh đã gọn hoặc có profile màu cần giữ. Tiếp tục dùng bản gốc.',
-        );
-        return;
-      }
-      final name =
-          'OCR_${DateTime.now().millisecondsSinceEpoch}.${result.extension}';
-      await widget.app.importImages([
-        (result.bytes, name),
-      ], preserveResolution: true);
-      if (!widget.app.documents.any((d) => d.name == name)) {
-        throw StateError(widget.app.message);
-      }
-      widget.app.setIncluded(widget.item.id, false);
-      _notice(
-        result.lossless
-            ? 'Đã chọn PNG không mất dữ liệu pixel; giữ bản gốc.'
-            : 'Đã chọn JPEG95, không giảm độ phân giải; giữ bản gốc.',
-      );
-    } catch (e) {
-      _notice(AppController.readableError(e));
-    } finally {
-      if (mounted) setState(() => saving = false);
-    }
-  }
-
   @override
   void dispose() {
     widget.app.cloud.removeListener(accountChanged);
@@ -454,10 +414,6 @@ class _ImageDetailPageState extends State<ImageDetailPage> {
                   label: const Text('Chọn vùng crop'),
                   selected: cropping,
                   onSelected: (value) => setState(() => cropping = value),
-                ),
-                OutlinedButton(
-                  onPressed: saving || widget.app.importing ? null : _optimize,
-                  child: const Text('Tối ưu OCR · JPEG95 / PNG'),
                 ),
                 FilledButton(
                   onPressed: selection != null && !saving ? _crop : null,

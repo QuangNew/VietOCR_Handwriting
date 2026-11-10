@@ -537,7 +537,7 @@
       "delete": {
         "operationId": "cancelIntent",
         "x-implementation": "implemented",
-        "description": "Pre-acceptance cancellation only; accepted images retain their quota.",
+        "description": "Cancel a pre-acceptance intent or its queued/running compute job through Raspberry. The current Google session/owner is revalidated. Accepted images retain their quota; a job that already finished keeps its actual terminal state.",
         "responses": {
           "200": {
             "description": "Operation result"

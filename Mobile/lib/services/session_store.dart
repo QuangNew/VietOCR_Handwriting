@@ -103,9 +103,17 @@ class SessionStore {
       for (final path in [
         file.path,
         '${file.path}.ocr-v2.json',
+        '${file.path}.transfer-v1',
+        '${file.path}.transfer-v1.tmp',
+        '${file.path}.transfer-v1.original',
+        '${file.path}.transfer-v1.ocr-v2.json',
         for (var rotation = 1; rotation < 4; rotation++) ...[
           '${file.path}.rotate-$rotation.png',
           '${file.path}.rotate-$rotation.png.ocr-v2.json',
+          '${file.path}.rotate-$rotation.png.transfer-v1',
+          '${file.path}.rotate-$rotation.png.transfer-v1.tmp',
+          '${file.path}.rotate-$rotation.png.transfer-v1.original',
+          '${file.path}.rotate-$rotation.png.transfer-v1.ocr-v2.json',
         ],
       ]) {
         final target = File(path);

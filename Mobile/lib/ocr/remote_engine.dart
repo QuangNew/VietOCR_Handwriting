@@ -4,6 +4,7 @@ import 'package:image/image.dart' as img;
 import 'engine.dart';
 import 'decoder.dart';
 import 'image_processing.dart';
+import 'transfer_file.dart';
 import '../services/vietocr_remote.dart';
 
 class UnavailableServerEngine implements OcrEngine {
@@ -71,7 +72,10 @@ class RemoteEngine
     required int rotation,
   }) async {
     if (_closed) return null;
-    final image = await _image(path, rotation, create: false);
+    final image = await automaticTransfer(
+      await _image(path, rotation, create: false),
+      create: false,
+    );
     if (!await image.exists()) return null;
     final result = await _client.recoverAccepted(image);
     if (result == null) return null;
@@ -98,7 +102,8 @@ class RemoteEngine
       if (rotation % 4 != 0) {
         progress('Đang xoay ảnh trước khi gửi…', null);
       }
-      final image = await _image(path, rotation);
+      progress('Đang tự tối ưu ảnh · giữ bản gốc…', null);
+      final image = await automaticTransfer(await _image(path, rotation));
       cancel.check();
       progress('Đang gửi ảnh đến OCR Server…', null);
       final text = await _client.recognize(
