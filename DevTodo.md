@@ -130,8 +130,8 @@ các file được Git theo dõi.
 
 | Thành phần | Hiện trạng |
 |---|---|
-| Windows | Tauri 2/Rust 4.0.1, `Desktop/dist/vietocr-desktop.exe` |
-| Android | Flutter 4.0.1+19, `Mobile/dist/VietOCR-4.0.1-refactor-arm64.apk` |
+| Windows | Tauri 2/Rust 4.0.2, `Desktop/dist/vietocr-desktop.exe` |
+| Android | Flutter 4.0.2+20, `Mobile/dist/VietOCR-4.0.2-refactor-arm64.apk` |
 | Raspberry | Gateway và webcam đang chạy bằng systemd trên `rasp4gb` |
 | Webcam | USB native MJPEG 1920 × 1080 @ 30; client xem/chụp qua Pi |
 | Database | Supabase, migrations v2 đã áp dụng; không chạy lại/reset |
@@ -243,7 +243,7 @@ API v1 mặc định tắt; không bật fallback gửi OCR đi tắt Pi.
 
 ```powershell
 Test-Path Desktop/dist/vietocr-desktop.exe
-Test-Path Mobile/dist/VietOCR-4.0.1-refactor-arm64.apk
+Test-Path Mobile/dist/VietOCR-4.0.2-refactor-arm64.apk
 Test-Path Server/.venv/Scripts/python.exe
 Test-Path Server/server.local.json
 Test-Path .toolchain/cloudflared/cloudflared-windows-amd64.exe
@@ -1357,7 +1357,7 @@ Run workflow trên nhánh `refactor` để tạo bản mới; giữ bản đã t
 
 ### 9.3 Cài và đăng nhập Android
 
-File hiện có: **`Mobile/dist/VietOCR-4.0.1-refactor-arm64.apk`**.
+File hiện có: **`Mobile/dist/VietOCR-4.0.2-refactor-arm64.apk`**.
 Đây là bản ARM64, Android tối thiểu 8.0/API26. APK hiện dùng ký sideload,
 chưa phải bản phát hành Play Store.
 
@@ -1370,7 +1370,7 @@ hộp thoại cấp quyền của chính máy tính bạn. Chạy ở root repo:
 
 ```powershell
 adb devices
-adb install -r Mobile/dist/VietOCR-4.0.1-refactor-arm64.apk
+adb install -r Mobile/dist/VietOCR-4.0.2-refactor-arm64.apk
 ```
 
 **Đạt khi:** `adb devices` có máy ở trạng thái `device`, lệnh cài trả `Success`.
@@ -1529,7 +1529,7 @@ offline, spool full và p95 trong một đợt soak có giới hạn.
 Kiểm giá trị credential hiện dùng, không in chúng:
 
 ```powershell
-Server/.venv/Scripts/python.exe -X utf8 tools/check_client_secrets.py Desktop/dist/vietocr-desktop.exe Mobile/dist/VietOCR-4.0.1-refactor-arm64.apk
+Server/.venv/Scripts/python.exe -X utf8 tools/check_client_secrets.py Desktop/dist/vietocr-desktop.exe Mobile/dist/VietOCR-4.0.2-refactor-arm64.apk
 Server/.venv/Scripts/python.exe -X utf8 tools/check_public_access.py
 ```
 

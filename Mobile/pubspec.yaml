@@ -1,7 +1,7 @@
 name: vietocr_mobile
 description: VietOCR Raspberry gateway client with Google login and private image drafts.
 publish_to: none
-version: 4.0.1+19
+version: 4.0.2+20
 
 environment:
   sdk: ^3.11.1

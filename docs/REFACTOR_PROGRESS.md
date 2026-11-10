@@ -266,5 +266,23 @@ Checkpoint 1 starts the approved phased implementation; it is not a completed mi
   autostart failure. Do not claim live OCR/Google end-to-end validation here.
 - DevTodo now has click-by-click admin launch/login, daily startup after laptop/Pi
   poweroff, exact self-start checks/recovery, shutdown, and transfer-panel behavior.
-  Android release APK remains the previous4.0.1+19 until separately rebuilt.
-- Windows EXE release build: pending CI at this checkpoint; updated handoff follows.
+  Android release was subsequently rebuilt offline as4.0.2+20, see handoff below.
+- Verified handoff: [CI42775756851](https://github.com/QuangNew/VietOCR_Handwriting/actions/runs/42775756851)
+  at `a20bb66ff89fb37212ca7a22a760fc86010914c7` passed both Windows and ARM64.
+  `Desktop/dist/vietocr-desktop.exe` now4.0.2,13,474,816bytes, SHA256
+  `ca94d6ab8f749f2025a1c3393699fd3a6b5abb6a9bbaeeb4e35133c1df22a1a2`.
+  GitHub zip4,752,802bytes verified against its API digest.
+- Android4.0.2+20: `Mobile/dist/VietOCR-4.0.2-refactor-arm64.apk`,20,637,449bytes,
+  SHA256 `5e8208070ed55170e0a248b9594c89eac16dfdc36e8cd19a1a1c648702bf3a01`.
+  Gradle assembleRelease passed in5m29s using --offline / one worker /768MiB heap,
+  existing JDK21/SDK36/build-tools35.0.0/NDK28.2.13676358; no SDK/Maven download.
+  aapt confirmed version20, name4.0.2, min26/target36, ARM64 only; apksigner verify
+  passed. libapp.so hash differs from4.0.1 (not just a manifest version bump).
+  Neither APK contains model weights. Current host-secret scan:770entries,0matches.
+  No ADB installation, phone test, new Google session or live OCR job was run.
+- Cleanup: generic shell recursive-delete was rejected by automatic review.
+  Safer tool-managed cleanup succeeded: Cargo removed3295 generated files (~1.1GiB),
+  Rustup removed this turn's interrupted MSVC toolchain (~180MB logical installed
+  fragments). Existing stable GNU/MSVC installations retained. Flutter-generated
+  outputs are cleaned after copying/verifying APK; dist/model/user caches retained.
+  No new compiler/runtime/package installation remains on Pi or Windows.

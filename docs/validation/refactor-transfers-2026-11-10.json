@@ -1,0 +1,72 @@
+{
+  "date": "2026-11-10",
+  "branch": "refactor",
+  "buildSource": "a20bb66ff89fb37212ca7a22a760fc86010914c7",
+  "ci": {
+    "url": "https://github.com/QuangNew/VietOCR_Handwriting/actions/runs/42775756851",
+    "windows": "success",
+    "arm64": "success"
+  },
+  "tests": {
+    "clientRust": 11,
+    "csharp": 56,
+    "flutter": 56,
+    "javascript": 4,
+    "browserFixtureScripts": 2,
+    "flutterAnalyzer": "no issues",
+    "clippy": "warnings denied"
+  },
+  "artifacts": [
+    {
+      "path": "Desktop/dist/vietocr-desktop.exe",
+      "bytes": 13474816,
+      "sha256": "ca94d6ab8f749f2025a1c3393699fd3a6b5abb6a9bbaeeb4e35133c1df22a1a2"
+    },
+    {
+      "path": "Mobile/dist/VietOCR-4.0.2-refactor-arm64.apk",
+      "bytes": 20637449,
+      "sha256": "5e8208070ed55170e0a248b9594c89eac16dfdc36e8cd19a1a1c648702bf3a01"
+    }
+  ],
+  "raspberry": {
+    "servicesEnabledAndActive": [
+      "vietocr-camera@desk.service",
+      "vietocr-gateway.service",
+      "vietocr-tunnel.service"
+    ],
+    "restartSeconds": 5,
+    "startLimitInterval": 0,
+    "wifiAutoconnect": true,
+    "networkManagerWaitOnlineEnabled": true,
+    "computeOrigin": "https://ocr.quangnew.tech",
+    "gpioEnabled": false,
+    "rebootTested": false,
+    "health": "alive"
+  },
+  "liveTests": {
+    "phoneInstalled": false,
+    "newGoogleUsersOrKeysCreated": false,
+    "newLiveOcrJobsCreated": false,
+    "piPublicComputeTelemetryAfterConnectorStart": 502,
+    "note": "Laptop backend was stopped; open Run-Server.cmd. No claim of public Google/OCR end-to-end validation."
+  },
+  "cleanup": {
+    "genericShellDelete": "automatic review rejected",
+    "cargoToolManagedClean": "3295 files, 1.1 GiB",
+    "interruptedMsvcInstall": "removed with rustup; original stable toolchains retained",
+    "flutterClean": "success; build/.dart_tool/generated plugin metadata removed; dist preserved"
+  },
+  "behavior": {
+    "perImageStop": true,
+    "stopAll": true,
+    "stopAllConfirmationsParallel": 2,
+    "pendingRemoteCancelSurvivesRestart": true,
+    "acceptedQuotaNotRefunded": true,
+    "collapsedPanelCanReopen": true,
+    "automaticOptimizationOnExplicitSend": true,
+    "originalRetained": true,
+    "uploadDerivativeImmutableAcrossRetry": true,
+    "modelWeightsChanged": false,
+    "databaseMigrationRequired": false
+  }
+}

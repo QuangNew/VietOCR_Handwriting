@@ -1102,3 +1102,28 @@ trường hợp GDMA ngừng sau Wi-Fi trên IDF 5.2; không dùng issue đó đ
   `.toolchain/references/esp32-cam-webserver`; không đưa repo cũ vào dependency.
   Bản firmware 2.4.4/2.5.0 có tên riêng trong `pbl4/dist` được giữ lại;
   APK trước được lưu trong `.toolchain` bởi script đóng gói.
+
+
+## 10/11/2026 — Tauri4.0.2, Android4.0.2+20 và Pi tự chạy
+
+- Không cài thêm package lên Pi. Ba unit được cập nhật tại
+  `/etc/systemd/system/vietocr-{gateway,camera@,tunnel}.service`, enable và
+  đang active. Script nhỏ ở `/home/admin/vietocr-autostart/`; Wi-Fi đã bật
+  autoconnect. GPIO vẫn tắt, không reboot/rút mạng khi kiểm.
+- EXE `Desktop/dist/vietocr-desktop.exe` từ GitHub CI42775756851,
+  sourcea20bb66; zip tải4,752,802byte, EXE13,474,816byte. Không tải C++ SDK.
+- APK `Mobile/dist/VietOCR-4.0.2-refactor-arm64.apk`,20,637,449byte, build
+  offline từ Maven/Flutter cache đang có; JDK21 tại `.toolchain/java/`,
+  Android SDK tại `C:\Users\QuangNew\AppData\Local\Android\sdk`.
+  Không tải thêm SDK, NDK hoặc Maven package. Chưa cài APK lên điện thoại.
+- Lần gọi Rustup ban đầu đã tạo khoảng180MB mảnh cài MSVC tại
+  `C:\Users\QuangNew\.rustup\toolchains\1.94.0-x86_64-pc-windows-msvc`
+  rồi được dừng; compiler chưa cài xong. Các mảnh này đã gỡ bằng Rustup,
+  tái sử dụng stableGNU để kiểm cục bộ, Windows release build trên CI.
+- Lệnh xoá cache bằng shell bị duyệt tự động chặn; dọn an toàn bằng Cargo
+  đã thành công, xoá3295file sinh tự động (~1.1GiB). Flutter build cache
+  được dọn bằng Flutter sau khi giữ APK ở dist. Không đụng model,
+  Python/CUDA, ảnh/bản nháp, credential hay Rust toolchain có sẵn.
+- Bản ghi hash, kiểm thử và phạm vi kiểm thực tế:
+  `docs/validation/refactor-transfers-2026-11-10.json`. Không tạo client
+  Google/API giả hay tiêu lượt OCR thật trong lần kiểm này.
