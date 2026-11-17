@@ -1,0 +1,39 @@
+{
+  "Date": "2026-11-09",
+  "SourceCommit": "f21acdc9cd8f3b41f26ea54bd933f427364b5f83",
+  "Version": "4.0.1+19",
+  "Artifact": "dist/VietOCR-4.0.1-refactor-arm64.apk",
+  "Bytes": 20637449,
+  "Sha256": "47163045301a59c664dc20331111f1b6f2c909edaa106fd9f7f6f4d4223b72a8",
+  "UnitTestsPassed": 54,
+  "Analyzer": "no issues",
+  "MinSdk": 26,
+  "TargetSdk": 36,
+  "Abis": [
+    "arm64-v8a"
+  ],
+  "SignatureV2Verified": true,
+  "ZipAlignment16KiBVerified": true,
+  "Signing": "Existing debug/sideload baseline, not Play distribution signing",
+  "Permissions": [
+    "INTERNET",
+    "ACCESS_NETWORK_STATE",
+    "app-scoped DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
+  ],
+  "LocalModel": false,
+  "LocalCamera": false,
+  "Bluetooth": false,
+  "Auth": "Google through Supabase PKCE",
+  "Quota": {
+    "RollingMinute": 30,
+    "Daily": 500
+  },
+  "ActualDeviceQa": false,
+  "PublicInternetQa": false,
+  "WarmupAndMinuteQuotaRetryTested": true,
+  "Pending": [
+    "User Cloudflare/DNS setup",
+    "Cross-network Google login and OCR check",
+    "Physical Android interaction check"
+  ]
+}

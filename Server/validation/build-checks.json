@@ -1,0 +1,81 @@
+{
+  "date": "2026-11-03",
+  "artifacts": {
+    "backend": {
+      "path": "Server\\backend\\VietOcr.Server\\bin\\Release\\net10.0\\VietOcr.Server.dll",
+      "bytes": 206848,
+      "sha256": "693b72b393d427c7f07bbd6eaaea7a8ef8d3a513fcc9889049ef0293ce5ad036"
+    },
+    "desktop": {
+      "path": "VietHandOCR_API_Release\\dist\\VietOCR.exe",
+      "bytes": 847364,
+      "sha256": "cfea22072e1959fb397680276c352109de49df040b2fc2808ec783877dae26b8"
+    },
+    "android": {
+      "path": "Mobile\\dist\\VietOCR-arm64.apk",
+      "bytes": 144153014,
+      "sha256": "ed7c326c3c7f503fcec5269df48c57a125a87d2dce00954a6c31de8739e3abf3"
+    }
+  },
+  "tests": {
+    "backend": 18,
+    "desktop": 220,
+    "mobile": 88,
+    "web_browser": 3,
+    "api_real_mysql_gpu": 11,
+    "persistence": 3,
+    "worker_native_recovery": true,
+    "desktop_and_dart_real_transports": true
+  },
+  "model_checkpoint_sha256": "644f2613046e4974c3aea5878e61d119b9100debe05cb55756b85b8241254cb2",
+  "source_sha256": {
+    "Server\\Run-Server.cmd": "f0e7f9e318b412059d40afa7cc62d4a36507533a993209e56e36044abb039aa2",
+    "Server\\backend\\VietOcr.Server\\appsettings.json": "58c93ee8f64d83b2beba940c661b4da1b6bff4eef6c24ce59829f21051e7c436",
+    "Server\\backend\\VietOcr.Server\\Coordinator.cs": "28be570e8752c5559704366b3041e093fba104d9e1538861eede3b3804305bd0",
+    "Server\\backend\\VietOcr.Server\\Domain.cs": "9619c1da95baad7e6a092d30226600ea209d380cfc083f907b204f10b6860d36",
+    "Server\\backend\\VietOcr.Server\\Hardware.cs": "8d6155bb9e1d0042d4e2bdbb23c526911495015e7073ccbd3e5834bbc65e011e",
+    "Server\\backend\\VietOcr.Server\\Metrics.cs": "da734ad4d56c1d024ceff976fb0754788bb2fafd1c198d32fdbc9faaf9f8c160",
+    "Server\\backend\\VietOcr.Server\\ModelWorker.cs": "5aa2a6783df1eef7e9e8cb10c0e2459bc6095f5ce1b86f90f0eb338f95d23071",
+    "Server\\backend\\VietOcr.Server\\Program.cs": "d141ba995cd57c949a76efd7aaa6680c0377545b6f4b9d0674aba75cf4812876",
+    "Server\\backend\\VietOcr.Server\\Store.cs": "63be0e6168c353b882beadd5ab4589ba64da45c4f939aad2eaa39ff6bd260cc3",
+    "Server\\backend\\VietOcr.Server\\VietOcr.Server.csproj": "58d421cd8acd6676beea561c860e1fe29eda4fca8655c55b17b49ae8f39a7110",
+    "Server\\backend\\VietOcr.Server\\WindowsJob.cs": "12bfa529c560fae9963e42193d925fa36f08327e271d6d4437aff1829ba2946b",
+    "Server\\backend\\VietOcr.Server.Tests\\QueueTests.cs": "8775456149ac3a87740aff0712778151c0cb490b7d1d86331f007c05b0d3fe68",
+    "Server\\backend\\VietOcr.Server.Tests\\VietOcr.Server.Tests.csproj": "a3c469ee77168695b1ee1b4f657e16563350eeec4c196ac0b44e7d2bbf84f1e2",
+    "Server\\clients\\python\\vietocr_remote.py": "b4ba8bb7ee767367531a00fdce7a7cb87dca5ad1a05854039e89099cd7eb6a75",
+    "Server\\models\\ML_s44\\model_config.json": "1e27df72beaf8395b39ee3a5a4475e5247a513a61c0643cead6a9fd1c9b2a7ab",
+    "Server\\models\\ML_s44\\provenance.json": "5c62037f782f03504691c30a12418772e8816848ad1ef9081f9f0791ec479d1a",
+    "Server\\tools\\benchmark_worker.py": "0f18b0bf0fc82e224b678dc381e08cae7677728080035147b7aa6d7d00b48907",
+    "Server\\tools\\Build-Server.ps1": "012097765655924eaf7cff3c48c67fcd5ae45f9347d744e276a8e145ac34dc42",
+    "Server\\tools\\check_api.py": "e8cb282d751dca86279ef1ac287891e1f42a1d99b385b9b4a1b8a79f5f06fc1a",
+    "Server\\tools\\check_app_transports.py": "169bf76bb3a6c7fd35eb9b90e28e76e853cb15d9fbe5949b7d38d35a18fe9b06",
+    "Server\\tools\\check_persistence.py": "872f97b4d227692c2e38dfe75edc5d9907be76ef8ef081f2213ecccf753b652f",
+    "Server\\tools\\check_worker_recovery.py": "b0eae917e8cb5e2c56d5044c2a7646275b3d227bf8da1dc652c78ee1ad2dbb94",
+    "Server\\tools\\configure_xampp.py": "509c72a296140aacfdb4eadf073220bc0d031624f74cda31c72a777beb4cec95",
+    "Server\\tools\\load_test.py": "213afc9b3938db14d4a1e5a29315f8834748a6565c76cd47585caf0368680220",
+    "Server\\tools\\New-Admin.ps1": "26222e2728877af58e52ab439f35a8e5efa09026eb040046b888d15d36926222",
+    "Server\\tools\\Setup-Server.ps1": "b18586fdf619b0af3c8fe966ab5d5d10640c08c88a50a9dc1657b75250d10d54",
+    "Server\\tools\\Start-Server.ps1": "40da3579459b867a32f06247923123866b9a4b7015622c2d03754b4cfc4875d3",
+    "Server\\tools\\sync_clients.py": "a1a3c5c48219681d21da258a268aed1bb4ce08169b19075877350f344ae6768b",
+    "Server\\tools\\sync_model.py": "de9c1174d406d02235560fd394fbeb055a31eb2f49dbf952f28b0d8d431afa87",
+    "Server\\web\\next-env.d.ts": "1b59d4c6b83807db275d43f3cf2cc8e9323f465fab764eea091cc5becd5bad37",
+    "Server\\web\\next.config.ts": "4ec5425555764aa4a36aa89238b3023d0627fee5f196521331c45cbfce360389",
+    "Server\\web\\package-lock.json": "ebaa57fcbad202d2d96d64c213f227d481b1ac31f116aba9125f6175a986d2e8",
+    "Server\\web\\package.json": "e42fa58b8ce4a02132572476d4404a21cdb0cc3d88e605805f46cf685c80ec84",
+    "Server\\web\\playwright.config.ts": "af9159007b62fa8c072f015f89f65f39adab0f1811e7a7a40de6b9d83c6af81c",
+    "Server\\web\\tsconfig.json": "dd34814a48d7716d10df68710963a99e0f7d6358aa080184fb87625415324b49",
+    "Server\\web\\src\\app\\globals.css": "9ef355114671a688cf90f5aeddadc3f6ff4f62c4a6bde59b3ac1c7d49aeaebfd",
+    "Server\\web\\src\\app\\layout.tsx": "229e9d1f301d1e5c40ff0c815519e6ab5e93d4054afcbbd4db49e8a1ce78723a",
+    "Server\\web\\src\\app\\page.tsx": "693b795b3585235126b952b0e4498cb450f3e0dd497bdd71053c44b8db390cd2",
+    "Server\\web\\src\\components\\chart.tsx": "9325b71e1dee9b62ad68d12d932103a2601e011f3c68f968e6a177e2bb308bb6",
+    "Server\\web\\src\\components\\dev-feedback.tsx": "28814ed3f0458e186b13b47c569cf206e14e047b0332818db143fe60bc57f63b",
+    "Server\\web\\src\\components\\icons.tsx": "1577f1611a2dcd3b5344ae0c4b3849e2d4f088500e67de6ca01fd78fa9b73e2a",
+    "Server\\web\\src\\lib\\api.ts": "cf13d436301a1c6341a910dff2cb80ba8151b83e1dedcbe7ad22f4ae84371c61",
+    "Server\\web\\tests\\control.spec.ts": "8db873dda250410ebd330666a5e2911cdf85c087ba2d8de3d610ba829c2d5342",
+    "Server\\worker\\main.py": "164fb29d44347a6c9cf7c84dcb8537897e0d27021d117380caeb3511b83aa22f",
+    "Server\\worker\\core\\preprocessing.py": "124cf7cd143ff78c7985f774e2c17230e739ee5e43413daaabd41ff13b6561c1",
+    "Server\\worker\\core\\recognizer.py": "2a6b6c8a25a078ba84f65970015537fb9b717b754a1fd471bbe2dfedb6a7d4c6"
+  },
+  "services_stopped_after_validation": true,
+  "phone_device_tested": false
+}

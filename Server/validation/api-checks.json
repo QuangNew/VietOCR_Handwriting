@@ -1,0 +1,68 @@
+{
+  "checks": [
+    "authentication and CSRF fail closed",
+    "admin login and authenticated CSRF session",
+    "separate API identities",
+    "idempotent upload returns original job",
+    "cross-client job ownership enforced",
+    "idempotency rejects changed layout",
+    "native model inference through authenticated API",
+    "terminal image is removed",
+    "real metrics and hardware reserve",
+    "client list never reveals API secrets",
+    "key revocation effective immediately"
+  ],
+  "count": 11,
+  "gpu": {
+    "name": "NVIDIA GeForce RTX 4050 Laptop GPU",
+    "totalMiB": 6141,
+    "usedMiB": 572,
+    "freeMiB": 5349,
+    "utilization": 0,
+    "temperature": 50,
+    "sampledAt": "2026-11-03T09:36:43.3475775Z"
+  },
+  "capacity": {
+    "reserveMiB": 1024,
+    "planningWorkerMiB": 300,
+    "theoreticalWorkers": 17,
+    "measuredNextWorkerMiB": 626.4,
+    "additionalWorkers": 0,
+    "requiredRamMiB": 1318.3265625,
+    "reserveRamMiB": 1024,
+    "canAdd": false,
+    "queueCapacity": 1000,
+    "inputLimitMiB": 16,
+    "maxPixels": 16000000
+  },
+  "workers": [
+    {
+      "id": "w-f8c49dba",
+      "state": "idle",
+      "pid": 19856,
+      "device": "cuda:0",
+      "jobId": null,
+      "completed": 3,
+      "createdAt": "2026-11-03T09:35:28.8586973Z",
+      "loadMs": 21666.726799998287,
+      "memory": {
+        "allocatedMiB": 153.8017578125,
+        "reservedMiB": 266,
+        "peakMiB": 266,
+        "ramMiB": 1098.60546875,
+        "deviceUsedMiB": 1348.5
+      },
+      "error": null,
+      "draining": false,
+      "footprintMiB": 355
+    }
+  ],
+  "result": {
+    "state": "succeeded",
+    "queueMs": 92.5769,
+    "inferenceMs": 493.61789999966277,
+    "totalMs": 591.2218,
+    "width": 2048,
+    "height": 230
+  }
+}

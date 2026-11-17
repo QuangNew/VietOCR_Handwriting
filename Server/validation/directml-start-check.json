@@ -1,0 +1,7 @@
+{
+  "type": "ready",
+  "device": "directml:0",
+  "loadMs": 5453.428099997836,
+  "ramMiB": 804.81640625,
+  "scope": "fresh worker initialization and max-width warm-up only; shutdown without OCR request"
+}

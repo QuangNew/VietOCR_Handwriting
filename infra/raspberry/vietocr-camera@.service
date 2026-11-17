@@ -1,0 +1,25 @@
+[Unit]
+Description=VietOCR native MJPEG webcam %i
+After=network.target
+# The USB webcam may become available after boot.
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=vietocr
+Group=vietocr
+SupplementaryGroups=video
+EnvironmentFile=/etc/vietocr/camera-%i.env
+ExecStart=/usr/bin/ustreamer --device=${CAMERA_DEVICE} --host=127.0.0.1 --port=${CAMERA_PORT} --format=MJPEG --encoder=HW --resolution=${CAMERA_RESOLUTION} --desired-fps=${CAMERA_FPS} --buffers=3 --workers=1 --slowdown
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+LimitNOFILE=128
+TasksMax=32
+MemoryMax=192M
+
+[Install]
+WantedBy=multi-user.target

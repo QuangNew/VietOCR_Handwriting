@@ -1,0 +1,40 @@
+{
+  "checks": [
+    "authentication and CSRF fail closed",
+    "admin login and authenticated CSRF session",
+    "separate API identities",
+    "idempotent upload returns original job",
+    "cross-client job ownership enforced",
+    "idempotency rejects changed layout",
+    "queued job cancellation",
+    "terminal image is removed",
+    "real metrics and hardware reserve",
+    "client list never reveals API secrets",
+    "key revocation effective immediately"
+  ],
+  "count": 11,
+  "gpu": {
+    "name": "NVIDIA GeForce RTX 4050 Laptop GPU",
+    "totalMiB": 6141,
+    "usedMiB": 200,
+    "freeMiB": 5721,
+    "utilization": 0,
+    "temperature": 49,
+    "sampledAt": "2026-11-03T11:14:54.0055349Z"
+  },
+  "capacity": {
+    "reserveMiB": 1024,
+    "planningWorkerMiB": 300,
+    "theoreticalWorkers": 17,
+    "measuredNextWorkerMiB": 921.5999999999999,
+    "additionalWorkers": 1,
+    "requiredRamMiB": 1000,
+    "reserveRamMiB": 1024,
+    "canAdd": true,
+    "queueCapacity": 1000,
+    "inputLimitMiB": 16,
+    "maxPixels": 16000000
+  },
+  "workers": [],
+  "result": null
+}

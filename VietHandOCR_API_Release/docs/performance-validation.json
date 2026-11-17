@@ -1,0 +1,104 @@
+{
+  "date": "2026-10-27",
+  "checkpoint": "vgg_transformer_compact.pth",
+  "unchanged_weights": true,
+  "comparison": "same model instance/device, alternating upstream and cached decoder, median of final two runs",
+  "physical_camera_tested": false,
+  "android_phone_tested": false,
+  "measurements": [
+    {
+      "stage": "model_load_after_imports",
+      "method": "Predictor",
+      "seconds": 1.8515002000003733
+    },
+    {
+      "stage": "model_load_after_imports",
+      "method": "TorchPredictor",
+      "seconds": 0.12589359999947192
+    },
+    {
+      "stage": "decode",
+      "device": "cpu",
+      "sample": "test.jpg",
+      "same_text": true,
+      "legacy_seconds": 0.5120927999996638,
+      "optimized_seconds": 0.20559219999995548
+    },
+    {
+      "stage": "decode",
+      "device": "cpu",
+      "sample": "test2.jpg",
+      "same_text": true,
+      "legacy_seconds": 1.3219254499999806,
+      "optimized_seconds": 0.3969000999995842
+    },
+    {
+      "stage": "decode",
+      "device": "cpu",
+      "sample": "test3.jpg",
+      "same_text": true,
+      "legacy_seconds": 0.13018804999956046,
+      "optimized_seconds": 0.0898054500003127
+    },
+    {
+      "stage": "decode",
+      "device": "cpu",
+      "sample": "test4.jpg",
+      "same_text": true,
+      "legacy_seconds": 0.14326060000075813,
+      "optimized_seconds": 0.10972749999928055
+    },
+    {
+      "stage": "decode",
+      "device": "cpu",
+      "sample": "test5.jpg",
+      "same_text": true,
+      "legacy_seconds": 0.14777074999983597,
+      "optimized_seconds": 0.09203995000098075
+    },
+    {
+      "stage": "decode",
+      "device": "cuda:0",
+      "sample": "test.jpg",
+      "same_text": true,
+      "legacy_seconds": 0.22820469999987836,
+      "optimized_seconds": 0.13069869999890216
+    },
+    {
+      "stage": "decode",
+      "device": "cuda:0",
+      "sample": "test2.jpg",
+      "same_text": true,
+      "legacy_seconds": 0.5720641500001875,
+      "optimized_seconds": 0.3361934000004112
+    },
+    {
+      "stage": "decode",
+      "device": "cuda:0",
+      "sample": "test3.jpg",
+      "same_text": true,
+      "legacy_seconds": 0.10080145000029006,
+      "optimized_seconds": 0.060773449999942386
+    },
+    {
+      "stage": "decode",
+      "device": "cuda:0",
+      "sample": "test4.jpg",
+      "same_text": true,
+      "legacy_seconds": 0.07233720000022004,
+      "optimized_seconds": 0.05181670000001759
+    },
+    {
+      "stage": "decode",
+      "device": "cuda:0",
+      "sample": "test5.jpg",
+      "same_text": true,
+      "legacy_seconds": 0.11605010000039329,
+      "optimized_seconds": 0.07904009999947448
+    },
+    {
+      "stage": "deskew_angle_3mp",
+      "seconds": 0.14155309999841847
+    }
+  ]
+}

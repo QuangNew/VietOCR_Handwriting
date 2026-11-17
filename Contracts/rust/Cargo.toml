@@ -1,0 +1,14 @@
+[package]
+name = "vietocr-contracts"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+serde.workspace = true
+uuid.workspace = true
+bytes.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+

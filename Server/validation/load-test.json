@@ -1,0 +1,103 @@
+{
+  "scenarios": [
+    {
+      "workers": 1,
+      "images": 8,
+      "wallSeconds": 4.0946856999999,
+      "imagesPerSecond": 1.953751908235642,
+      "results": [
+        {
+          "state": "succeeded",
+          "clientName": "load-android-588ae1",
+          "queueMs": 34.1984,
+          "inferenceMs": 591.8209000001298,
+          "totalMs": 631.5716,
+          "attempts": 1
+        },
+        {
+          "state": "succeeded",
+          "clientName": "load-desktop-ee7c64",
+          "queueMs": 646.3621,
+          "inferenceMs": 351.1566999995921,
+          "totalMs": 1000.7193,
+          "attempts": 1
+        },
+        {
+          "state": "succeeded",
+          "clientName": "load-android-588ae1",
+          "queueMs": 1038.405,
+          "inferenceMs": 372.2266999993735,
+          "totalMs": 1414.5478,
+          "attempts": 1
+        },
+        {
+          "state": "succeeded",
+          "clientName": "load-desktop-ee7c64",
+          "queueMs": 1493.2917,
+          "inferenceMs": 363.9232000004995,
+          "totalMs": 1862.534,
+          "attempts": 1
+        },
+        {
+          "state": "succeeded",
+          "clientName": "load-android-588ae1",
+          "queueMs": 1870.5396,
+          "inferenceMs": 358.30089999944903,
+          "totalMs": 2232.7461,
+          "attempts": 1
+        },
+        {
+          "state": "succeeded",
+          "clientName": "load-desktop-ee7c64",
+          "queueMs": 2323.9654,
+          "inferenceMs": 389.0542999997706,
+          "totalMs": 2717.1498,
+          "attempts": 1
+        },
+        {
+          "state": "succeeded",
+          "clientName": "load-android-588ae1",
+          "queueMs": 2670.1974,
+          "inferenceMs": 382.45720000031724,
+          "totalMs": 3055.5529,
+          "attempts": 1
+        },
+        {
+          "state": "succeeded",
+          "clientName": "load-desktop-ee7c64",
+          "queueMs": 3130.3415,
+          "inferenceMs": 405.2409000005355,
+          "totalMs": 3539.7366,
+          "attempts": 1
+        }
+      ],
+      "workerMemory": [
+        {
+          "allocatedMiB": 153.8017578125,
+          "reservedMiB": 266,
+          "peakMiB": 266,
+          "ramMiB": 1114.41796875,
+          "deviceUsedMiB": 1348.5
+        }
+      ]
+    }
+  ],
+  "secondWorker": {
+    "admitted": false,
+    "reason": "Hardware RAM/VRAM reserve",
+    "availableRamMiB": 1069.51953125,
+    "capacity": {
+      "reserveMiB": 1024,
+      "planningWorkerMiB": 300,
+      "theoreticalWorkers": 17,
+      "measuredNextWorkerMiB": 626.4,
+      "additionalWorkers": 0,
+      "requiredRamMiB": 1337.3015625,
+      "reserveRamMiB": 1024,
+      "canAdd": false,
+      "queueCapacity": 1000,
+      "inputLimitMiB": 16,
+      "maxPixels": 16000000
+    }
+  }
+}

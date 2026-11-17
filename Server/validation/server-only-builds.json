@@ -1,0 +1,49 @@
+{
+  "date": "2026-11-03",
+  "mode": "server-only",
+  "database": "Supabase",
+  "artifacts": {
+    "desktop": {
+      "path": "VietHandOCR_API_Release/dist/VietOCR.exe",
+      "bytes": 847364,
+      "sha256": "6e7c2b0de02140615a481d3d78db11c86df32c45e2fc83d803db1ab1abaf6637"
+    },
+    "android": {
+      "path": "Mobile/dist/VietOCR-arm64.apk",
+      "bytes": 21357162,
+      "sha256": "3f87c918ccd25061a33f9541b5fe64ab9f4577393e98fac13b1248d048bb803e"
+    },
+    "backend": {
+      "path": "Server/backend/VietOcr.Server/bin/Release/net10.0/VietOcr.Server.dll",
+      "bytes": 217600,
+      "sha256": "f318ef6a1f616517890c667bd100a6a83f2e235cd55269c1b71bba309b24aa3d"
+    }
+  },
+  "tests": {
+    "desktop_existing_suite": 168,
+    "desktop_pkce_additional": 3,
+    "mobile": 87,
+    "backend": 21,
+    "browser": 4,
+    "api_real_supabase": 11
+  },
+  "google_callbacks": {
+    "googleProviderEnabled": true,
+    "anonymousLoginEnabled": false,
+    "callbackChecks": [
+      {
+        "requestedCallback": "http://127.0.0.1:47821/auth/callback",
+        "supabaseSelectedCallback": "http://127.0.0.1:47821/auth/callback",
+        "matches": true
+      },
+      {
+        "requestedCallback": "vn.pbl4.vietocr://auth/callback",
+        "supabaseSelectedCallback": "vn.pbl4.vietocr://auth/callback",
+        "matches": true
+      }
+    ],
+    "interactiveLoginTested": false
+  },
+  "physical_android_tested": false,
+  "android_reduction_percent": 85.18
+}

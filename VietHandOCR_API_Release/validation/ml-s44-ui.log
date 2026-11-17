@@ -1,0 +1,19 @@
+2026-11-02 21:27:50,651 INFO 18140/MainThread vietocr_desktop.ocr: AI worker boot: pid=18140 phase=import_torch threads=2
+2026-11-02 21:28:01,878 INFO 18140/MainThread vietocr_desktop.devices: Runtime torch=2.14.1+cu126 CUDA_build=12.6
+2026-11-02 21:28:02,093 INFO 18140/MainThread vietocr_desktop.devices: xpu unavailable in this runtime/driver
+2026-11-02 21:28:03,710 INFO 18140/MainThread vietocr_desktop.devices: Compute candidate: cuda:0 | discrete | NVIDIA GeForce RTX 4050 Laptop GPU
+2026-11-02 21:28:03,710 INFO 18140/MainThread vietocr_desktop.devices: Compute candidate: directml:0 | discrete | NVIDIA GeForce RTX 4050 Laptop GPU
+2026-11-02 21:28:03,711 INFO 18140/MainThread vietocr_desktop.devices: Compute candidate: directml:1 | integrated | Intel(R) UHD Graphics
+2026-11-02 21:28:03,712 INFO 18140/MainThread vietocr_desktop.devices: Compute candidate: directml:2 | integrated | Intel(R) UHD Graphics
+2026-11-02 21:28:03,713 INFO 18140/MainThread vietocr_desktop.devices: Compute candidate: directml:3 | integrated | Intel(R) UHD Graphics
+2026-11-02 21:28:03,713 INFO 18140/MainThread vietocr_desktop.devices: Compute candidate: cpu | cpu | CPU
+2026-11-02 21:28:03,716 INFO 18140/MainThread vietocr_desktop.ocr: Loading model: C:\DevLanguage\Works\PBL\PBL4\VietOCR_Handwriting\VietHandOCR_API_Release\ml_s44_fp16.pth (cuda:0)
+2026-11-02 21:28:11,116 INFO 18140/MainThread vietocr_desktop.ocr: Torch model initialized in 1.596s (meta, FP32 compute, cuda:0)
+2026-11-02 21:28:11,121 INFO 18140/MainThread vietocr_desktop.ocr: Model ready
+test.jpg [done] 2.42s: 'KHÁI QUÁT VỀ BIỂN ĐẢO VIỆT NAM'
+test2.jpg [done] 0.67s: 'chương trình bình động trực hiện nghị quyết trung ương 8 - khách ra của bỗng lý'
+test3.jpg [done] 0.15s: 'Một mày lớn.'
+test4.jpg [done] 0.21s: 'Mẹ mày béo'
+two-line-document.png [done] 1.25s: 'KHÁI QUÁT VỀ BIỂN ĐẢO VIỆT NAM\nChương trình bình động trực biệt nghị phối trương công 5 - khắc ra của của công ty'
+UI event loop: 1190 iterations during inference
+PASS

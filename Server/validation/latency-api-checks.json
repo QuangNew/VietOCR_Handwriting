@@ -1,0 +1,89 @@
+{
+  "checks": [
+    "authentication and CSRF fail closed",
+    "admin login and authenticated CSRF session",
+    "separate API identities",
+    "idempotent upload returns original job",
+    "duplicate upload consumes only one OCR credit",
+    "cross-client job ownership enforced",
+    "idempotency rejects changed layout",
+    "native model inference through authenticated API",
+    "terminal image is removed",
+    "real metrics and hardware reserve",
+    "client list never reveals API secrets",
+    "key revocation effective immediately"
+  ],
+  "count": 12,
+  "gpu": {
+    "name": "NVIDIA GeForce RTX 4050 Laptop GPU",
+    "totalMiB": 6141,
+    "usedMiB": 723,
+    "freeMiB": 5198,
+    "utilization": 0,
+    "temperature": 43,
+    "sampledAt": "2026-11-03T12:45:29.5445659Z"
+  },
+  "capacity": {
+    "reserveMiB": 1024,
+    "planningWorkerMiB": 300,
+    "theoreticalWorkers": 17,
+    "measuredNextWorkerMiB": 626.4,
+    "additionalWorkers": 0,
+    "requiredRamMiB": 1346.9671875,
+    "reserveRamMiB": 1024,
+    "canAdd": false,
+    "queueCapacity": 1000,
+    "inputLimitMiB": 16,
+    "maxPixels": 16000000
+  },
+  "workers": [
+    {
+      "id": "w-f65148bc",
+      "state": "idle",
+      "pid": 27908,
+      "device": "cuda:0",
+      "jobId": null,
+      "completed": 8,
+      "createdAt": "2026-11-03T12:35:49.7908601Z",
+      "loadMs": 4102.542900000117,
+      "memory": {
+        "allocatedMiB": 153.8017578125,
+        "reservedMiB": 266,
+        "peakMiB": 266,
+        "ramMiB": 1119.75,
+        "deviceUsedMiB": 1348.5
+      },
+      "error": null,
+      "draining": false,
+      "footprintMiB": 362
+    },
+    {
+      "id": "w-21fd2f66",
+      "state": "idle",
+      "pid": 18884,
+      "device": "cuda:0",
+      "jobId": null,
+      "completed": 7,
+      "createdAt": "2026-11-03T12:35:54.6489695Z",
+      "loadMs": 3449.9154000004637,
+      "memory": {
+        "allocatedMiB": 153.8017578125,
+        "reservedMiB": 266,
+        "peakMiB": 266,
+        "ramMiB": 1122.47265625,
+        "deviceUsedMiB": 1348.5
+      },
+      "error": null,
+      "draining": false,
+      "footprintMiB": 361
+    }
+  ],
+  "result": {
+    "state": "succeeded",
+    "queueMs": 228.72,
+    "inferenceMs": 600.250700001197,
+    "totalMs": 1049.396,
+    "width": 2048,
+    "height": 230
+  }
+}

@@ -1,0 +1,456 @@
+{
+  "date": "2026-11-09",
+  "branch": "refactor",
+  "phase": "verified v4.0.1 native/Android artifacts; public Cloudflare/DNS pending",
+  "unitChecks": {
+    "rustWorkspaceBeforeHeader": 28,
+    "clientCoreAfterHeader": 5,
+    "csharp": 49,
+    "flutter": 54,
+    "javascript": 4,
+    "databaseWasmBaseline": 17,
+    "databaseNativeBaseline": 4,
+    "rustWorkspace": 32,
+    "flutterAnalyzer": "no issues"
+  },
+  "liveFlow": {
+    "googleSessionVerified": true,
+    "cameraHashMatched": true,
+    "sampleTextMatched": true,
+    "duplicateCommitChargedOnce": true,
+    "inferenceMs": 707.5104,
+    "publicDomainUsedForTransport": false
+  },
+  "load": {
+    "after": {
+      "openFds": null,
+      "peakRssKiB": null,
+      "rssKiB": null
+    },
+    "bannedForwarded": 0,
+    "bannedHttp": 403,
+    "before": {
+      "openFds": null,
+      "peakRssKiB": null,
+      "rssKiB": null
+    },
+    "elapsedSeconds": 11.7201961,
+    "healthAfterLoad": 200,
+    "jwksFetches": 1,
+    "ocrImagesUploaded": 0,
+    "realDatabaseWrites": 0,
+    "realGoogleLogins": 0,
+    "rounds": [
+      {
+        "clients": 1000,
+        "deferredAttempts": 7994,
+        "metadataAdmitted": 1000,
+        "p50Ms": 1999,
+        "p95Ms": 3743,
+        "round": 1
+      },
+      {
+        "clients": 1000,
+        "deferredAttempts": 7196,
+        "metadataAdmitted": 1000,
+        "p50Ms": 1828,
+        "p95Ms": 3562,
+        "round": 2
+      },
+      {
+        "clients": 1000,
+        "deferredAttempts": 7481,
+        "metadataAdmitted": 1000,
+        "p50Ms": 1893,
+        "p95Ms": 3600,
+        "round": 3
+      }
+    ],
+    "scope": "loopback real Rust gateway + ES256, fake local Supabase/compute; combined process includes fixtures and load clients",
+    "upstreamOfflineHttp": 503
+  },
+  "database": {
+    "migrationV2Applied": true,
+    "fakeClientsDeleted": 23,
+    "remainingGoogleClients": 1,
+    "remainingAdmins": 1
+  },
+  "pi": {
+    "servicesEnabled": true,
+    "captureLoopbackOnly": true,
+    "cloudflaredInstalled": "2026.10.7",
+    "gpioEnabled": false,
+    "gpioOffExplicitlyRequested": true
+  },
+  "pending": [
+    "User Cloudflare/DNS/Authorize and public end-to-end",
+    "Physical Android interaction QA",
+    "Extended real Supabase/compute upload and failure/slow-client resource soak"
+  ],
+  "buildCommit": "f21acdc9cd8f3b41f26ea54bd933f427364b5f83",
+  "ciRun": "https://github.com/QuangNew/VietOCR_Handwriting/actions/runs/42635830142",
+  "piLoad": {
+    "after": {
+      "openFds": 76,
+      "peakRssKiB": 64932,
+      "rssKiB": 54636
+    },
+    "bannedForwarded": 0,
+    "bannedHttp": 403,
+    "before": {
+      "openFds": 12,
+      "peakRssKiB": 6760,
+      "rssKiB": 6760
+    },
+    "elapsedSeconds": 90.527764748,
+    "healthAfterLoad": 200,
+    "jwksFetches": 1,
+    "ocrImagesUploaded": 0,
+    "realDatabaseWrites": 0,
+    "realGoogleLogins": 0,
+    "rounds": [
+      {
+        "clients": 1000,
+        "deferredAttempts": 6335,
+        "metadataAdmitted": 1000,
+        "p50Ms": 1582,
+        "p95Ms": 2798,
+        "round": 1
+      },
+      {
+        "clients": 1000,
+        "deferredAttempts": 6015,
+        "metadataAdmitted": 1000,
+        "p50Ms": 1469,
+        "p95Ms": 2688,
+        "round": 2
+      },
+      {
+        "clients": 1000,
+        "deferredAttempts": 6086,
+        "metadataAdmitted": 1000,
+        "p50Ms": 1546,
+        "p95Ms": 2755,
+        "round": 3
+      },
+      {
+        "clients": 1000,
+        "deferredAttempts": 6213,
+        "metadataAdmitted": 1000,
+        "p50Ms": 1516,
+        "p95Ms": 2739,
+        "round": 4
+      },
+      {
+        "clients": 1000,
+        "deferredAttempts": 6158,
+        "metadataAdmitted": 1000,
+        "p50Ms": 1553,
+        "p95Ms": 2763,
+        "round": 5
+      },
+      {
+        "clients": 1000,
+        "deferredAttempts": 6070,
+        "metadataAdmitted": 1000,
+        "p50Ms": 1500,
+        "p95Ms": 2717,
+        "round": 6
+      },
+      {
+        "clients": 1000,
+        "deferredAttempts": 6225,
+        "metadataAdmitted": 1000,
+        "p50Ms": 1528,
+        "p95Ms": 2765,
+        "round": 7
+      },
+      {
+        "clients": 1000,
+        "deferredAttempts": 6113,
+        "metadataAdmitted": 1000,
+        "p50Ms": 1476,
+        "p95Ms": 2694,
+        "round": 8
+      },
+      {
+        "clients": 1000,
+        "deferredAttempts": 6120,
+        "metadataAdmitted": 1000,
+        "p50Ms": 1511,
+        "p95Ms": 2722,
+        "round": 9
+      },
+      {
+        "clients": 1000,
+        "deferredAttempts": 6202,
+        "metadataAdmitted": 1000,
+        "p50Ms": 1539,
+        "p95Ms": 2760,
+        "round": 10
+      },
+      {
+        "clients": 1000,
+        "deferredAttempts": 5967,
+        "metadataAdmitted": 1000,
+        "p50Ms": 1508,
+        "p95Ms": 2733,
+        "round": 11
+      },
+      {
+        "clients": 1000,
+        "deferredAttempts": 6121,
+        "metadataAdmitted": 1000,
+        "p50Ms": 1503,
+        "p95Ms": 2722,
+        "round": 12
+      },
+      {
+        "clients": 1000,
+        "deferredAttempts": 6049,
+        "metadataAdmitted": 1000,
+        "p50Ms": 1537,
+        "p95Ms": 2765,
+        "round": 13
+      },
+      {
+        "clients": 1000,
+        "deferredAttempts": 6064,
+        "metadataAdmitted": 1000,
+        "p50Ms": 1481,
+        "p95Ms": 2719,
+        "round": 14
+      },
+      {
+        "clients": 1000,
+        "deferredAttempts": 6033,
+        "metadataAdmitted": 1000,
+        "p50Ms": 1490,
+        "p95Ms": 2704,
+        "round": 15
+      },
+      {
+        "clients": 1000,
+        "deferredAttempts": 6159,
+        "metadataAdmitted": 1000,
+        "p50Ms": 1519,
+        "p95Ms": 2736,
+        "round": 16
+      },
+      {
+        "clients": 1000,
+        "deferredAttempts": 6139,
+        "metadataAdmitted": 1000,
+        "p50Ms": 1528,
+        "p95Ms": 2747,
+        "round": 17
+      },
+      {
+        "clients": 1000,
+        "deferredAttempts": 6060,
+        "metadataAdmitted": 1000,
+        "p50Ms": 1511,
+        "p95Ms": 2720,
+        "round": 18
+      },
+      {
+        "clients": 1000,
+        "deferredAttempts": 6126,
+        "metadataAdmitted": 1000,
+        "p50Ms": 1521,
+        "p95Ms": 2758,
+        "round": 19
+      },
+      {
+        "clients": 1000,
+        "deferredAttempts": 6120,
+        "metadataAdmitted": 1000,
+        "p50Ms": 1503,
+        "p95Ms": 2716,
+        "round": 20
+      },
+      {
+        "clients": 1000,
+        "deferredAttempts": 6108,
+        "metadataAdmitted": 1000,
+        "p50Ms": 1532,
+        "p95Ms": 2737,
+        "round": 21
+      },
+      {
+        "clients": 1000,
+        "deferredAttempts": 6126,
+        "metadataAdmitted": 1000,
+        "p50Ms": 1515,
+        "p95Ms": 2731,
+        "round": 22
+      },
+      {
+        "clients": 1000,
+        "deferredAttempts": 5887,
+        "metadataAdmitted": 1000,
+        "p50Ms": 1497,
+        "p95Ms": 2708,
+        "round": 23
+      },
+      {
+        "clients": 1000,
+        "deferredAttempts": 6081,
+        "metadataAdmitted": 1000,
+        "p50Ms": 1494,
+        "p95Ms": 2703,
+        "round": 24
+      },
+      {
+        "clients": 1000,
+        "deferredAttempts": 6010,
+        "metadataAdmitted": 1000,
+        "p50Ms": 1495,
+        "p95Ms": 2706,
+        "round": 25
+      },
+      {
+        "clients": 1000,
+        "deferredAttempts": 6119,
+        "metadataAdmitted": 1000,
+        "p50Ms": 1522,
+        "p95Ms": 2754,
+        "round": 26
+      },
+      {
+        "clients": 1000,
+        "deferredAttempts": 6086,
+        "metadataAdmitted": 1000,
+        "p50Ms": 1519,
+        "p95Ms": 2736,
+        "round": 27
+      },
+      {
+        "clients": 1000,
+        "deferredAttempts": 6235,
+        "metadataAdmitted": 1000,
+        "p50Ms": 1510,
+        "p95Ms": 2732,
+        "round": 28
+      },
+      {
+        "clients": 1000,
+        "deferredAttempts": 6163,
+        "metadataAdmitted": 1000,
+        "p50Ms": 1504,
+        "p95Ms": 2728,
+        "round": 29
+      },
+      {
+        "clients": 1000,
+        "deferredAttempts": 6173,
+        "metadataAdmitted": 1000,
+        "p50Ms": 1501,
+        "p95Ms": 2747,
+        "round": 30
+      }
+    ],
+    "scope": "loopback real Rust gateway + ES256, fake local Supabase/compute; combined process includes fixtures and load clients",
+    "upstreamOfflineHttp": 503
+  },
+  "nativeClient": {
+    "scope": "actual Windows Tauri EXE, current-user DPAPI session, real Pi camera through encrypted SSH forward; no public DNS bypass claim",
+    "testedBuildCommit": "86525e123a4af73781f5492028fcb5a5c6caf6f7",
+    "latestBuildDiagnosticRerun": "Automatic approval review blocked the diagnostic launch before execution; earlier native baseline retained, latest retry behavior verified by Playwright fixture",
+    "piSessionVerified": true,
+    "width": 1920,
+    "height": 1080,
+    "renderedFrames": 127,
+    "seconds": 5.016,
+    "renderedFps": 25.318979266347686,
+    "captureStayedDraft": true,
+    "reviewAutoReturnedWithoutClosingCamera": true,
+    "captureQuotaUnchanged": true,
+    "savedMirrorFullResolution": true,
+    "originalDeselectedAfterEdit": true,
+    "optionalOptimization": {
+      "milliseconds": 191,
+      "sourceBytes": 577558,
+      "optimizedBytes": 193610,
+      "width": 2048,
+      "height": 230
+    },
+    "javascriptErrors": 0,
+    "ocrRequests": 0
+  },
+  "packaging": {
+    "exeBytes": 13354496,
+    "exeSha256": "6c73e7847ee137922e39a2666eafed0e550f58287ee8f038b706848cb46159d5",
+    "apkBytes": 20637449,
+    "apkSha256": "47163045301a59c664dc20331111f1b6f2c909edaa106fd9f7f6f4d4223b72a8",
+    "knownHostSecretsInArtifacts": false,
+    "publicConfigIsPublishable": true,
+    "androidSignatureV2": true,
+    "androidAlignment16KiB": true
+  },
+  "livePublicKeyProbe": {
+    "scope": "Current project, publishable key without a user session; read-only table access",
+    "checks": [
+      {
+        "table": "ocr_clients",
+        "http": 401,
+        "noAnonymousRows": true
+      },
+      {
+        "table": "ocr_jobs",
+        "http": 401,
+        "noAnonymousRows": true
+      },
+      {
+        "table": "ocr_daily_usage",
+        "http": 401,
+        "noAnonymousRows": true
+      },
+      {
+        "table": "ocr_admins",
+        "http": 401,
+        "noAnonymousRows": true
+      },
+      {
+        "table": "ocr_settings",
+        "http": 401,
+        "noAnonymousRows": true
+      },
+      {
+        "table": "ocr_audit",
+        "http": 401,
+        "noAnonymousRows": true
+      },
+      {
+        "table": "ocr_v2_intents",
+        "http": 401,
+        "noAnonymousRows": true
+      },
+      {
+        "table": "ocr_v2_reservations",
+        "http": 401,
+        "noAnonymousRows": true
+      },
+      {
+        "table": "ocr_v2_ingress_capacity",
+        "http": 401,
+        "noAnonymousRows": true
+      }
+    ]
+  },
+  "cleanup": {
+    "fakeClientsRemoved": 23,
+    "legacyTrackedClientFilesRemoved": 80,
+    "oldMappingBytesRemoved": 178390646,
+    "piStagingCredentialCopiesRemoved": true,
+    "generatedVerificationCacheBytesRemoved": 4333726745,
+    "mobileBuildRegeneratedForFinalApk": true,
+    "privateInertAclFixtureDeletion": "Blocked by automatic review; four small ignored current-user-only files remain, no live credentials configured or database clients created"
+  },
+  "backendRecoveryCommit": "21560b7801ab8e5b6d139ec4eec64bedb9455e6d",
+  "backendRecoveryCi": "https://github.com/QuangNew/VietOCR_Handwriting/actions/runs/42632605384",
+  "continuousReceiptAndQueueRecovery": true,
+  "warmupAndMinuteQuotaRetryFixture": true,
+  "devTodoContainsCloudflareRunbook": true,
+  "testForwardAndDebugPortClosed": true
+}

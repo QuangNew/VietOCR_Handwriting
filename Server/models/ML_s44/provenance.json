@@ -1,0 +1,10 @@
+{
+  "name": "ML_s44",
+  "weights_sha256": "644f2613046e4974c3aea5878e61d119b9100debe05cb55756b85b8241254cb2",
+  "source_files": {
+    "AI.py": "c5150f2470ec5e5ec8d53a3af33d9c2f8f82d3d17d7f78a0f7ce99218eaf9c0a",
+    "viethandocr_lite.py": "2a6b6c8a25a078ba84f65970015537fb9b717b754a1fd471bbe2dfedb6a7d4c6",
+    "desktop\\ocr_service.py": "b9b0a7146b09e3bad9d53bf7a6d4b249a37a4ec2267284ba4c8192866f662b53",
+    "model\\model_config.json": "1e27df72beaf8395b39ee3a5a4475e5247a513a61c0643cead6a9fd1c9b2a7ab"
+  }
+}

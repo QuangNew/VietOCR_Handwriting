@@ -1,0 +1,5 @@
+-r ../../VietHandOCR_API_Release/requirements.txt
+onnx==1.17.0
+# Windows gets onnxruntime-directml from the shared requirements above.
+# Install one ORT distribution per environment: the packages share a namespace.
+onnxruntime==1.23.2; sys_platform != 'win32'

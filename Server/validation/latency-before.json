@@ -1,0 +1,93 @@
+{
+  "label": "before",
+  "clientId": "6d46ad18aa364cb085655d5b6e985f90",
+  "fixtures": "two packaged text-line images repeated twice; not a production throughput benchmark",
+  "auth": "admin-issued service key; does not include Google Auth HTTP",
+  "rows": [
+    {
+      "image": "test.jpg",
+      "bytes": 187061,
+      "wallMs": 2372.06,
+      "queueMs": 344.428,
+      "inferenceMs": 481.940000001487,
+      "serverTotalMs": 1078.106,
+      "http": [
+        {
+          "method": "POST",
+          "route": "/api/v1/jobs",
+          "ms": 784.64
+        },
+        {
+          "method": "GET",
+          "route": "/api/v1/jobs",
+          "ms": 539.72
+        }
+      ],
+      "textHash": "55a7e6a5925a0fffeff249e87df8fee907eb4e74a9e781cc1c88ef329f83b594"
+    },
+    {
+      "image": "test2.jpg",
+      "bytes": 139459,
+      "wallMs": 2288.81,
+      "queueMs": 283.084,
+      "inferenceMs": 552.104099999269,
+      "serverTotalMs": 1074,
+      "http": [
+        {
+          "method": "POST",
+          "route": "/api/v1/jobs",
+          "ms": 764.51
+        },
+        {
+          "method": "GET",
+          "route": "/api/v1/jobs",
+          "ms": 510.5
+        }
+      ],
+      "textHash": "218c1d4c73bcc5a550a41b55f5890ce6b513abc76d93d4333adde16288f50350"
+    },
+    {
+      "image": "test.jpg",
+      "bytes": 187061,
+      "wallMs": 2344.96,
+      "queueMs": 263.658,
+      "inferenceMs": 330.065099999047,
+      "serverTotalMs": 844.712,
+      "http": [
+        {
+          "method": "POST",
+          "route": "/api/v1/jobs",
+          "ms": 836.88
+        },
+        {
+          "method": "GET",
+          "route": "/api/v1/jobs",
+          "ms": 494.61
+        }
+      ],
+      "textHash": "55a7e6a5925a0fffeff249e87df8fee907eb4e74a9e781cc1c88ef329f83b594"
+    },
+    {
+      "image": "test2.jpg",
+      "bytes": 139459,
+      "wallMs": 2237.37,
+      "queueMs": 316.798,
+      "inferenceMs": 570.625899999868,
+      "serverTotalMs": 1139.325,
+      "http": [
+        {
+          "method": "POST",
+          "route": "/api/v1/jobs",
+          "ms": 747.23
+        },
+        {
+          "method": "GET",
+          "route": "/api/v1/jobs",
+          "ms": 489.72
+        }
+      ],
+      "textHash": "218c1d4c73bcc5a550a41b55f5890ce6b513abc76d93d4333adde16288f50350"
+    }
+  ],
+  "meanWallMs": 2310.8
+}

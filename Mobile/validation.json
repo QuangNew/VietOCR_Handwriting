@@ -1,0 +1,37 @@
+{
+  "platform": "Android",
+  "version": "3.0.0+17",
+  "validation_date": "2026-11-03",
+  "apk": "dist/VietOCR-arm64.apk",
+  "apk_bytes": 21357162,
+  "apk_sha256": "3f87c918ccd25061a33f9541b5fe64ab9f4577393e98fac13b1248d048bb803e",
+  "previous_apk_bytes": 144153014,
+  "ocr": "server-only",
+  "local_models": false,
+  "onnx_runtime": false,
+  "native_ocr_service": false,
+  "google_oauth": "Supabase PKCE, system browser, Android deep link",
+  "session_storage": "Android Keystore AES256-GCM",
+  "database": "Supabase PostgreSQL + per-account RLS; local photos are account-scoped cache",
+  "quota": {
+    "daily": 1000,
+    "rolling_minute": 60,
+    "timezone": "Asia/Ho_Chi_Minh",
+    "enforcement": "atomic Postgres admission"
+  },
+  "tests_passed": 87,
+  "abis": [
+    "arm64-v8a"
+  ],
+  "min_sdk": 26,
+  "signature_v2": true,
+  "alignment_16k": true,
+  "elf_alignments": {
+    "lib/arm64-v8a/libapp.so": 65536,
+    "lib/arm64-v8a/libdartjni.so": 16384,
+    "lib/arm64-v8a/libdatastore_shared_counter.so": 16384,
+    "lib/arm64-v8a/libflutter.so": 65536
+  },
+  "signing": "Existing debug certificate for sideload testing, not Play Store production signing",
+  "physical_android_and_google_account_login_tested": false
+}

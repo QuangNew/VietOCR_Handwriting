@@ -1,0 +1,4 @@
+import{test}from'node:test';import assert from'node:assert/strict';import{outline,bounds,draftOnlyAction}from'../ui/editor.mjs';
+test('capture import and edits never imply OCR submission',()=>{for(const action of['capture','crop','blackWhite','rotate','import'])assert.equal(draftOnlyAction(action),true);assert.equal(draftOnlyAction('send'),false);});
+test('selection geometry rotates around its own centre and remains bounded',()=>{const p=outline([[100,100],[200,150]],'rectangle',90);const b=bounds(p,300,300);assert.equal(b.w,50);assert.equal(b.h,100);assert.throws(()=>bounds(p,100,30));});
+test('freehand rejects unbounded and nonfinite selection before allocating mask',()=>{assert.throws(()=>outline([[NaN,2],[4,5]],'freehand'));assert.throws(()=>outline(Array.from({length:4097},()=>[1,1]),'freehand'));assert.equal(outline([[0,0],[20,10]],'ellipse').length,96);});

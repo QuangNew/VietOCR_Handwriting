@@ -1,0 +1,28 @@
+{
+  "source": "vgg_transformer_final.pth",
+  "source_bytes": 151813627,
+  "source_sha256": "1c8d0a9ef0ff2272b0b03774abc5b153c4023436a36006397ed6a935a8499bf9",
+  "compact": "vgg_transformer_compact.pth",
+  "compact_bytes": 76771587,
+  "compact_sha256": "7a1c1c8a96c770cec95e783c9c99da6b3cb44814db21c019a49d56412b501004",
+  "format": "FP16 storage for Conv/Linear weights; model parameters and inference stay FP32",
+  "samples": [
+    {
+      "file": "test.jpg",
+      "same_text": true
+    },
+    {
+      "file": "test2.jpg",
+      "same_text": true
+    },
+    {
+      "file": "test3.jpg",
+      "same_text": true
+    },
+    {
+      "file": "test4.jpg",
+      "same_text": true
+    }
+  ],
+  "limits": "Sample parity, not a full accuracy evaluation on unseen handwriting."
+}

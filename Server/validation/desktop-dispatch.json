@@ -1,0 +1,17 @@
+{
+  "clientId": "e27319e21bd347f797b5818ef246cb98",
+  "auth": "temporary service key; does not measure Google Auth HTTP",
+  "runs": [
+    {
+      "parallelism": 1,
+      "images": 4,
+      "wallMs": 7360.0953000022855
+    },
+    {
+      "parallelism": 2,
+      "images": 4,
+      "wallMs": 3913.4564000014507
+    }
+  ],
+  "speedup": 1.8807147819506964
+}

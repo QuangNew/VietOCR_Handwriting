@@ -1,0 +1,5 @@
+{
+  "gateway":"https://pi.example.com",
+  "supabaseUrl":"https://rrdxhztiikizgogxtlhu.supabase.co",
+  "publishableKey":"REPLACE_WITH_PUBLIC_PROJECT_KEY"
+}

@@ -1,0 +1,13 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "VietOCR",
+  "version": "4.0.2",
+  "identifier": "vn.pbl4.vietocr.desktop",
+  "build": {"frontendDist": "../ui"},
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [{"label":"main","title":"VietOCR · Không gian tài liệu","width":1360,"height":900,"minWidth":980,"minHeight":680,"resizable":true}],
+    "security": {"csp":"default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src ipc: http://ipc.localhost; object-src 'none'; frame-src 'none'; base-uri 'none'"}
+  },
+  "bundle": {"active":false,"targets":[]}
+}

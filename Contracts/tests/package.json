@@ -1,0 +1,13 @@
+{
+  "name": "vietocr-v2-contract-tests",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test database.test.mjs",
+    "test:native": "node --test database.native.test.mjs"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "0.5.15",
+    "pg": "8.23.1"
+  }
+}

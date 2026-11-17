@@ -1,0 +1,10 @@
+{
+  "apiVersion": "2",
+  "dailyImageCap": 500,
+  "minuteRequestCap": 30,
+  "quotaTimezone": "Asia/Ho_Chi_Minh",
+  "alarmEnterPercent": 85,
+  "alarmClearPercent": 80,
+  "alarmHoldSeconds": 5,
+  "alarmCooldownSeconds": 60
+}

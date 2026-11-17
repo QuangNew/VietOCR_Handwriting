@@ -1,0 +1,49 @@
+{
+  "cases": [
+    {
+      "weights": "ml_s44_fp16.pth",
+      "image": "test.jpg",
+      "text": "KHÁI QUÁT VỀ BIỂN ĐẢO VIỆT NAM",
+      "seconds": 2.331666899999618,
+      "reference_text": "KHÁI QUÁT VỀ BIỂN ĐẢO VIỆT NAM",
+      "cached_decoder_matches": true
+    },
+    {
+      "weights": "ml_s44_fp16.pth",
+      "image": "test2.jpg",
+      "text": "chương trình bình động trực hiện nghị quốc trung ương 8 - khách ra của bỗng lý",
+      "seconds": 0.5838934000003064,
+      "reference_text": "chương trình bình động trực hiện nghị quốc trung ương 8 - khách ra của bỗng lý",
+      "cached_decoder_matches": true
+    },
+    {
+      "weights": "ml_s44_fp16.pth",
+      "image": "test3.jpg",
+      "text": "Một màng lính",
+      "seconds": 0.14961469999980181,
+      "reference_text": "Một màng lính",
+      "cached_decoder_matches": true
+    },
+    {
+      "weights": "ml_s44_fp16.pth",
+      "image": "test4.jpg",
+      "text": "Mẹ mày béo",
+      "seconds": 0.15171830000144837,
+      "reference_text": "Mẹ mày béo",
+      "cached_decoder_matches": true
+    },
+    {
+      "weights": "ml_s44_fp16.pth",
+      "image": "test5.jpg",
+      "text": "cơ bé bán diệm.",
+      "seconds": 0.1714840999993612,
+      "reference_text": "cơ bé bán diệm.",
+      "cached_decoder_matches": true
+    }
+  ],
+  "errors": [],
+  "ml_s44_fp16.pth": {
+    "load_seconds": 1.1489729000004445,
+    "sha256": "644f2613046e4974c3aea5878e61d119b9100debe05cb55756b85b8241254cb2"
+  }
+}
