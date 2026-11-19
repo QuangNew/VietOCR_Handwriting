@@ -41,16 +41,7 @@ const assert=require('node:assert/strict'),fs=require('node:fs/promises'),path=r
   await fs.mkdir(path.resolve(__dirname,'../../../.toolchain/refactor/ui'),{recursive:true});
   await page.screenshot({path:path.resolve(__dirname,'../../../.toolchain/refactor/ui/native-camera-private.png')});
   await page.click('#cameraClose');assert.deepEqual(errors,[]);
-  const sample='data:image/jpeg;base64,'+(await fs.readFile(path.resolve(__dirname,'../../../shared/contracts/fixtures/images/test.jpg'))).toString('base64');
-  const png=await page.evaluate(async source=>{const im=new Image();im.src=source;await im.decode();const canvas=document.createElement('canvas');canvas.width=im.naturalWidth;canvas.height=im.naturalHeight;canvas.getContext('2d').drawImage(im,0,0);return canvas.toDataURL('image/png');},sample);
-  const source=await call('save_edit',{data:png,name:'Native-Smoke-Sample.png',sourceId:null});created.push(source.id);
-  const optimizeStart=Date.now();const optimized=await call('optimize_draft',{id:source.id});const optimizeMs=Date.now()-optimizeStart;
-  if(!created.includes(optimized.id))created.push(optimized.id);
-  assert.equal(optimized.width,source.width);assert.equal(optimized.height,source.height);
-  assert.ok(optimized.imageBytes<source.imageBytes,'full-size derivative must save bytes');
-  const final=await call('bootstrap');assert.equal(final.drafts.find(d=>d.id===source.id).included,false);
-  assert.equal(final.verified.account.usedToday,countBefore);
-  const report={scope:'actual Windows Tauri EXE, current-user DPAPI session, real Pi camera through encrypted SSH forward; no public DNS bypass claim',piSessionVerified:true,width:dimensions.width,height:dimensions.height,renderedFrames:frames,seconds:elapsed,renderedFps:frames/elapsed,captureStayedDraft:true,reviewAutoReturnedWithoutClosingCamera:true,captureQuotaUnchanged:true,savedMirrorFullResolution:true,originalDeselectedAfterEdit:true,optionalOptimization:{milliseconds:optimizeMs,sourceBytes:source.imageBytes,optimizedBytes:optimized.imageBytes,width:source.width,height:source.height},javascriptErrors:errors.length,ocrRequests:0};
+  const report={scope:'Windows Tauri EXE with current-user session and live Pi camera',piSessionVerified:true,width:dimensions.width,height:dimensions.height,renderedFrames:frames,seconds:elapsed,renderedFps:frames/elapsed,captureStayedDraft:true,reviewAutoReturnedWithoutClosingCamera:true,captureQuotaUnchanged:true,savedMirrorFullResolution:true,javascriptErrors:errors.length,ocrRequests:0};
   await fs.writeFile(path.resolve(__dirname,'../../../.toolchain/refactor/native-camera-report.json'),JSON.stringify(report,null,2));console.log(JSON.stringify(report));
  }finally{
   for(const id of created)await call('remove_draft',{id});

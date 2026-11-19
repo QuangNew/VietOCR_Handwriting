@@ -3,7 +3,10 @@
 ## Native OCR và Android 4.1 — 19/11/2026
 
 - Máy Windows dùng lại Python, PyTorch CUDA, .NET 10, Flutter, Android SDK và JDK 21. Python và trọng số đang dùng ở `services/compute/.venv`, `services/compute/.python` và `services/compute/models/ML_s44`. JDK nằm ở `.toolchain/java/jdk-21.0.12.1+1`.
-- Worker chạy tiền xử lý Native trước ML_s44. Đã kiểm SHA-256, chạy worker CPU và CUDA, và đo trên RTX 4050 khoảng 1,15–1,73 giây với trang mẫu 1100 × 590 và 3,37 giây với mẫu phóng lên 3300 × 1770. Đây là thời gian trong worker. Mẫu đọc `trơi` ở vị trí tham chiếu `trời`.
+- APK sideload `4.1.0+21` ở `apps/android/dist/VietOCR-4.1.0-refactor-arm64.apk`, 20.311.386 byte. Đã kiểm ABI ARM64, Android API 26+, căn hàng ZIP 16 KiB và chứng chỉ ký trùng bản trước. Không có thiết bị trong ADB trong lượt này.
+- Worker chạy tiền xử lý Native trước ML_s44. Đã kiểm SHA-256 và chạy worker CPU, CUDA, DirectML. Trên RTX 4050, trang mẫu 1100 × 590 mất khoảng 1,15–1,73 giây và mẫu phóng lên 3300 × 1770 mất 3,37 giây. Intel UHD trên DirectML mất khoảng 61 giây ở lượt đọc đầu và 4,77 giây khi lặp lại cùng trang. Đây là thời gian trong worker. Mẫu đọc `trơi` ở vị trí tham chiếu `trời`.
+- Khởi động bằng launcher của compute. Dashboard cổng 3000, `/api/health/live` và `/api/health/ready` cổng 5080 đều trả HTTP 200. Đã dừng phiên kiểm thử sau khi xác nhận worker sẵn sàng.
+- Đã chạy 48 bài kiểm thử Flutter, 56 bài backend, 35 bài Rust, 17 bài hợp đồng database và kiểm giao diện desktop trên trình duyệt. Workflow GitHub [44549854838](https://github.com/QuangNew/VietOCR_Handwriting/actions/runs/44549854838) build thành công Windows và gateway ARM64. EXE đã đối chiếu digest và lưu ở `apps/desktop/dist/vietocr-desktop.exe`.
 - Đã chuyển các client sang `apps/`, hai dịch vụ sang `services/` và mã dùng chung sang `shared/`. Bản nghiên cứu gốc và dữ liệu cũ được giữ cục bộ trong `.toolchain/archive/2026-11-19/`. Hai bản checkpoint trùng SHA-256, công cụ ONNX Android cũ và cache Rust đã được dọn.
 - SSH xác nhận các dịch vụ gateway, webcam và tunnel trên Pi đều `enabled` và `active`. Gateway trả `alive`. Phiên bản Native chạy ở compute Windows và dùng giao thức gateway v2 hiện tại.
 - Xem [DevTodo](../DevTodo.md) để khởi động dịch vụ và cài APK. Các mục sau ghi lại các đợt triển khai trước đây với tên thư mục tại thời điểm đó.
