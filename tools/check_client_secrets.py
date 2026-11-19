@@ -2,7 +2,7 @@
 
 Never prints a secret, its hash, matching content or user session files. This is
 a narrowly scoped packaging check, not a complete security assessment.
-Run: Server/.venv/Scripts/python.exe tools/check_client_secrets.py [EXE/APK...]
+Run: services/compute/.venv/Scripts/python.exe tools/check_client_secrets.py [EXE/APK...]
 """
 import json
 from pathlib import Path
@@ -14,10 +14,10 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def main():
-    public = json.loads((ROOT / 'Mobile/assets/config/supabase.json').read_text(encoding='utf-8-sig'))
+    public = json.loads((ROOT / 'apps/android/assets/config/supabase.json').read_text(encoding='utf-8-sig'))
     if set(public) != {'url', 'publishableKey'} or not public['publishableKey'].startswith('sb_publishable_'):
         raise ValueError('Client public configuration has unexpected fields or key type.')
-    settings = ROOT / 'Server/server.local.json'
+    settings = ROOT / 'services/compute/server.local.json'
     needles = []
     if settings.exists():
         private = json.loads(settings.read_text(encoding='utf-8-sig'))['Server']

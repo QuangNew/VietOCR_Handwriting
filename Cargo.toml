@@ -1,6 +1,6 @@
 [workspace]
-members = ["Contracts/rust", "Gateway", "ClientCore"]
-exclude = ["Desktop/src-tauri"]
+members = ["shared/contracts/rust", "services/gateway", "shared/client-core"]
+exclude = ["apps/desktop/src-tauri"]
 resolver = "2"
 
 [workspace.package]

@@ -43,7 +43,7 @@ Chuẩn bị ba tab trong Windows Terminal, có thể đổi tên tab để đ�
 | Tab | Dùng để làm gì? | Có thể đóng không? |
 |---|---|---|
 | **A — Windows / Cấu hình** | Chạy script, kiểm DNS, chép file sang Pi | Có, sau khi lệnh xong |
-| **B — Windows / Server** | Chạy `Server/Run-Server.cmd` | Giữ mở trong lúc dùng server |
+| **B — Windows / Server** | Chạy `services/compute/Run-Server.cmd` | Giữ mở trong lúc dùng server |
 | **C — SSH / Pi** | Điều khiển Pi bằng lệnh Linux | Đóng được; service Pi vẫn chạy |
 
 Các khối **powershell** chạy trên Windows. Các khối **sh** chạy trong SSH của
@@ -130,8 +130,8 @@ các file được Git theo dõi.
 
 | Thành phần | Hiện trạng |
 |---|---|
-| Windows | Tauri 2/Rust 4.0.2, `Desktop/dist/vietocr-desktop.exe` |
-| Android | Flutter 4.0.2+20, `Mobile/dist/VietOCR-4.0.2-refactor-arm64.apk` |
+| Windows | Tauri 2/Rust 4.0.2, `apps/desktop/dist/vietocr-desktop.exe` |
+| Android | Flutter 4.1.0+21, `apps/android/dist/VietOCR-4.1.0-refactor-arm64.apk` |
 | Raspberry | Gateway và webcam đang chạy bằng systemd trên `rasp4gb` |
 | Webcam | USB native MJPEG 1920 × 1080 @ 30; client xem/chụp qua Pi |
 | Database | Supabase, migrations v2 đã áp dụng; không chạy lại/reset |
@@ -230,7 +230,7 @@ Không tạo thêm tên miền cho web admin trong hướng dẫn này.
 - Queue công bằng theo tài khoản, sử dụng các worker rảnh luân phiên. Pi có
   thể xin thêm worker; compute được quyền từ chối theo RAM/VRAM thực.
 
-Hợp đồng hiện tại: [OpenAPI v2](Contracts/openapi-v2.json).
+Hợp đồng hiện tại: [OpenAPI v2](shared/contracts/openapi-v2.json).
 API v1 mặc định tắt; không bật fallback gửi OCR đi tắt Pi.
 
 <a id="cong-cu"></a>
@@ -242,10 +242,10 @@ API v1 mặc định tắt; không bật fallback gửi OCR đi tắt Pi.
 **Windows, tab A ở root repo:**
 
 ```powershell
-Test-Path Desktop/dist/vietocr-desktop.exe
-Test-Path Mobile/dist/VietOCR-4.0.2-refactor-arm64.apk
-Test-Path Server/.venv/Scripts/python.exe
-Test-Path Server/server.local.json
+Test-Path apps/desktop/dist/vietocr-desktop.exe
+Test-Path apps/android/dist/VietOCR-4.1.0-refactor-arm64.apk
+Test-Path services/compute/.venv/Scripts/python.exe
+Test-Path services/compute/server.local.json
 Test-Path .toolchain/cloudflared/cloudflared-windows-amd64.exe
 ```
 
@@ -271,11 +271,11 @@ Nếu một service không `active`, xem log đúng service ở mục 13 trướ
 
 | Công cụ/dữ liệu | Vị trí trên máy hiện tại |
 |---|---|
-| Python server | `Server/.venv/Scripts/python.exe` |
-| Interpreter riêng | `Server/.python/` |
-| PyTorch/CUDA | Trong `Server/.venv`, đã chuyển vị trí, không cài lại |
-| Model compute | `Server/models/ML_s44/` |
-| Mã/cấu hình nhóm AI | `VietHandOCR_API_Release/` |
+| Python server | `services/compute/.venv/Scripts/python.exe` |
+| Interpreter riêng | `services/compute/.python/` |
+| PyTorch/CUDA | Trong `services/compute/.venv`, đã chuyển vị trí, không cài lại |
+| Model compute | `services/compute/models/ML_s44/` |
+| Tiền xử lý Native của nhóm AI | `services/compute/worker/native/` |
 | .NET | SDK/runtime 10 có sẵn |
 | Flutter | `C:/Services/Flutter/flutter` |
 | Android SDK | `C:/Users/QuangNew/AppData/Local/Android/sdk` |
@@ -290,16 +290,16 @@ model/CUDA, C++ SDK hay Android SDK. [Báo cáo cài đặt](docs/INSTALLATION_R
 ghi vị trí và dung lượng đã tải.
 
 Dùng `python.exe -m pip`: launcher `pip.exe` cũ có thể còn đường dẫn tuyệt đối
-trước khi chuyển môi trường. Không xoá `Server/.venv`, `.python`, model hoặc khoá ký.
+trước khi chuyển môi trường. Không xoá `services/compute/.venv`, `.python`, model hoặc khoá ký.
 Kiểm bản AI mà không nạp GPU hay sửa file:
 
 ```powershell
 pwsh -File tools/Check-ModelRelease.ps1
 ```
 
-Helper kiểm SHA256 trọng số, recognizer và preprocessing giữa bản AI/compute.
-Không đổi vocab/input size để ép model chạy; đối chiếu bản nhóm AI trước khi
-chạy `Server/tools/sync_model.py`.
+Helper kiểm SHA-256 của checkpoint đang dùng. Worker lấy cấu hình và trọng số
+từ `services/compute/models/ML_s44/`. Xem [hướng dẫn kiểm tiền xử lý Native](services/compute/worker/native/README.md)
+để chạy thử trang mẫu với worker CPU hoặc CUDA.
 
 ### 3.3 Chỉ khi triển khai từ một máy mới
 
@@ -309,23 +309,22 @@ credential và binary build không được commit vào Git.
 ```powershell
 git clone --branch refactor https://github.com/QuangNew/VietOCR_Handwriting.git
 Set-Location VietOCR_Handwriting
-py -3.11 -m venv Server/.venv
+py -3.11 -m venv services/compute/.venv
 ```
 
-Cài .NET10, Node phù hợp `Server/web/package.json`, Supabase CLI và Python3.11
-nếu máy chưa có. Đưa bản model ML_s44 của nhóm AI vào
-`VietHandOCR_API_Release/model/` đúng `model_config.json`; tên file và SHA256
-phải khớp. Không tự đổi tên checkpoint khác thành ML_s44.
+Cài .NET10, Node phù hợp `services/compute/web/package.json`, Supabase CLI và Python3.11
+nếu máy chưa có. Chép `ml_s44_fp16.pth` của nhóm AI vào
+`services/compute/models/ML_s44/`. Dùng `model_config.json` trong cùng thư mục
+để kiểm tên và SHA-256 của checkpoint.
 
 Với wheelhouse đã chuẩn bị đúng Windows/Python/CUDA, cài offline:
 
 ```powershell
-Server/.venv/Scripts/python.exe -m pip install --no-index --find-links C:/offline-wheels -r Server/worker/requirements.txt
-Server/.venv/Scripts/python.exe -X utf8 Server/tools/sync_model.py
+services/compute/.venv/Scripts/python.exe -m pip install --no-index --find-links C:/offline-wheels -r services/compute/worker/requirements.txt
 pwsh -File tools/Check-ModelRelease.ps1
 supabase login
 supabase link --project-ref rrdxhztiikizgogxtlhu
-pwsh -File Server/tools/Setup-Server.ps1
+pwsh -File services/compute/tools/Setup-Server.ps1
 ```
 
 `C:/offline-wheels` là ví dụ, thay bằng kho wheel thật. Nếu chưa có, chuẩn bị
@@ -377,13 +376,13 @@ trạng thái live hiện tại là các migrations đã áp dụng ở trên. K
 rollback SQL từ runbook để thực hiện cấu hình Cloudflare.
 23 fake-client cũ đã dọn; tài khoản Google thật và admin được giữ.
 
-`Mobile/assets/config/supabase.json` chứa project URL/publishable key công khai;
+`apps/android/assets/config/supabase.json` chứa project URL/publishable key công khai;
 Tauri nhúng cùng file khi compile. `sb_publishable_…` có thể được trích xuất
 từ app theo thiết kế của [Supabase](https://supabase.com/docs/guides/api/api-keys).
 Giao diện người dùng không còn trường nhập/xem key. Grants/RLS, JWT/phiên hiện
 thời, ban và quota bảo vệ dữ liệu; không dựa vào việc giấu key công khai.
 
-`service_role`/secret key chỉ ở `Server/server.local.json`, quyền riêng trên
+`service_role`/secret key chỉ ở `services/compute/server.local.json`, quyền riêng trên
 Windows, Git-ignore. Pi giữ public key và hai credential máy tách biệt.
 Access/refresh token dùng DPAPI/Android Keystore, không vào WebView, URL hay log.
 
@@ -709,7 +708,7 @@ Nếu chưa, **mở tab B / Windows** rồi chạy:
 
 ```powershell
 Set-Location 'C:\DevLanguage\Works\PBL\PBL4\VietOCR_Handwriting'
-Server/Run-Server.cmd
+services/compute/Run-Server.cmd
 ```
 
 Giữ tab B mở. **Đạt khi:** launcher có dòng
@@ -869,7 +868,7 @@ pwsh -File tools/Merge-V2Pairing.ps1 -Apply
 ```
 
 **Đạt khi:** hiện `Merged pairing fields only...`. Sau đó quay tab B, mở lại
-`Server/Run-Server.cmd` và kiểm worker theo mục 8. Lệnh `-Apply` không tự
+`services/compute/Run-Server.cmd` và kiểm worker theo mục 8. Lệnh `-Apply` không tự
 khởi động lại backend đang chạy. Connector compute có thể giữ chạy trong
 lần restart này; nó sẽ tạm trả 502 khi backend đang dừng.
 
@@ -964,7 +963,7 @@ Mở PowerShell 7 ở tab B, vào root repo:
 
 ```powershell
 Set-Location 'C:\DevLanguage\Works\PBL\PBL4\VietOCR_Handwriting'
-Server/Run-Server.cmd
+services/compute/Run-Server.cmd
 ```
 
 Launcher cần thời gian build backend/web và khởi động model. Giữ tab này mở.
@@ -972,10 +971,10 @@ Launcher cần thời gian build backend/web và khởi động model. Giữ tab
 
 ```text
 Dashboard: http://127.0.0.1:3000 | API: http://127.0.0.1:5080
-API log: ...\Server\runtime\logs\api-....log
+API log: ...\services\compute\runtime\logs\api-....log
 ```
 
-Bạn cũng có thể mở Explorer → thư mục repo → **Server** → double-click
+Bạn cũng có thể mở Explorer → thư mục repo → **services → compute** → double-click
 **Run-Server.cmd**. Nó mở terminal để chạy server, không tự đăng nhập browser.
 Giữ cửa sổ terminal này mở trong suốt lúc vận hành.
 
@@ -1000,12 +999,12 @@ không mở thêm launcher để đăng nhập.
 
 #### C. Lấy tài khoản hiện có và điền form
 
-Trên máy hiện tại có file private **`Server/runtime/admin-first-login.txt`**.
-Mở trong Explorer → **Server → runtime → admin-first-login.txt**, hoặc tại
+Trên máy hiện tại có file private **`services/compute/runtime/admin-first-login.txt`**.
+Mở trong Explorer → **services → compute → runtime → admin-first-login.txt**, hoặc tại
 root repo mở riêng bằng Notepad:
 
 ```powershell
-notepad.exe Server/runtime/admin-first-login.txt
+notepad.exe services/compute/runtime/admin-first-login.txt
 ```
 
 File có thông tin cấp ban đầu; nếu bạn đã đổi mật khẩu, dùng mật khẩu mới.
@@ -1028,7 +1027,7 @@ Máy hiện tại đã có admin; bạn bỏ qua phần này nếu phần C đă
 Nếu cần một tài khoản admin mới, mở **tab A Windows** ở root repo, chạy:
 
 ```powershell
-pwsh -File Server/tools/New-Admin.ps1
+pwsh -File services/compute/tools/New-Admin.ps1
 ```
 
 Terminal sẽ hỏi từng dòng:
@@ -1112,11 +1111,11 @@ không phải hướng dẫn bấm tạo 17 worker. Nếu guard từ chối, xem
 VRAM và log của worker; đừng tắt guard để ép nạp.
 
 Tab **Tích hợp API** trên admin còn ví dụ v1 cũ; luồng refactor dùng
-[Contracts/openapi-v2.json](Contracts/openapi-v2.json). Dùng app v4 và hướng
+[shared/contracts/openapi-v2.json](shared/contracts/openapi-v2.json). Dùng app v4 và hướng
 dẫn này, không bật API v1 theo ví dụ cũ để đi tắt Pi.
 
 Admin cũ được giữ. Chỉ khi cần tạo **admin mới**, trên Windows root repo chạy
-`pwsh -File Server/tools/New-Admin.ps1`, nhập username/mật khẩu tại máy;
+`pwsh -File services/compute/tools/New-Admin.ps1`, nhập username/mật khẩu tại máy;
 không ghi credential admin vào repo hoặc dùng mật khẩu SSH thay thế.
 
 Backend có cơ chế tìm lại ảnh/job đã nhận khi bị mất phản hồi, không yêu cầu
@@ -1124,7 +1123,7 @@ app giữ mở mãi. Retry cùng mã job được bảo vệ tránh tính lượ
 dừng giữa inference thì việc xử lý có thể phải chạy lại khi phục hồi. Giữ
 model/env và dữ liệu job trên compute để việc khôi phục còn thực hiện được.
 
-Next.js giữ Agentation trong dev (`Server/Run-Server.cmd -Dev`), không nhúng
+Next.js giữ Agentation trong dev (`services/compute/Run-Server.cmd -Dev`), không nhúng
 vào production. Không publish admin qua hostname kết quả.
 
 <a id="van-hanh-moi-ngay"></a>
@@ -1141,7 +1140,7 @@ biến một SSH forward đã tắt thành kết nối Internet.
 |---|---|---|
 | Pi kết nối Wi-Fi đã lưu | Có, profile đã bật autoconnect | Cấp nguồn, chờ vào đúng mạng có Internet |
 | Webcam Pi, Rust gateway, tunnel Pi | Có, ba systemd service đã enable | Không phải SSH để mở lại; kiểm mục 8.7 khi nghi ngờ lỗi |
-| Backend C# + model + web admin trên laptop | Chưa | Mở `Server/Run-Server.cmd` và giữ terminal chạy |
+| Backend C# + model + web admin trên laptop | Chưa | Mở `services/compute/Run-Server.cmd` và giữ terminal chạy |
 | Tunnel compute trên laptop | Chưa | Chạy `pwsh -File tools/Start-ComputeTunnel.ps1` |
 | Trình duyệt web admin | Mở khi cần quản trị | Vào `http://127.0.0.1:3000` trên laptop |
 | App desktop/Android | Bạn tự mở | Đăng nhập Google lại nếu phiên đã hết hạn |
@@ -1156,7 +1155,7 @@ biến một SSH forward đã tắt thành kết nối Internet.
 
    ```powershell
    cd 'C:\DevLanguage\Works\PBL\PBL4\VietOCR_Handwriting'
-   .\Server\Run-Server.cmd
+   .\services\compute\Run-Server.cmd
    ```
 
    Giữ terminal này mở. Đợi web có `Ready` và worker sẵn sàng theo 8.2;
@@ -1200,7 +1199,7 @@ làm lại bước 3–6; Pi reboot chỉ cần tự vào lại Wi-Fi và chờ 
 
 | Bạn vừa sửa gì? | Phải khởi động lại gì? |
 |---|---|
-| `Server/server.local.json`, gồm pairing | Dừng/mở lại launcher Windows theo 8.1 |
+| `services/compute/server.local.json`, gồm pairing | Dừng/mở lại launcher Windows theo 8.1 |
 | `/etc/vietocr/gateway.json` | Check-config, restart `vietocr-gateway.service` |
 | `/etc/vietocr/camera-desk.env` | Restart `vietocr-camera@desk.service` |
 | `compute.yml` | Helper compute `-Stop`, rồi chạy helper lại |
@@ -1328,10 +1327,10 @@ công bố bằng dropdown. Chọn mode MJPG/V4L2 được hỗ trợ; mode cao 
 **Windows**, từ root repo; có thể dùng tab riêng cho app:
 
 ```powershell
-Desktop/Run-Desktop.cmd
+apps/desktop/Run-Desktop.cmd
 ```
 
-Bạn cũng có thể double-click `Desktop/dist/vietocr-desktop.exe` trong Explorer.
+Bạn cũng có thể double-click `apps/desktop/dist/vietocr-desktop.exe` trong Explorer.
 
 1. Nhấn **Cấu hình Raspberry** ở màn hình đăng nhập, hoặc biểu tượng bánh răng
    nếu app đã mở workspace.
@@ -1357,7 +1356,7 @@ Run workflow trên nhánh `refactor` để tạo bản mới; giữ bản đã t
 
 ### 9.3 Cài và đăng nhập Android
 
-File hiện có: **`Mobile/dist/VietOCR-4.0.2-refactor-arm64.apk`**.
+File APK ARM64 ở **`apps/android/dist/VietOCR-4.1.0-refactor-arm64.apk`**.
 Đây là bản ARM64, Android tối thiểu 8.0/API26. APK hiện dùng ký sideload,
 chưa phải bản phát hành Play Store.
 
@@ -1370,7 +1369,7 @@ hộp thoại cấp quyền của chính máy tính bạn. Chạy ở root repo:
 
 ```powershell
 adb devices
-adb install -r Mobile/dist/VietOCR-4.0.2-refactor-arm64.apk
+adb install -r apps/android/dist/VietOCR-4.1.0-refactor-arm64.apk
 ```
 
 **Đạt khi:** `adb devices` có máy ở trạng thái `device`, lệnh cài trả `Success`.
@@ -1378,10 +1377,11 @@ adb install -r Mobile/dist/VietOCR-4.0.2-refactor-arm64.apk
 thì kiểm cáp/chế độ USB. Nếu báo khác chữ ký bản cũ, giữ bản nháp cần thiết
 trước khi quyết định gỡ app; gỡ app có thể xoá dữ liệu local của nó.
 
-Mở VietOCR → phần **Google & Raspberry** → đặt gateway
-`https://api.quangnew.tech` → đăng nhập Google. Dùng cùng tài khoản desktop
-nếu muốn xem lịch sử OCR của cùng người dùng. Ảnh chưa gửi là nháp local:
-chụp nháp trên điện thoại không tự xuất hiện trong danh sách nháp desktop.
+Mở VietOCR rồi bấm **Đăng nhập Google**. Quay lại app để xác minh với
+Raspberry. Cấu hình mặc định dùng `https://api.quangnew.tech`. Nếu cần đổi,
+vào biểu tượng bánh răng **Cài đặt → Kết nối Raspberry**. Dùng cùng tài khoản
+trên desktop và Android để xem cùng lịch sử OCR. Ảnh nháp nằm trên thiết bị
+đã chụp hoặc chọn ảnh.
 
 Import dùng Photo Picker, không cần quyền
 Bluetooth/camera/microphone local. Đổi tài khoản khoá cache cũ, đóng camera/
@@ -1391,16 +1391,16 @@ editor và chặn cả token refresh đang dở chuyển tác vụ sang tài kho
 
 Thực hiện lần đầu với **một ảnh** để biết toàn bộ đường truyền hoạt động:
 
-1. Trong desktop nhấn **Camera Raspberry**, chọn webcam ở dropdown. Trên
-   Android mở nguồn chụp Raspberry tương ứng.
+1. Trong desktop nhấn **Camera Raspberry** và chọn webcam. Trên Android nhấn
+   **Chụp tài liệu**. Nếu Pi có nhiều webcam, chọn trong màn chụp.
 2. Đặt giấy đủ sáng, giữ cố định, chờ hình hiện. Có thể bật **Lật gương**
    nếu muốn đổi trái–phải; hướng này được áp dụng vào ảnh lưu.
 3. Nhấn **Chụp ảnh**. App xem ảnh vừa chụp khoảng 3 giây rồi trở lại preview;
    **Bỏ qua · Chụp tiếp** kết thúc review sớm, ảnh đã chụp vẫn vào nháp.
 4. Cửa sổ camera giữ mở cho lần chụp tiếp. Đóng cửa sổ này khi đã chụp đủ.
    Đến đây **chưa có request OCR, chưa tính lượt**.
-5. Chọn ảnh nháp trong danh sách. Có thể bấm **Tải ảnh lên** hoặc vùng trống
-   **Ảnh gốc** để thêm file từ máy thay cho chụp.
+5. Mở ảnh nháp trong danh sách. Dùng **Chọn ảnh** trên Android hoặc **Tải ảnh lên**
+   trên desktop để thêm file từ máy.
 6. Nếu cần, mở **Zoom & crop** hoặc bấm vào ảnh đã có để chỉnh. Vùng cắt có
    chữ nhật/elip/vẽ tự do, xoay, zoom, đen trắng. Lưu thành ảnh mới giữ bản gốc;
    bản nguồn tự bỏ chọn để không gửi cả hai bản ngoài ý muốn.
@@ -1409,8 +1409,8 @@ Thực hiện lần đầu với **một ảnh** để biết toàn bộ đườ
 8. Nhấn **Gửi**. App tự tối ưu bản truyền trước, rồi upload → xếp hàng → xử lý → kết quả.
    Đừng nhấn lại liên tục khi đang chờ. Pi/compute có thể phải chờ lượt hoặc
    đợi worker nạp xong; app giữ cùng mã yêu cầu để tránh tính trùng.
-9. Xem/chỉnh kết quả ở **Văn bản**, **Sao chép** hoặc **Xuất .txt**.
-   **Lịch sử trên server** đọc các job của tài khoản, không thay việc lưu nháp.
+9. Xem, sửa, sao chép hoặc xuất văn bản trong từng tài liệu. Trên Android, vào
+   **Cài đặt → Lịch sử trên máy chủ** để xem các lượt đã gửi từ cùng tài khoản.
 
 Giới hạn là **500 ảnh được nhận/ngày/tài khoản, 30 ảnh trong 60 giây**,
 dùng chung điện thoại và desktop. Khi hạn mức phút hết, chờ cửa sổ phút qua;
@@ -1464,7 +1464,7 @@ chi tiết đã mất do rung hoặc lấy nét sai.
   kết thúc, bảng tự thu gọn sau 5 giây; nút mũi tên vẫn còn để xem lại.
 
 Bản desktop mới có nút Dừng cần backend C# đã cập nhật. Nếu server vẫn đang
-chạy bản trước, dừng/mở lại `Server/Run-Server.cmd` theo 8.5 sau khi queue
+chạy bản trước, dừng/mở lại `services/compute/Run-Server.cmd` theo 8.5 sau khi queue
 đã xong; không cần đổi token hay chạy migration database cho chức năng này.
 
 <a id="kiem-thu"></a>
@@ -1529,8 +1529,8 @@ offline, spool full và p95 trong một đợt soak có giới hạn.
 Kiểm giá trị credential hiện dùng, không in chúng:
 
 ```powershell
-Server/.venv/Scripts/python.exe -X utf8 tools/check_client_secrets.py Desktop/dist/vietocr-desktop.exe Mobile/dist/VietOCR-4.0.2-refactor-arm64.apk
-Server/.venv/Scripts/python.exe -X utf8 tools/check_public_access.py
+services/compute/.venv/Scripts/python.exe -X utf8 tools/check_client_secrets.py apps/desktop/dist/vietocr-desktop.exe apps/android/dist/VietOCR-4.1.0-refactor-arm64.apk
+services/compute/.venv/Scripts/python.exe -X utf8 tools/check_public_access.py
 ```
 
 Đây là kiểm phạm vi hẹp, không phải pentest/toàn bộ lịch sử Git. Không chia sẻ
@@ -1576,11 +1576,11 @@ có để dùng. Phần này dành cho lúc bạn sửa mã nguồn hoặc dựn
 ```powershell
 cargo test --workspace --locked
 cargo clippy --workspace --all-targets --locked -- -D warnings
-dotnet test Server/backend/VietOcr.Server.Tests
-node --test Desktop/tests/*.test.mjs
+dotnet test services/compute/backend/VietOcr.Server.Tests
+node --test apps/desktop/tests/*.test.mjs
 ```
 
-Desktop: `cd Desktop/src-tauri; cargo build --release --locked` bằng MSVC.
+Desktop: `cd apps/desktop/src-tauri; cargo build --release --locked` bằng MSVC.
 Máy này dùng CI, không tải C++ SDK mới. CI là máy build tự động của GitHub;
 không phải worker chạy OCR trên laptop.
 
@@ -1591,8 +1591,8 @@ không phải worker chạy OCR trên laptop.
    **Run workflow**, chọn branch `refactor`, chờ build mới thành công.
 3. Trong phần **Artifacts**, tải `vietocr-desktop-windows`, giải nén.
 4. Đóng app desktop đang mở, giữ bản EXE trước nếu cần quay lại, chép EXE mới
-   vào `Desktop/dist/vietocr-desktop.exe`.
-5. Mở lại bằng `Desktop/Run-Desktop.cmd`. App không cần môi trường Python AI;
+   vào `apps/desktop/dist/vietocr-desktop.exe`.
+5. Mở lại bằng `apps/desktop/Run-Desktop.cmd`. App không cần môi trường Python AI;
    Python/weights chỉ nằm ở compute Windows.
 
 Workflow còn tạo bundle gateway ARM64 dành Pi. Đừng chép EXE Windows lên Pi;
@@ -1606,7 +1606,7 @@ Android từ root, dùng JDK21 thay Oracle JDK25 mặc định:
 $env:JAVA_HOME=(Resolve-Path .toolchain/java/jdk-21.0.12.1+1).Path
 $env:PATH=$env:JAVA_HOME+'\bin;'+$env:PATH
 $env:GRADLE_OPTS='-Dorg.gradle.jvmargs=-Xmx1024m -Dorg.gradle.workers.max=1'
-Set-Location Mobile
+Set-Location apps/android
 flutter pub get --offline
 flutter analyze --no-pub
 flutter test --no-pub --concurrency=1
@@ -1615,12 +1615,12 @@ flutter build apk --release --target-platform android-arm64 --no-pub
 
 `--offline` cần dependency đã cache như máy này. Không tải cả SDK/model khi chỉ
 sai JDK path. Build lần lượt lúc máy ít ứng dụng. APK đầu ra ở
-`Mobile/build/app/outputs/flutter-apk/app-release.apk`.
-SQL tests ở `Contracts/tests`; native race suite chỉ nhận PostgreSQL loopback
+`apps/android/build/app/outputs/flutter-apk/app-release.apk`.
+SQL tests ở `shared/contracts/tests`; native race suite chỉ nhận PostgreSQL loopback
 database tên `*_test`, không dùng production. Mock UI không thay QA thiết bị thật.
 
 Sau khi build APK xong, mở tab Windows mới ở root repo nếu tiếp tục chạy lệnh
-khác: tab build hiện đang đứng trong `Mobile/`. Dùng `Set-Location ..` để quay
+khác: tab build hiện đang đứng trong `apps/android/`. Dùng `Set-Location ../..` để quay
 lại root repo từ thư mục này. Khi thay APK ở `dist`, ghi lại version/hash và
 kiểm trên điện thoại; build thành công chưa chứng minh luồng Google/camera đã đúng.
 
@@ -1678,14 +1678,14 @@ khi đó `Ctrl + C` chỉ dừng **việc theo dõi log**, không dừng service
 **Windows / tab A**, xem lỗi backend mới nhất:
 
 ```powershell
-$recentError = Get-ChildItem Server/runtime/logs -Filter 'api-*.error.log' -File -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+$recentError = Get-ChildItem services/compute/runtime/logs -Filter 'api-*.error.log' -File -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
 if ($recentError) { Get-Content -LiteralPath $recentError.FullName -Tail 60 } else { Write-Output 'Chưa có log backend. Kiểm tab launcher Server.' }
 ```
 
 File lỗi rỗng có thể bình thường; xem log hoạt động gần nhất:
 
 ```powershell
-$recentApi = Get-ChildItem Server/runtime/logs -Filter 'api-*.log' -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -notlike '*.error.log' } | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+$recentApi = Get-ChildItem services/compute/runtime/logs -Filter 'api-*.log' -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -notlike '*.error.log' } | Sort-Object LastWriteTime -Descending | Select-Object -First 1
 if ($recentApi) { Get-Content -LiteralPath $recentApi.FullName -Tail 60 } else { Write-Output 'Chưa có log hoạt động backend.' }
 ```
 
@@ -1696,7 +1696,7 @@ Get-Content .toolchain/refactor/tunnels/compute.err.log -Tail 40
 ```
 
 Lỗi trước khi backend mở, như build Next.js/.NET thất bại, nằm ngay ở tab B
-Server. **Client desktop:** mở **Nhật ký lỗi**; **Android:** mở tab **Log**.
+Server. Trên desktop mở **Nhật ký lỗi**. Trên Android mở **Cài đặt → Nhật ký chẩn đoán**.
 Ghi lại giờ, đang bấm chức năng nào, HTTP/error code và phần log gần đó.
 Không gửi nguyên `server.local.json`, `session.dpapi`, credential tunnel,
 token, ảnh riêng hay văn bản OCR chỉ để báo lỗi.
@@ -1810,13 +1810,13 @@ ngay. Hai phần đó có checklist kiểm riêng và không chặn một lượ
 
 | Dữ liệu | Giữ ở đâu / vì sao? |
 |---|---|
-| `Server/server.local.json` | Cấu hình private Supabase/pairing; sao lưu riêng, không commit |
+| `services/compute/server.local.json` | Cấu hình private Supabase/pairing; sao lưu riêng, không commit |
 | `.toolchain/refactor/pairing/` | Token máy gốc để ghép đúng Pi–compute |
 | `%USERPROFILE%/.cloudflared/`, `.toolchain/refactor/tunnels/` | Chứng chỉ quản lý và credential/config tunnel; giữ private |
 | `/etc/vietocr/`, `/etc/cloudflared/` trên Pi | Config/token đang dùng của Pi, không dán nguyên thư mục vào chat |
-| `Server/.venv/`, `Server/.python/`, model AI | Công cụ/trọng số lớn đã có; xoá sẽ phải dựng/tải lại |
+| `services/compute/.venv/`, `services/compute/.python/`, model AI | Công cụ/trọng số lớn đã có; xoá sẽ phải dựng/tải lại |
 | Nháp app và khoá ký Android | Giữ ảnh chưa gửi, phiên local và khả năng nâng cấp đúng app đã ký |
-| `Desktop/dist/`, `Mobile/dist/` | Bản app đã build để mở/cài lại nhanh |
+| `apps/desktop/dist/`, `apps/android/dist/` | Bản app đã build để mở/cài lại nhanh |
 
 Phiên desktop được mã hoá bằng Windows DPAPI: chép file session sang một
 tài khoản/máy Windows khác không thay cho đăng nhập Google trên máy mới.
@@ -1835,12 +1835,12 @@ APK đã build, kiểm chữ ký v2/alignment 16 KiB, 54 tests và analyzer qua;
 chưa QA trên điện thoại thật. EXE portable; APK dùng signing sideload hiện có.
 Chi tiết: [tiến độ](docs/REFACTOR_PROGRESS.md),
 [báo cáo kiểm](docs/validation/refactor-checkpoint2.json),
-[Android](Mobile/validation-v4.json), [cài gì/ở đâu](docs/INSTALLATION_REPORT.md).
+[Android](apps/android/validation-v4.json), [cài gì/ở đâu](docs/INSTALLATION_REPORT.md).
 
 ### 14.4 Phần đã dọn và các kiểm còn chờ
 
 Đã gỡ firmware/cache ESP32, 80 file client Tk/BLE/OV cũ; chuyển Python/CUDA
-ra `Server/`, dọn 14 mapping Android cũ (~170 MiB), fake-client và staging-token.
+ra `services/compute/`, dọn 14 mapping Android cũ (~170 MiB), fake-client và staging-token.
 Mã cũ có thể lấy từ Git history; không force-push/xoá lịch sử.
 Giữ model/env, ảnh/cache riêng, credential, signing và EXE/APK mới.
 `.toolchain/refactor` chứa bằng chứng riêng, không publish cả thư mục.
@@ -1849,7 +1849,7 @@ Chỉ dọn generated cache khi không còn build/test/IDE compile dùng file.
 Fixture kiểm quyền `.toolchain/refactor/pairing-smoke/` còn bốn file thử nhỏ,
 chỉ tài khoản Windows hiện tại đọc được và không được dùng bởi Pi/server.
 Cơ chế duyệt tự động chặn thao tác xoá, nên chúng được giữ nguyên, không
-commit. `Mobile/build/` được tạo lại khi build APK cuối; chưa dọn lần hai.
+commit. `apps/android/build/` được tạo lại khi build APK cuối; chưa dọn lần hai.
 
 Còn cần bạn thực hiện:
 

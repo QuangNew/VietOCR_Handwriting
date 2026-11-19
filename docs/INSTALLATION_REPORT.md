@@ -1,5 +1,13 @@
 # Báo cáo công cụ và file đã thêm
 
+## Native OCR và Android 4.1 — 19/11/2026
+
+- Máy Windows dùng lại Python, PyTorch CUDA, .NET 10, Flutter, Android SDK và JDK 21. Python và trọng số đang dùng ở `services/compute/.venv`, `services/compute/.python` và `services/compute/models/ML_s44`. JDK nằm ở `.toolchain/java/jdk-21.0.12.1+1`.
+- Worker chạy tiền xử lý Native trước ML_s44. Đã kiểm SHA-256, chạy worker CPU và CUDA, và đo trên RTX 4050 khoảng 1,15–1,73 giây với trang mẫu 1100 × 590 và 3,37 giây với mẫu phóng lên 3300 × 1770. Đây là thời gian trong worker. Mẫu đọc `trơi` ở vị trí tham chiếu `trời`.
+- Đã chuyển các client sang `apps/`, hai dịch vụ sang `services/` và mã dùng chung sang `shared/`. Bản nghiên cứu gốc và dữ liệu cũ được giữ cục bộ trong `.toolchain/archive/2026-11-19/`. Hai bản checkpoint trùng SHA-256, công cụ ONNX Android cũ và cache Rust đã được dọn.
+- SSH xác nhận các dịch vụ gateway, webcam và tunnel trên Pi đều `enabled` và `active`. Gateway trả `alive`. Phiên bản Native chạy ở compute Windows và dùng giao thức gateway v2 hiện tại.
+- Xem [DevTodo](../DevTodo.md) để khởi động dịch vụ và cài APK. Các mục sau ghi lại các đợt triển khai trước đây với tên thư mục tại thời điểm đó.
+
 ## Nhánh refactor — 09/11/2026
 
 Các mục bên dưới là lịch sử cài đặt, không phải đường dẫn chạy của v4.

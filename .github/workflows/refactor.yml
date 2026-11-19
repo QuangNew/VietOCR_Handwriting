@@ -5,12 +5,12 @@ on:
     paths:
       - Cargo.toml
       - Cargo.lock
-      - Gateway/**
-      - ClientCore/**
-      - Desktop/**
-      - Mobile/**
-      - Server/backend/**
-      - Contracts/**
+      - services/gateway/**
+      - shared/client-core/**
+      - apps/desktop/**
+      - apps/android/**
+      - services/compute/backend/**
+      - shared/contracts/**
       - infra/raspberry/**
       - supabase/migrations/**
       - .github/workflows/refactor.yml
@@ -29,15 +29,15 @@ jobs:
         with:
           persist-credentials: false
       - run: rustup toolchain install 1.94.0 --profile minimal
-      - run: dotnet test Server/backend/VietOcr.Server.Tests --verbosity quiet
-      - run: node --test Desktop/tests/*.test.mjs
+      - run: dotnet test services/compute/backend/VietOcr.Server.Tests --verbosity quiet
+      - run: node --test apps/desktop/tests/*.test.mjs
       - name: Native Tauri Windows release (no local C++ SDK download)
-        working-directory: Desktop/src-tauri
+        working-directory: apps/desktop/src-tauri
         run: cargo +1.94.0 build --release --locked
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: vietocr-desktop-windows
-          path: Desktop/src-tauri/target/release/vietocr-desktop.exe
+          path: apps/desktop/src-tauri/target/release/vietocr-desktop.exe
           retention-days: 3
           if-no-files-found: error
   gateway-arm64:
@@ -66,7 +66,7 @@ jobs:
       - run: cargo +1.94.0 test --workspace --locked
       - run: cargo +1.94.0 clippy --workspace --all-targets --locked -- -D warnings
       - name: Database contracts and native PostgreSQL races
-        working-directory: Contracts/tests
+        working-directory: shared/contracts/tests
         env:
           VIETOCR_TEST_PG_URL: postgresql://postgres:postgres@127.0.0.1:5432/vietocr_refactor_test
         run: |
@@ -79,7 +79,7 @@ jobs:
       - name: Small ARM64 runtime bundle
         run: |
           mkdir -p bundle
-          cp target/release/vietocr-gateway Gateway/config.example.json Gateway/README.md bundle/
+          cp target/release/vietocr-gateway services/gateway/config.example.json services/gateway/README.md bundle/
           cp target/release/examples/camera_probe bundle/
           cp target/release/examples/admission_probe bundle/
           cp -r infra/raspberry bundle/
