@@ -1,8 +1,10 @@
-# VietOCR Desktop v4 — Tauri 2
+# VietHandOCR Desktop v4 — Tauri 2
 
 Windows native Rust client with a bundled HTML/CSS/JavaScript workspace. Camera,
 authentication, private files, upload hashing/resume and HTTP are in Rust. There
 is no Python/model/BLE dependency. Frontend has no remote scripts or network access.
+Before sending a batch, users can optionally enable **Nội suy sửa lỗi (BARTpho)**
+(saved locally, default off) to run server-side post-OCR correction after `ML_s44`.
 
 See the root [DevTodo.md](../../DevTodo.md) for deployment, OAuth callbacks and pairing.
 

@@ -1,4 +1,4 @@
-# Hướng phát triển VietOCR Handwriting
+# Hướng phát triển VietHandOCR
 
 Ưu tiên hiện tại là đổi theme ổn định, phục hồi khi AI lỗi và kết nối BLE.
 Các mục sau cần làm sau khi có bản chạy ổn định trên điện thoại mục tiêu.

@@ -1,6 +1,6 @@
-# VietOCR Control — server nhận diện
+# VietHandOCR Control — server nhận diện
 
-**ASP.NET Core 10 + Next.js + Supabase PostgreSQL/Auth**, model **ML_s44** chạy trên máy host bằng Python/PyTorch. Desktop và Android chỉ dùng server; không nạp model cục bộ. XAMPP không còn là dependency vận hành.
+**ASP.NET Core 10 + Next.js + Supabase PostgreSQL/Auth**, model **ML_s44** và bộ hậu xử lý tùy chọn **Bartpho_v2_fp16 + Edit Guard v3 + Smart Continuation Context** chạy trên máy host bằng Python/PyTorch. Desktop và Android chỉ dùng server; không nạp model cục bộ. XAMPP không còn là dependency vận hành.
 
 Compute nhận OCR qua Raspberry. Xem [DevTodo](../../DevTodo.md) để mở dịch vụ, [API v2](docs/API.md) để tích hợp và [rollout database](../../docs/REFACTOR_DB_ROLLOUT.md) để tra migration.
 
@@ -27,7 +27,7 @@ Mỗi tài khoản có mã OCR cố định; request dùng phiên Google có th�
 
 ## Model và tài nguyên
 
-Model lưu tại `models/ML_s44/ml_s44_fp16.pth` (72,9 MiB), runtime FP32/V2c 64px, [tiền xử lý Native](worker/native/README.md). Không tải trọng số từ Internet. Server dùng Python CUDA tại `.venv/Scripts/python.exe` (interpreter riêng trong `.python/`); đây là môi trường **server**, không phải yêu cầu cài PyTorch cho client mới.
+Model nhận dạng lưu tại `models/ML_s44/ml_s44_fp16.pth` (72,9 MiB), runtime FP32/V2c 64px, [tiền xử lý Native](worker/native/README.md). Model hậu xử lý tùy chọn lưu tại `models/Bartpho_v2_fp16/` (`model.safetensors` ~755 MiB nén FP16 + `edit_guard_config.json`), chỉ **lazy-load** khi request bật cờ `correct=true` (~763 MiB VRAM cộng thêm trên GPU; tự động fallback về `ML_s44` nếu thiếu file trọng số). Không tải trọng số từ Internet. Server dùng Python CUDA tại `.venv/Scripts/python.exe` (interpreter riêng trong `.python/`); đây là môi trường **server**, không phải yêu cầu cài PyTorch cho client mới.
 
 Dự toán `(6144−1024)/300≈17` chỉ là tính ban đầu. Phép đo trước đây: một worker khoảng 266 MiB CUDA reserved và khoảng 1,1 GiB RAM cả cây process; phải cộng CUDA context, activation, warm-up và phần dự phòng. Không tự nạp 17 worker. Nếu web báo thiếu RAM, giải phóng RAM rồi thêm worker. App vẫn giữ ảnh khi server chưa sẵn sàng.
 

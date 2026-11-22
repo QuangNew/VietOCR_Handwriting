@@ -1,11 +1,12 @@
-# VietOCR Android
+# VietHandOCR Android
 
 App Flutter dùng webcam Raspberry và OCR trên máy chủ. Đăng nhập Google để mở tài liệu.
 
 1. Bấm **Chụp tài liệu** để mở webcam hoặc **Chọn ảnh** để lấy ảnh từ thư viện.
 2. Bấm một tài liệu để xem ảnh, **Cắt và chỉnh ảnh**, hoặc chọn **Một dòng** khi ảnh chỉ có một dòng chữ.
-3. Bấm **Gửi ảnh này** cho tài liệu đang mở. Đánh dấu những ảnh cần gửi và bấm **Gửi N ảnh** để xử lý nhiều ảnh.
-4. Kết quả hiện ngay bên dưới ảnh. Bạn có thể sửa, sao chép hoặc xuất `.txt`. Bộ lọc **Đã đọc** gom các tài liệu đã có văn bản.
+3. Trước khi gửi, có thể bật/tắt tùy chọn **Nội suy BARTpho** để chạy hậu xử lý sửa lỗi chính tả/dấu thanh tiếng Việt trên server (mặc định tắt để ưu tiên tốc độ).
+4. Bấm **Gửi ảnh này** cho tài liệu đang mở. Đánh dấu những ảnh cần gửi và bấm **Gửi N ảnh** để xử lý nhiều ảnh.
+5. Kết quả hiện ngay bên dưới ảnh. Bạn có thể sửa, sao chép hoặc xuất `.txt`. Bộ lọc **Đã đọc** gom các tài liệu đã có văn bản.
 
 **Cài đặt** chứa tài khoản, hạn mức, địa chỉ Raspberry, giao diện tối, lịch sử máy chủ và nhật ký. Địa chỉ triển khai mặc định là `https://api.quangnew.tech`. Khi mất kết nối, ảnh nháp của tài khoản đã được xác minh được giữ trên máy.
 
