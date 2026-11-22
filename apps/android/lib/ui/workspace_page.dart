@@ -65,7 +65,7 @@ class _HomePageState extends State<HomePage> {
     builder: (context, _) => Scaffold(
       appBar: AppBar(
         title: const Text(
-          'VietOCR',
+          'VietHandOCR',
           style: TextStyle(fontWeight: FontWeight.w800),
         ),
         actions: [
@@ -149,7 +149,7 @@ class _HomePageState extends State<HomePage> {
                 const Padding(
                   padding: EdgeInsets.only(top: 12),
                   child: Text(
-                    'Hoàn tất đăng nhập trong trình duyệt rồi quay lại VietOCR.',
+                    'Hoàn tất đăng nhập trong trình duyệt rồi quay lại VietHandOCR.',
                   ),
                 ),
               if (signedIn)

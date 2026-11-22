@@ -279,7 +279,7 @@ async fn export_images(
             "image/webp" => "webp",
             _ => "png",
         };
-        let path = folder.join(format!("VietOCR-{id}.{ext}"));
+        let path = folder.join(format!("VietHandOCR-{id}.{ext}"));
         if !path.exists() {
             vietocr_client_core::storage::atomic(&path, &client.image_bytes(id).await?)?;
         }
@@ -292,7 +292,7 @@ async fn export_text(app: tauri::AppHandle, state: State<'_, Desktop>) -> Result
     let path = tauri::async_runtime::spawn_blocking(move || {
         app.dialog()
             .file()
-            .set_file_name("VietOCR.txt")
+            .set_file_name("VietHandOCR.txt")
             .blocking_save_file()
     })
     .await
@@ -322,7 +322,7 @@ fn main() {
             let root = app.path().app_data_dir()?;
             std::fs::create_dir_all(&root)?;
             let Some(workspace_lock) = vietocr_client_core::storage::workspace_lock(&root)? else {
-                eprintln!("VietOCR đang mở. Vui lòng dùng cửa sổ hiện có.");
+                eprintln!("VietHandOCR đang mở. Vui lòng dùng cửa sổ hiện có.");
                 std::process::exit(0);
             };
             let panic_root = root.clone();
@@ -387,5 +387,5 @@ fn main() {
             export_text
         ])
         .run(tauri::generate_context!())
-        .expect("VietOCR native runtime failed; check Windows/WebView2");
+        .expect("VietHandOCR native runtime failed; check Windows/WebView2");
 }

@@ -26,4 +26,4 @@ flutter test --no-pub --concurrency=1
 flutter build apk --release --target-platform android-arm64 --no-pub
 ```
 
-Bản **4.1.0+21** dùng gói `dist/VietOCR-4.1.0-refactor-arm64.apk`. SDK Android, Flutter và JDK có thể đặt ở thư mục riêng của từng máy. Đọc mục Android trong [DevTodo.md](../../DevTodo.md) để cài APK và thiết lập kết nối.
+Bản **4.1.0+21** dùng gói `dist/VietHandOCR-4.1.0-refactor-arm64.apk`. SDK Android, Flutter và JDK có thể đặt ở thư mục riêng của từng máy. Đọc mục Android trong [DevTodo.md](../../DevTodo.md) để cài APK và thiết lập kết nối.

@@ -26,11 +26,11 @@ void showNotice(BuildContext context, String message) {
 Future<void> shareText(String text) async {
   final folder = await getTemporaryDirectory();
   final file = File(
-    '${folder.path}/VietOCR-${DateTime.now().millisecondsSinceEpoch}.txt',
+    '${folder.path}/VietHandOCR-${DateTime.now().millisecondsSinceEpoch}.txt',
   );
   await file.writeAsString(text, flush: true);
   await SharePlus.instance.share(
-    ShareParams(files: [XFile(file.path)], title: 'Văn bản VietOCR'),
+    ShareParams(files: [XFile(file.path)], title: 'Văn bản VietHandOCR'),
   );
 }
 

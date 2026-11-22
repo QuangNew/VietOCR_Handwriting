@@ -1,7 +1,7 @@
 @echo off
 setlocal
 cd /d "%~dp0"
-title VietOCR - Desktop console
+title VietHandOCR - Desktop console
 if not exist "dist\vietocr-desktop.exe" (
     echo Missing apps\desktop\dist\vietocr-desktop.exe.
     echo Download the Windows artifact from the refactor GitHub workflow, or build apps\desktop\src-tauri with Rust MSVC.
@@ -10,6 +10,6 @@ if not exist "dist\vietocr-desktop.exe" (
 )
 "dist\vietocr-desktop.exe"
 set "exit_code=%ERRORLEVEL%"
-echo VietOCR exited: %exit_code%
+echo VietHandOCR exited: %exit_code%
 pause
 exit /b %exit_code%

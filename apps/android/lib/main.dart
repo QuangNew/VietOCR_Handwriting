@@ -124,7 +124,7 @@ class _VietOcrAppState extends State<VietOcrApp> with WidgetsBindingObserver {
       brightness: app.dark ? Brightness.dark : Brightness.light,
     );
     return MaterialApp(
-      title: 'VietOCR',
+      title: 'VietHandOCR',
       debugShowCheckedModeBanner: false,
       themeAnimationDuration: Duration.zero,
       theme: ThemeData(

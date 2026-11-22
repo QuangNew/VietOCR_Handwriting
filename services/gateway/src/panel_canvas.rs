@@ -34,7 +34,7 @@ impl PanelCanvas {
     }
     pub fn render(&mut self, update: &PanelUpdate) {
         self.pixels.fill(0);
-        self.line("VietOCR / SERVER", 25, Rgb565::CYAN);
+        self.line("VietHandOCR / SERVER", 25, Rgb565::CYAN);
         let fresh = update
             .server
             .as_ref()

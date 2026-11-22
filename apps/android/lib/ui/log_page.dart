@@ -45,7 +45,7 @@ class _LogPageState extends State<LogPage> {
       await log.captureNative();
       await log.flush();
       final folder = await getTemporaryDirectory();
-      final file = File('${folder.path}/VietOCR-log.txt');
+      final file = File('${folder.path}/VietHandOCR-log.txt');
       await file.writeAsString(log.text);
       if (!mounted) return;
       await SharePlus.instance.share(
