@@ -190,9 +190,14 @@ async fn send_draft(
     state
         .client()
         .await
-        .submit_with_correction(id, &layout, correct.unwrap_or(false), |stage, done, total| {
-            let _ = progress.send(json!({"stage":stage,"done":done,"total":total}));
-        })
+        .submit_with_correction(
+            id,
+            &layout,
+            correct.unwrap_or(false),
+            |stage, done, total| {
+                let _ = progress.send(json!({"stage":stage,"done":done,"total":total}));
+            },
+        )
         .await
 }
 #[tauri::command]
@@ -356,7 +361,10 @@ async fn export_text(
         .as_deref()
         .map(|s| {
             let trimmed = s.strip_suffix(".txt").unwrap_or(s);
-            format!("{}.txt", safe_export_stem(trimmed, id.unwrap_or_else(Uuid::nil)))
+            format!(
+                "{}.txt",
+                safe_export_stem(trimmed, id.unwrap_or_else(Uuid::nil))
+            )
         })
         .unwrap_or_else(|| "VietHandOCR_Script.txt".into());
     let path = tauri::async_runtime::spawn_blocking(move || {

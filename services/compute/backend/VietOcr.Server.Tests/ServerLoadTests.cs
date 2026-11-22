@@ -43,4 +43,16 @@ public class ServerLoadTests
         using var missing=JsonDocument.Parse("{}");
         Assert.Throws<DatabaseUnavailableException>(()=>AccountPolicy.RequireDatabasePolicy(missing.RootElement));
     }
+    [Fact]public void WorkerMetricsDeserializesBartphoRamAndDefaultsCleanly()
+    {
+        var opts=new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        var legacy=JsonSerializer.Deserialize<WorkerMetrics>("{\"ramMiB\":900,\"reservedMiB\":200}",opts)!;
+        Assert.Equal(900,legacy.RamMiB);Assert.False(legacy.BartphoLoaded);
+        Assert.Equal(0,legacy.BartphoRamMiB);Assert.Equal(0,legacy.BartphoRamPercent);Assert.Null(legacy.BartphoDevice);
+        var loaded=JsonSerializer.Deserialize<WorkerMetrics>(
+            "{\"ramMiB\":1450,\"bartphoLoaded\":true,\"bartphoRamMiB\":412.5,\"bartphoRamPercent\":2.58,\"bartphoVramMiB\":760.3,\"bartphoDevice\":\"cuda:0\"}",opts)!;
+        Assert.True(loaded.BartphoLoaded);Assert.Equal(412.5,loaded.BartphoRamMiB);
+        Assert.Equal(2.58,loaded.BartphoRamPercent);Assert.Equal(760.3,loaded.BartphoVramMiB);
+        Assert.Equal("cuda:0",loaded.BartphoDevice);
+    }
 }

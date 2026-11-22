@@ -29,6 +29,10 @@ public sealed class ModelWorker(ServerOptions options, ILogger logger,string? de
             var memory=Memory;int? pid=null;
             try { if(process is { HasExited:false }){process.Refresh();pid=actualPid??process.Id;memory=memory with{RamMiB=containment?.WorkingSetMiB() ?? process.WorkingSet64/1048576d};} }
             catch(InvalidOperationException) { }
+            var totalRam=Hardware.Ram().TotalMiB;
+            if(memory.BartphoLoaded && totalRam>0){
+                memory=memory with{BartphoRamPercent=Math.Round(Math.Clamp(memory.BartphoRamMiB/totalRam*100d,0,100),2)};
+            }
             return new(Id,State,pid,Device,JobId,Completed,CreatedAt,LoadMs,memory,Error,Draining,FootprintMiB);
         }
     }

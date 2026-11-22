@@ -62,7 +62,9 @@ public sealed record Job(
     string? Text = null, string? Error = null, double? QueueMs = null, double? InferenceMs = null,
     double? TotalMs = null, int Attempts = 0, int Width = 0, int Height = 0, bool Correct = false);
 public sealed record WorkerMetrics(double AllocatedMiB = 0, double ReservedMiB = 0,
-    double PeakMiB = 0, double RamMiB = 0, double DeviceUsedMiB = 0);
+    double PeakMiB = 0, double RamMiB = 0, double DeviceUsedMiB = 0,
+    bool BartphoLoaded = false, double BartphoRamMiB = 0, double BartphoRamPercent = 0,
+    double BartphoVramMiB = 0, string? BartphoDevice = null);
 public sealed record WorkerView(string Id, string State, int? Pid, string Device, string? JobId,
     long Completed, DateTime CreatedAt, double LoadMs, WorkerMetrics Memory, string? Error, bool Draining, double FootprintMiB = 0);
 public sealed record GpuSnapshot(string Name, int TotalMiB, int UsedMiB, int FreeMiB, int Utilization,

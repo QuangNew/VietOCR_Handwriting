@@ -368,6 +368,11 @@ class BartphoCorrector:
         ).to(self.device)
         self.model.eval()
 
+    def parameter_mib(self) -> float:
+        total = sum(p.numel() * p.element_size() for p in self.model.parameters())
+        total += sum(b.numel() * b.element_size() for b in self.model.buffers())
+        return total / 1048576.0
+
     @torch.inference_mode()
     def _generate_batch(self, texts: list[str], batch_size: int = 16, max_length: int = 256) -> list[str]:
         raw_preds: list[str] = []

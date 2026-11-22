@@ -1,4 +1,8 @@
-export type Memory = { allocatedMiB: number; reservedMiB: number; peakMiB: number; ramMiB: number };
+export type Memory = {
+  allocatedMiB: number; reservedMiB: number; peakMiB: number; ramMiB: number;
+  bartphoLoaded?: boolean; bartphoRamMiB?: number; bartphoRamPercent?: number;
+  bartphoVramMiB?: number; bartphoDevice?: string | null;
+};
 export type Worker = { id: string; state: string; pid: number | null; device: string; jobId: string | null;
   completed: number; createdAt: string; loadMs: number; memory: Memory; error: string | null; draining: boolean; footprintMiB: number };
 export type Job = { id: string; clientId: string; clientName: string; layout: string; state: string; imageBytes: number;
@@ -19,7 +23,7 @@ export type Snapshot = {
   http: { requests: number; errors: number; p95Ms: number | null; samples: number };
   gpu: { name: string; totalMiB: number; usedMiB: number; freeMiB: number; utilization: number; temperature: number; sampledAt: string } | null;
   gpuError: string | null;
-  memory: { totalMiB: number; availableMiB: number; apiMiB: number; workersMiB: number };
+  memory: { totalMiB: number; availableMiB: number; apiMiB: number; workersMiB: number; bartphoRamMiB?: number; bartphoRamPercent?: number };
   capacity: { reserveMiB: number; planningWorkerMiB: number; theoreticalWorkers: number | null;
     measuredNextWorkerMiB: number; additionalWorkers: number | null; canAdd: boolean; queueCapacity: number;
     inputLimitMiB: number; maxPixels: number; requiredRamMiB: number; reserveRamMiB: number };

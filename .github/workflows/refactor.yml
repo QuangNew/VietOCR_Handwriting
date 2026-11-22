@@ -1,7 +1,7 @@
 name: Refactor foundation
 on:
   push:
-    branches: [refactor]
+    branches: [main, refactor]
     paths:
       - Cargo.toml
       - Cargo.lock
@@ -28,9 +28,19 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-      - run: rustup toolchain install 1.94.0 --profile minimal
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - run: rustup toolchain install 1.94.0 --profile minimal --component rustfmt,clippy
       - run: dotnet test services/compute/backend/VietOcr.Server.Tests --verbosity quiet
       - run: node --test apps/desktop/tests/*.test.mjs
+      - name: Check Desktop Rust formatting and lints
+        working-directory: apps/desktop/src-tauri
+        run: |
+          cargo +1.94.0 fmt --check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo +1.94.0 clippy --all-targets --locked -- -D warnings
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Native Tauri Windows release (no local C++ SDK download)
         working-directory: apps/desktop/src-tauri
         run: cargo +1.94.0 build --release --locked
