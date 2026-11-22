@@ -36,7 +36,7 @@ const transferRows = new Map();
 const operations = new Map();
 const thumbCache = new Map();
 const thumbLoading = new Set();
-const sendableStates = ['draft', 'awaiting_upload', 'upload_granted', 'uploading', 'cancelled'];
+const sendableStates = ['draft', 'awaiting_upload', 'upload_granted', 'uploading', 'cancelled', 'succeeded', 'failed', 'expired'];
 const terminalStates = ['succeeded', 'failed', 'cancelled', 'expired'];
 let transfersCollapsed = false;
 let stoppingAll = false;
@@ -105,21 +105,47 @@ function saveHistoryMeta(entry) {
   if (!entry || (!entry.jobId && !entry.sha256)) return;
   const map = loadHistoryMeta();
   const keys = Object.keys(map);
-  if (keys.length > 200) {
-    for (const k of keys.slice(0, keys.length - 150)) delete map[k];
+  if (keys.length > 140) {
+    for (const k of keys.slice(0, keys.length - 100)) delete map[k];
   }
   const merge = existing => ({
     name: entry.name || existing?.name || '',
     sentAt: entry.sentAt || existing?.sentAt || new Date().toISOString(),
     text: entry.text !== undefined && entry.text !== '' ? entry.text : existing?.text || '',
     state: entry.state || existing?.state || '',
+    thumb: entry.thumb || existing?.thumb || '',
   });
   if (entry.jobId) map[`job:${entry.jobId}`] = merge(map[`job:${entry.jobId}`]);
   if (entry.sha256) map[`sha:${entry.sha256}`] = merge(map[`sha:${entry.sha256}`]);
   try {
     localStorage.setItem(historyMetaKey(), JSON.stringify(map));
   } catch {
-    /* ignore storage quota errors */
+    // If localStorage is tight, retry without thumbnails
+    for (const k of Object.keys(map)) {
+      if (map[k]?.thumb) map[k].thumb = '';
+    }
+    try {
+      localStorage.setItem(historyMetaKey(), JSON.stringify(map));
+    } catch {
+      /* ignore */
+    }
+  }
+}
+async function makeMiniThumb(dataUrl) {
+  if (!dataUrl) return '';
+  try {
+    const img = new Image();
+    img.src = dataUrl;
+    await img.decode();
+    const maxW = 96, maxH = 72;
+    const s = Math.min(maxW / Math.max(1, img.naturalWidth), maxH / Math.max(1, img.naturalHeight), 1);
+    const c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(img.naturalWidth * s));
+    c.height = Math.max(1, Math.round(img.naturalHeight * s));
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    return c.toDataURL('image/jpeg', 0.65);
+  } catch {
+    return '';
   }
 }
 function recordDraftHistory(d) {
@@ -132,6 +158,12 @@ function recordDraftHistory(d) {
       text: d.text,
       state: d.state,
     });
+    const fullUrl = thumbCache.get(d.id);
+    if (fullUrl) {
+      makeMiniThumb(fullUrl).then(thumb => {
+        if (thumb) saveHistoryMeta({ jobId: d.jobId, sha256: d.sha256, thumb });
+      });
+    }
   }
 }
 
@@ -224,8 +256,7 @@ function ensureThumb(id) {
     .then(url => {
       if (epoch !== accountEpoch || !url) return;
       thumbCache.set(id, url);
-      const img = document.querySelector(`img[data-thumb-id="${id}"]`);
-      if (img) {
+      for (const img of document.querySelectorAll(`img[data-thumb-id="${id}"]`)) {
         img.src = url;
         img.hidden = false;
         const ph = img.parentElement?.querySelector('.draft-thumb-placeholder');
@@ -380,10 +411,15 @@ async function boot() {
   }
 }
 
-/* ---------- Theme toggle: 1.5s Left-to-Right sweep ---------- */
+/* ---------- Theme toggle: 1.5s Left-to-Right sweep + centered SVG icon ---------- */
+const SUN_SVG =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>';
+const MOON_SVG =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3a7 7 0 0 0 9.79 9.79z"/></svg>';
+
 function syncThemeIcon() {
   const isLight = document.body.classList.contains('light');
-  $('theme').textContent = isLight ? '🌙' : '☀';
+  $('theme').innerHTML = isLight ? MOON_SVG : SUN_SVG;
   $('theme').title = isLight ? 'Chuyển sang giao diện tối' : 'Chuyển sang giao diện sáng';
 }
 document.body.classList.toggle('light', localStorage.getItem('theme') === 'light');
@@ -459,7 +495,21 @@ $('copy').onclick = () =>
     await navigator.clipboard.writeText($('text').value);
     toast('Đã sao chép văn bản');
   });
-$('exportText').onclick = () => run(() => invoke('export_text'));
+function formatExportTimestamp(date = new Date()) {
+  const p = n => String(n).padStart(2, '0');
+  return `${date.getFullYear()}${p(date.getMonth() + 1)}${p(date.getDate())}-${p(date.getHours())}${p(date.getMinutes())}${p(date.getSeconds())}`;
+}
+function cleanImageStem(name) {
+  const stem = String(name || 'VietHandOCR').replace(/\.[^./\\]+$/, '').trim();
+  return stem.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').replace(/^\.+|\.+$/g, '') || 'VietHandOCR';
+}
+$('exportText').onclick = () =>
+  run(() => {
+    const cur = drafts.find(d => d.id === selected);
+    const stem = cur ? cleanImageStem(cur.name) : 'TatCa';
+    const suggestedName = `${formatExportTimestamp()}_${stem}_Script.txt`;
+    return invoke('export_text', { id: selected, suggestedName });
+  });
 
 function countText() {
   $('textCount').textContent = `${$('text').value.length.toLocaleString('vi')} ký tự`;
@@ -610,10 +660,11 @@ $('exportUnselectAll').onclick = () => {
 async function performExport(withText) {
   const ids = drafts.filter(d => exportSelection.has(d.id)).map(d => d.id);
   if (!ids.length) return;
-  const count = await invoke('export_images', { ids, withText });
+  const timestamp = formatExportTimestamp();
+  const count = await invoke('export_images', { ids, withText, timestamp });
   if (count > 0) {
     $('exportDialog').close();
-    toast(withText ? `Đã tải ${count} ảnh kèm file văn bản (.txt)` : `Đã tải ${count} ảnh`);
+    toast(withText ? `Đã tải ${count} ảnh kèm file văn bản (_Script.txt)` : `Đã tải ${count} ảnh`);
   }
 }
 $('exportImagesOnly').onclick = () => run(() => performExport(false));
@@ -957,6 +1008,30 @@ $('historyButton').onclick = () =>
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'history-item';
+
+      const thumbUrl = (localDraft && thumbCache.get(localDraft.id)) || cached?.thumb || '';
+      if (thumbUrl) {
+        const img = document.createElement('img');
+        img.className = 'history-thumb';
+        img.src = thumbUrl;
+        img.alt = displayName;
+        btn.append(img);
+      } else if (localDraft) {
+        const img = document.createElement('img');
+        img.className = 'history-thumb';
+        img.alt = displayName;
+        img.dataset.thumbId = localDraft.id;
+        ensureThumb(localDraft.id);
+        btn.append(img);
+      } else {
+        const ph = document.createElement('span');
+        ph.className = 'history-thumb';
+        ph.textContent = '🖼';
+        btn.append(ph);
+      }
+
+      const metaBox = document.createElement('div');
+      metaBox.className = 'history-item-meta';
       const titleEl = document.createElement('span');
       titleEl.className = 'history-item-title';
       titleEl.textContent = displayName;
@@ -964,7 +1039,8 @@ $('historyButton').onclick = () =>
       const timeEl = document.createElement('span');
       timeEl.className = 'history-item-time';
       timeEl.textContent = subText;
-      btn.append(titleEl, timeEl);
+      metaBox.append(titleEl, timeEl);
+      btn.append(metaBox);
 
       btn.onclick = () =>
         run(async () => {
@@ -1318,7 +1394,7 @@ async function openEditor() {
   requestAnimationFrame(drawEditor);
 }
 
-function drawEditor() {
+function drawEditor(preserveCenter = false) {
   if (!editorSource) return;
   const shape = $('shape').value;
   const angle = Number($('angle').value) || 0;
@@ -1326,9 +1402,31 @@ function drawEditor() {
   $('angleVal').textContent = `${angle}°`;
   $('zoomVal').textContent = zoomPct === 0 ? '0% (Vừa khung)' : `+${zoomPct}%`;
 
+  const stageW = editorStage.clientWidth;
+  const stageH = editorStage.clientHeight;
+  const prevScrollW = editorStage.scrollWidth || stageW;
+  const prevScrollH = editorStage.scrollHeight || stageH;
+  const relX =
+    preserveCenter && prevScrollW > stageW
+      ? (editorStage.scrollLeft + stageW / 2) / prevScrollW
+      : 0.5;
+  const relY =
+    preserveCenter && prevScrollH > stageH
+      ? (editorStage.scrollTop + stageH / 2) / prevScrollH
+      : 0.5;
+
   const scale = computeEditorScale();
-  canvas.style.width = `${Math.round(canvas.width * scale)}px`;
-  canvas.style.height = `${Math.round(canvas.height * scale)}px`;
+  const nextW = Math.round(canvas.width * scale);
+  const nextH = Math.round(canvas.height * scale);
+  canvas.style.width = `${nextW}px`;
+  canvas.style.height = `${nextH}px`;
+
+  if (preserveCenter) {
+    const newScrollW = editorStage.scrollWidth;
+    const newScrollH = editorStage.scrollHeight;
+    editorStage.scrollLeft = newScrollW > stageW ? Math.max(0, Math.round(relX * newScrollW - stageW / 2)) : 0;
+    editorStage.scrollTop = newScrollH > stageH ? Math.max(0, Math.round(relY * newScrollH - stageH / 2)) : 0;
+  }
 
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.drawImage(editorSource, 0, 0);
@@ -1485,8 +1583,8 @@ $('shape').onchange = () => {
   $('angle').value = '0';
   drawEditor();
 };
-$('angle').oninput = drawEditor;
-$('zoom').oninput = drawEditor;
+$('angle').oninput = () => drawEditor(false);
+$('zoom').oninput = () => drawEditor(true);
 $('editorClose').onclick = () => {
   $('editor').close();
   editorSource = null;

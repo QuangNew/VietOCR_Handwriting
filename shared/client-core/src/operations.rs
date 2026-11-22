@@ -55,14 +55,20 @@ impl Client {
             if draft.state == "cancel_pending" {
                 return Err("Cần xác nhận dừng lượt cũ với server trước khi gửi lại.".into());
             }
-            if draft.state == "cancelled" {
+            if matches!(
+                draft.state.as_str(),
+                "cancelled" | "succeeded" | "failed" | "expired"
+            ) {
+                let was_cancelled = draft.state == "cancelled";
                 draft.request_id = Uuid::new_v4();
                 draft.job_id = None;
                 draft.layout = None;
                 draft.correct = None;
                 draft.state = "draft".into();
                 draft.error.clear();
-                draft.text.clear();
+                if was_cancelled {
+                    draft.text.clear();
+                }
             }
             if !matches!(
                 draft.state.as_str(),

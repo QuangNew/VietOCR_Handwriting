@@ -119,10 +119,21 @@ class _VietOcrAppState extends State<VietOcrApp> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
-    final colors = ColorScheme.fromSeed(
+    final base = ColorScheme.fromSeed(
       seedColor: const Color(0xff128474),
       brightness: app.dark ? Brightness.dark : Brightness.light,
     );
+    // Soft off-white light surfaces reduce eye strain compared to pure white.
+    final colors = app.dark
+        ? base
+        : base.copyWith(
+            surface: const Color(0xffe7ecea),
+            surfaceContainerLowest: const Color(0xffedf1ef),
+            surfaceContainerLow: const Color(0xffe0e6e4),
+            surfaceContainer: const Color(0xffd7dfdc),
+            surfaceContainerHigh: const Color(0xffcfd7d4),
+            surfaceContainerHighest: const Color(0xffc6cfcc),
+          );
     return MaterialApp(
       title: 'VietHandOCR',
       debugShowCheckedModeBanner: false,
@@ -136,7 +147,7 @@ class _VietOcrAppState extends State<VietOcrApp> with WidgetsBindingObserver {
         colorScheme: colors,
         scaffoldBackgroundColor: app.dark
             ? const Color(0xff101918)
-            : const Color(0xfff5f8f7),
+            : const Color(0xffe2e7e5),
         appBarTheme: AppBarTheme(
           centerTitle: false,
           backgroundColor: colors.surface,

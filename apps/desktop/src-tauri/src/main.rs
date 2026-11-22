@@ -297,6 +297,7 @@ async fn export_images(
     state: State<'_, Desktop>,
     ids: Vec<Uuid>,
     with_text: Option<bool>,
+    timestamp: Option<String>,
 ) -> Result<u32, String> {
     let chosen =
         tauri::async_runtime::spawn_blocking(move || app.dialog().file().blocking_pick_folder())
@@ -309,6 +310,10 @@ async fn export_images(
     let client = state.client().await;
     let all = client.drafts().await?;
     let include_text = with_text.unwrap_or(false);
+    let ts_prefix = timestamp
+        .as_deref()
+        .map(|s| safe_export_stem(s, Uuid::nil()))
+        .filter(|s| !s.is_empty() && !s.starts_with("VietHandOCR-"));
     let mut count = 0;
     for id in ids {
         let draft = all.iter().find(|d| d.id == id).ok_or("Ảnh không tồn tại")?;
@@ -320,8 +325,12 @@ async fn export_images(
         let base_stem = safe_export_stem(&draft.name, id);
         let mut stem = base_stem.clone();
         let mut suffix = 2u32;
+        let txt_name_for = |s: &str| match &ts_prefix {
+            Some(ts) => format!("{ts}_{s}_Script.txt"),
+            None => format!("{s}_Script.txt"),
+        };
         while folder.join(format!("{stem}.{ext}")).exists()
-            || (include_text && folder.join(format!("{stem}.txt")).exists())
+            || (include_text && folder.join(txt_name_for(&stem)).exists())
         {
             stem = format!("{base_stem}-{suffix}");
             suffix += 1;
@@ -329,7 +338,7 @@ async fn export_images(
         let path = folder.join(format!("{stem}.{ext}"));
         vietocr_client_core::storage::atomic(&path, &client.image_bytes(id).await?)?;
         if include_text {
-            let txt_path = folder.join(format!("{stem}.txt"));
+            let txt_path = folder.join(txt_name_for(&stem));
             vietocr_client_core::storage::atomic(&txt_path, draft.text.as_bytes())?;
         }
         count += 1;
@@ -337,26 +346,43 @@ async fn export_images(
     Ok(count)
 }
 #[tauri::command]
-async fn export_text(app: tauri::AppHandle, state: State<'_, Desktop>) -> Result<(), String> {
+async fn export_text(
+    app: tauri::AppHandle,
+    state: State<'_, Desktop>,
+    id: Option<Uuid>,
+    suggested_name: Option<String>,
+) -> Result<(), String> {
+    let default_name = suggested_name
+        .as_deref()
+        .map(|s| {
+            let trimmed = s.strip_suffix(".txt").unwrap_or(s);
+            format!("{}.txt", safe_export_stem(trimmed, id.unwrap_or_else(Uuid::nil)))
+        })
+        .unwrap_or_else(|| "VietHandOCR_Script.txt".into());
     let path = tauri::async_runtime::spawn_blocking(move || {
         app.dialog()
             .file()
-            .set_file_name("VietHandOCR.txt")
+            .set_file_name(&default_name)
             .blocking_save_file()
     })
     .await
     .map_err(|_| "Không mở được hộp thoại")?;
     if let Some(path) = path {
-        let text = state
-            .client()
-            .await
-            .drafts()
-            .await?
-            .iter()
-            .filter(|d| !d.text.is_empty())
-            .map(|d| d.text.clone())
-            .collect::<Vec<_>>()
-            .join("\n\n");
+        let drafts = state.client().await.drafts().await?;
+        let text = if let Some(target_id) = id {
+            drafts
+                .iter()
+                .find(|d| d.id == target_id)
+                .map(|d| d.text.clone())
+                .unwrap_or_default()
+        } else {
+            drafts
+                .iter()
+                .filter(|d| !d.text.is_empty())
+                .map(|d| d.text.clone())
+                .collect::<Vec<_>>()
+                .join("\n\n")
+        };
         vietocr_client_core::storage::atomic(
             &path.into_path().map_err(|_| "Đường dẫn lỗi")?,
             text.as_bytes(),

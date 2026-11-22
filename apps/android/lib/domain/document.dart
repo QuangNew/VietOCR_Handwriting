@@ -16,8 +16,7 @@ class Document {
   DocumentStatus status;
   int rotation;
   bool included;
-  bool get canSend =>
-      status != DocumentStatus.done && status != DocumentStatus.processing;
+  bool get canSend => status != DocumentStatus.processing;
 
   Map<String, dynamic> toJson() => {
     'id': id,

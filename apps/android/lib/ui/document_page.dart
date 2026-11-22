@@ -23,11 +23,27 @@ void showNotice(BuildContext context, String message) {
   messenger.showSnackBar(SnackBar(content: Text(message)));
 }
 
-Future<void> shareText(String text) async {
+String _exportTimestamp() {
+  final now = DateTime.now();
+  String p(int v) => v.toString().padLeft(2, '0');
+  return '${now.year}${p(now.month)}${p(now.day)}-${p(now.hour)}${p(now.minute)}${p(now.second)}';
+}
+
+String _cleanStem(String? name) {
+  final raw = (name ?? '').trim();
+  if (raw.isEmpty) return 'TatCa';
+  final noExt = raw.replaceFirst(RegExp(r'\.[^./\\]+$'), '');
+  final safe = noExt
+      .replaceAll(RegExp(r'[<>:"/\\|?*\x00-\x1f]'), '_')
+      .replaceAll(RegExp(r'^\.+|\.+$'), '')
+      .trim();
+  return safe.isEmpty ? 'VietHandOCR' : safe;
+}
+
+Future<void> shareText(String text, {String? name}) async {
   final folder = await getTemporaryDirectory();
-  final file = File(
-    '${folder.path}/VietHandOCR-${DateTime.now().millisecondsSinceEpoch}.txt',
-  );
+  final filename = '${_exportTimestamp()}_${_cleanStem(name)}_Script.txt';
+  final file = File('${folder.path}/$filename');
   await file.writeAsString(text, flush: true);
   await SharePlus.instance.share(
     ShareParams(files: [XFile(file.path)], title: 'Văn bản VietHandOCR'),
@@ -45,7 +61,6 @@ class DocumentPage extends StatefulWidget {
 
 class _DocumentPageState extends State<DocumentPage> {
   AppController get app => widget.app;
-  late bool split = app.splitLines;
   late bool correct = app.correctText;
   late final String? owner = app.cloud.userId;
 
@@ -230,7 +245,7 @@ class _DocumentPageState extends State<DocumentPage> {
                           ? null
                           : () async {
                               try {
-                                await shareText(item.text);
+                                await shareText(item.text, name: item.name);
                               } catch (error) {
                                 if (context.mounted) {
                                   showNotice(
@@ -265,24 +280,8 @@ class _DocumentPageState extends State<DocumentPage> {
                       alignment: WrapAlignment.spaceBetween,
                       crossAxisAlignment: WrapCrossAlignment.center,
                       spacing: 10,
+                      runSpacing: 8,
                       children: [
-                        DropdownButton<bool>(
-                          value: split,
-                          onChanged: app.busy
-                              ? null
-                              : (value) =>
-                                    setState(() => split = value ?? true),
-                          items: const [
-                            DropdownMenuItem(
-                              value: true,
-                              child: Text('Tự tách dòng'),
-                            ),
-                            DropdownMenuItem(
-                              value: false,
-                              child: Text('Một dòng'),
-                            ),
-                          ],
-                        ),
                         FilterChip(
                           selected: correct,
                           onSelected: app.busy
@@ -295,12 +294,13 @@ class _DocumentPageState extends State<DocumentPage> {
                               ? null
                               : () => app.recognize(
                                   only: item.id,
-                                  split: split,
+                                  split: true,
                                   correct: correct,
                                 ),
                           icon: const Icon(Icons.send_outlined),
                           label: Text(
-                            item.status == DocumentStatus.error ||
+                            item.status == DocumentStatus.done ||
+                                    item.status == DocumentStatus.error ||
                                     item.status == DocumentStatus.cancelled
                                 ? 'Gửi lại ảnh'
                                 : 'Gửi ảnh này',

@@ -1,9 +1,13 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../domain/app_controller.dart';
+import '../domain/document.dart';
 import 'document_page.dart';
 import 'log_page.dart';
 
@@ -146,7 +150,7 @@ class _SettingsPageState extends State<SettingsPage> {
                     ),
                     ListTile(
                       leading: const Icon(Icons.history),
-                      title: const Text('Lịch sử trên máy chủ'),
+                      title: const Text('Lịch sử'),
                       trailing: const Icon(Icons.chevron_right),
                       onTap: !app.gatewayVerified
                           ? null
@@ -156,19 +160,20 @@ class _SettingsPageState extends State<SettingsPage> {
                               ),
                             ),
                     ),
-                    ListTile(
-                      leading: const Icon(Icons.list_alt_outlined),
-                      title: const Text('Nhật ký chẩn đoán'),
-                      trailing: const Icon(Icons.chevron_right),
-                      onTap: () => Navigator.of(context).push<void>(
-                        MaterialPageRoute(
-                          builder: (_) => Scaffold(
-                            appBar: AppBar(title: const Text('Nhật ký')),
-                            body: const LogPage(),
+                    if (kDebugMode)
+                      ListTile(
+                        leading: const Icon(Icons.list_alt_outlined),
+                        title: const Text('Nhật ký chẩn đoán'),
+                        trailing: const Icon(Icons.chevron_right),
+                        onTap: () => Navigator.of(context).push<void>(
+                          MaterialPageRoute(
+                            builder: (_) => Scaffold(
+                              appBar: AppBar(title: const Text('Nhật ký')),
+                              body: const LogPage(),
+                            ),
                           ),
                         ),
                       ),
-                    ),
                   ],
                 ),
               ),
@@ -329,14 +334,22 @@ class _HistoryPageState extends State<_HistoryPage> {
         ),
       );
     } catch (error) {
-      if (mounted) showNotice(context, AppController.readableError(error));
+      if (mounted) {
+        final msg = error.toString();
+        showNotice(
+          context,
+          msg.contains('result_expired') || msg.contains('410')
+              ? 'Kết quả đã hết hạn lưu trên server.'
+              : AppController.readableError(error),
+        );
+      }
     } finally {
       if (mounted) setState(() => loading = false);
     }
   }
 
   String _status(Object? value) => switch (value) {
-    'succeeded' => 'Đã có văn bản',
+    'succeeded' => 'Hoàn tất',
     'failed' => 'Không đọc được ảnh',
     'cancelled' => 'Đã hủy',
     'running' => 'Đang đọc',
@@ -346,13 +359,13 @@ class _HistoryPageState extends State<_HistoryPage> {
 
   String _date(Object? value) {
     final date = DateTime.tryParse(value?.toString() ?? '')?.toLocal();
-    if (date == null) return 'Lượt nhận diện';
+    if (date == null) return '';
     return '${MaterialLocalizations.of(context).formatShortDate(date)} · ${MaterialLocalizations.of(context).formatTimeOfDay(TimeOfDay.fromDateTime(date))}';
   }
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('Lịch sử trên máy chủ')),
+    appBar: AppBar(title: const Text('Lịch sử (50 lượt gần nhất)')),
     body: ListenableBuilder(
       listenable: widget.app.cloud,
       builder: (context, _) => owner != widget.app.cloud.userId
@@ -372,9 +385,24 @@ class _HistoryPageState extends State<_HistoryPage> {
                     ),
                   );
                 }
-                final rows = snapshot.data ?? [];
+                final rows = (snapshot.data ?? []).take(50).toList();
                 if (rows.isEmpty) {
                   return const Center(child: Text('Chưa có lượt nhận diện.'));
+                }
+                final byJob = <String, Document>{};
+                final bySha = <String, Document>{};
+                for (final doc in widget.app.documents) {
+                  final metaFile = File('${doc.path}.ocr-v2.json');
+                  if (!metaFile.existsSync()) continue;
+                  try {
+                    final meta = jsonDecode(metaFile.readAsStringSync());
+                    if (meta is Map) {
+                      final jid = meta['jobId']?.toString();
+                      final sha = meta['sha256']?.toString();
+                      if (jid != null && jid.isNotEmpty) byJob[jid] = doc;
+                      if (sha != null && sha.isNotEmpty) bySha[sha] = doc;
+                    }
+                  } catch (_) {}
                 }
                 return Column(
                   children: [
@@ -384,15 +412,47 @@ class _HistoryPageState extends State<_HistoryPage> {
                         itemCount: rows.length,
                         itemBuilder: (context, index) {
                           final row = rows[index];
+                          final idStr = row['id']?.toString() ?? '';
+                          final shaStr = row['sha256']?.toString() ?? '';
+                          final matched = byJob[idStr] ?? bySha[shaStr];
+                          final dateStr = _date(
+                            row['created_at'] ?? row['createdAt'],
+                          );
+                          final subtitle = dateStr.isEmpty
+                              ? _status(row['state'])
+                              : '$dateStr · ${_status(row['state'])}';
+                          final thumbFile =
+                              matched != null && File(matched.path).existsSync()
+                              ? File(matched.path)
+                              : null;
                           return ListTile(
-                            leading: const Icon(Icons.description_outlined),
-                            title: Text(_status(row['state'])),
-                            subtitle: Text(
-                              _date(row['created_at'] ?? row['createdAt']),
+                            leading: thumbFile != null
+                                ? ClipRRect(
+                                    borderRadius: BorderRadius.circular(8),
+                                    child: Image.file(
+                                      thumbFile,
+                                      width: 44,
+                                      height: 44,
+                                      fit: BoxFit.cover,
+                                      cacheWidth: 120,
+                                      errorBuilder: (_, _, _) => const Icon(
+                                        Icons.description_outlined,
+                                      ),
+                                    ),
+                                  )
+                                : const Icon(Icons.description_outlined),
+                            title: Text(
+                              matched?.name ??
+                                  (idStr.length >= 8
+                                      ? 'Ảnh #${idStr.substring(0, 8)}'
+                                      : _status(row['state'])),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                             ),
+                            subtitle: Text(subtitle),
                             trailing: const Icon(Icons.chevron_right),
-                            onTap: row['id'] is String && !loading
-                                ? () => unawaited(_open(row['id'] as String))
+                            onTap: idStr.isNotEmpty && !loading
+                                ? () => unawaited(_open(idStr))
                                 : null,
                           );
                         },

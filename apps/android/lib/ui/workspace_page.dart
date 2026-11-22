@@ -485,25 +485,6 @@ class _SendBar extends StatelessWidget {
                   spacing: 8,
                   runSpacing: 8,
                   children: [
-                    PopupMenuButton<bool>(
-                      tooltip: 'Cách đọc ảnh',
-                      initialValue: app.splitLines,
-                      onSelected: app.setSplit,
-                      itemBuilder: (_) => const [
-                        PopupMenuItem(value: true, child: Text('Tự tách dòng')),
-                        PopupMenuItem(value: false, child: Text('Một dòng')),
-                      ],
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 10),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(app.splitLines ? 'Tự tách dòng' : 'Một dòng'),
-                            const Icon(Icons.expand_more, size: 18),
-                          ],
-                        ),
-                      ),
-                    ),
                     FilterChip(
                       selected: app.correctText,
                       onSelected: app.busy ? null : app.setCorrectText,
@@ -513,7 +494,7 @@ class _SendBar extends StatelessWidget {
                     FilledButton.icon(
                       onPressed: app.canSend && !app.importing
                           ? () async {
-                              await app.recognize();
+                              await app.recognize(split: true);
                               if (context.mounted) {
                                 showNotice(context, app.message);
                               }

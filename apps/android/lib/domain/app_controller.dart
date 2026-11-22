@@ -489,6 +489,7 @@ class AppController extends ChangeNotifier {
           cancel.check();
           active.text = text;
           active.status = DocumentStatus.done;
+          active.included = false;
           completed++;
         } on OcrCancelled {
           rethrow;

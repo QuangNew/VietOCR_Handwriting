@@ -438,9 +438,10 @@ class VietOcrRemote {
     );
     const retryableTerminal = {'failed', 'cancelled', 'expired'};
     var intent = await openIntent();
-    if (retryableTerminal.contains(intent['state'])) {
-      // recognize is called by Send. A new key is only needed after a terminal
-      // attempt, while interrupted uploads keep the key and resume position.
+    if (intent['state'] == 'succeeded' ||
+        retryableTerminal.contains(intent['state'])) {
+      // recognize is called by Send. A new key is needed after any completed
+      // or terminal attempt so users can explicitly resend any photo anytime.
       await newAttempt();
       intent = await openIntent();
     }
