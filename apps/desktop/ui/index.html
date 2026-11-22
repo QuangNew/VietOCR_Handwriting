@@ -1,22 +1,325 @@
 <!doctype html>
-<html lang="vi"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>VietHandOCR</title><link rel="stylesheet" href="style.css"></head>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>VietHandOCR</title>
+  <link rel="stylesheet" href="style.css">
+</head>
 <body>
-<aside id="sidebar"><div class="brand"><span>V</span><div>VietHandOCR<small>KHÔNG GIAN TÀI LIỆU</small></div></div>
-<div class="connection"><span class="dot" id="connectionDot"></span><span id="connection">Chưa xác minh Raspberry</span><button id="settingsButton" class="icon" title="Cấu hình kết nối">⚙</button></div>
-<div class="section-label">TÀI LIỆU <span id="count">0</span></div><div id="drafts" class="draft-list"></div>
-<div class="sidebar-footer"><button id="historyButton">◷ Lịch sử trên server</button><button id="downloadAll">↓ Tải tất cả ảnh</button><button id="logsButton">Nhật ký lỗi</button><div class="account"><span id="email">Đăng nhập Google</span><button id="logoutButton" class="icon" title="Đăng xuất">↪</button></div></div></aside>
-<div id="splitter" title="Kéo để thay đổi chiều rộng"></div>
-<main><header><div><div class="eyebrow">VIETHANDOCR / WORKSPACE</div><h1>Tài liệu</h1><p>Giữ nét chữ. Đọc điều bạn cần.</p></div><div class="header-actions"><button id="theme" class="icon" title="Đổi giao diện">☼</button><button id="import">＋ Tải ảnh lên</button><button id="cameraButton" class="primary">◉ Camera Raspberry</button></div></header>
-<div id="authGate" class="auth-gate"><div class="auth-card"><span class="auth-mark">V</span><h2>Từ nét bút đến văn bản.</h2><p>Đăng nhập Google và xác minh qua Raspberry để mở tài liệu.<br>Ảnh chưa gửi được giữ riêng trên thiết bị của bạn.</p><button id="login" class="primary">Đăng nhập bằng Google</button><button id="gateSettings">Cấu hình Raspberry</button><p id="authMessage" class="muted"></p></div></div>
-<section id="workspace" hidden><div class="panels"><article><div class="panel-head"><h2>Ảnh gốc</h2><span id="imageInfo" class="muted">Bản nháp riêng</span></div><button id="original" class="original"><img id="originalImage" hidden alt="Ảnh đã chọn"><div id="emptyImage"><span class="paper">＋</span><h3>Bắt đầu với một tấm ảnh</h3><p>Tải từ máy tính hoặc chụp bằng Raspberry</p></div></button><div class="panel-tools"><button id="edit">⌗ Zoom & crop</button><button id="download">↓ Lưu ảnh</button><button id="remove" class="danger">Xoá</button></div></article>
-<article><div class="panel-head"><h2>Văn bản</h2><span id="jobState" class="badge">Chưa gửi</span></div><p class="muted">Bạn có thể chỉnh sửa kết quả trực tiếp ở đây.</p><textarea id="text" placeholder="Kết quả sẽ xuất hiện sau khi bạn nhấn Gửi."></textarea><div class="panel-tools"><span id="textCount" class="muted">0 ký tự</span><button id="copy">Sao chép</button><button id="exportText">Xuất .txt</button></div></article></div>
-<footer><div><select id="layout" aria-label="Cách đọc"><option value="auto">Tự tách dòng</option><option value="line">Một dòng chữ</option></select><label class="correct-toggle" title="Tích chọn để chạy thêm BARTpho v2 sau ML_s44 nhằm sửa lỗi dấu và ngữ cảnh tiếng Việt"><input id="correct" type="checkbox"> Nội suy sửa lỗi (BARTpho)</label><span class="muted">Ảnh tự tối ưu khi gửi · bản gốc được giữ.</span></div><button id="send" class="primary">Gửi bản nháp →</button></footer></section>
-<div class="status-line"><span id="message">Cấu hình Raspberry để bắt đầu.</span><span>Client → Raspberry → Server</span></div></main>
-<dialog id="settings"><form method="dialog" class="dialog-head"><h2>Kết nối Raspberry</h2><button class="icon" aria-label="Đóng">×</button></form><p>Nhập địa chỉ HTTPS của Raspberry để dùng camera và gửi ảnh.</p><label>Địa chỉ Raspberry<input id="gateway" type="url" placeholder="https://api.quangnew.tech" spellcheck="false"></label><p class="muted">Đăng nhập bằng Google. Cấu hình dịch vụ đã được tích hợp trong ứng dụng.</p><div class="dialog-actions"><button id="saveSettings" class="primary">Lưu & kiểm tra</button></div></dialog>
-<dialog id="camera" class="large-dialog"><div class="dialog-head"><div><h2>Camera Raspberry</h2><p class="muted">Webcam dùng chung · chụp thành bản nháp · chỉ gửi khi bạn chọn Gửi</p></div><button id="cameraClose" class="icon" aria-label="Đóng camera">×</button></div><div class="camera-tools"><select id="cameraSelect" aria-label="Chọn webcam"></select><label><input id="mirror" type="checkbox"> Lật gương</label><span id="cameraStatus">Đang mở camera…</span></div><div class="camera-stage"><img id="live" alt="Góc nhìn từ webcam Raspberry"></div><div class="dialog-actions"><span id="reviewStatus" class="muted"></span><button id="skip" hidden>Bỏ qua · Chụp tiếp</button><button id="shoot" class="primary">◉ Chụp ảnh</button></div></dialog>
-<dialog id="editor" class="large-dialog"><div class="dialog-head"><div><h2>Xem & chỉnh ảnh</h2><p class="muted">Mọi chỉnh sửa tạo bản nháp mới, giữ nguyên ảnh gốc.</p></div><button id="editorClose" class="icon" aria-label="Đóng trình chỉnh sửa">×</button></div><div class="editor-tools"><select id="shape" aria-label="Vùng crop"><option value="rectangle">Hình chữ nhật</option><option value="ellipse">Hình elip</option><option value="freehand">Vẽ tự do</option></select><label>Góc vùng cắt <input id="angle" type="range" min="-180" max="180" value="0"></label><label>Zoom <input id="zoom" type="range" min="25" max="250" value="75"></label><button id="rotate">↶ Xoay 90°</button></div><div class="editor-stage"><canvas id="canvas"></canvas></div><div class="dialog-actions"><span id="editorInfo" class="muted">Kéo trên ảnh để chọn vùng cắt.</span><button id="bw">Đen trắng OCR</button><button id="crop" class="primary">Lưu vùng cắt thành ảnh mới</button></div></dialog>
-<div id="transfers" class="transfer-panel" hidden><div class="dialog-head"><strong id="transferTitle">Đang gửi tài liệu</strong><div class="transfer-actions"><button id="stopAllTransfers" class="stop-transfer">Dừng tất cả</button><button id="hideTransfers" class="icon" title="Thu gọn tiến trình" aria-label="Thu gọn tiến trình">⌄</button></div></div><div id="transferRows"></div></div>
-<button id="showTransfers" class="transfer-toggle" title="Mở lại tiến trình" aria-label="Mở tiến trình" aria-expanded="false" hidden>↑</button>
-<dialog id="history" class="large-dialog"><div class="dialog-head"><div><h2>Lịch sử nhận diện</h2><p class="muted">100 lượt gần nhất của tài khoản · kết quả đọc trực tiếp từ server</p></div><form method="dialog"><button class="icon" aria-label="Đóng lịch sử">×</button></form></div><div id="historyRows" class="history-list"></div><p id="historyState" class="muted"></p><textarea id="historyText" readonly aria-label="Kết quả đã lưu"></textarea><div class="dialog-actions"><button id="historyCopy">Sao chép kết quả</button></div></dialog>
-<dialog id="logs" class="large-dialog"><div class="dialog-head"><div><h2>Nhật ký ứng dụng</h2><p class="muted">Lưu trên máy, không ghi ảnh hoặc văn bản nhận diện.</p></div><form method="dialog"><button class="icon" aria-label="Đóng nhật ký">×</button></form></div><textarea id="logText" readonly aria-label="Nhật ký lỗi"></textarea><div class="dialog-actions"><button id="reloadLogs">Làm mới</button><button id="copyLogs">Sao chép nhật ký</button></div></dialog>
-<div id="toast" role="status" hidden></div><script type="module" src="app.mjs"></script></body></html>
+  <button id="sidebarReveal" class="sidebar-reveal" type="button" title="Mở thanh tài liệu" aria-label="Mở thanh tài liệu" hidden>›</button>
+
+  <aside id="sidebar">
+    <div class="sidebar-top">
+      <div class="brand">
+        <span>V</span>
+        <div>VietHandOCR<small>TÀI LIỆU</small></div>
+      </div>
+      <div class="pin-switch" role="group" aria-label="Chế độ thanh menu">
+        <button id="pinStay" type="button" class="pin-btn active" title="Luôn giữ thanh menu">Giữ</button>
+        <button id="pinHide" type="button" class="pin-btn" title="Tự ẩn sau 2 giây khi rời chuột">Ẩn đi</button>
+      </div>
+    </div>
+
+    <div class="connection">
+      <span class="dot" id="connectionDot"></span>
+      <span id="connection">Chưa xác minh Raspberry</span>
+      <button id="settingsButton" class="icon" type="button" title="Kết nối Raspberry" aria-label="Kết nối Raspberry">⚙</button>
+    </div>
+
+    <div class="section-label">
+      <span>TÀI LIỆU</span>
+      <span id="count">0</span>
+    </div>
+
+    <div id="drafts" class="draft-list"></div>
+
+    <div class="sidebar-footer">
+      <div class="sidebar-actions">
+        <button id="historyButton" class="compact-btn" type="button" title="Lịch sử nhận diện (50 lượt gần nhất)">◷ Lịch sử</button>
+
+        <div class="menu-wrap">
+          <button id="downloadMenuBtn" class="compact-btn" type="button" aria-haspopup="menu" aria-expanded="false">↓ Tải ▾</button>
+          <div id="downloadMenu" class="pop-menu" role="menu" hidden>
+            <button id="dlCurrent" type="button" role="menuitem">Tải ảnh hiện tại</button>
+            <button id="dlAll" type="button" role="menuitem">Tải toàn bộ ảnh</button>
+            <button id="dlPick" type="button" role="menuitem">Chọn ảnh để tải</button>
+          </div>
+        </div>
+
+        <div class="menu-wrap">
+          <button id="clearMenuBtn" class="compact-btn danger" type="button" aria-haspopup="menu" aria-expanded="false">✕ Clear ▾</button>
+          <div id="clearMenu" class="pop-menu" role="menu" hidden>
+            <button id="clearCurrent" type="button" role="menuitem">Clear ảnh hiện tại</button>
+            <button id="clearAll" type="button" role="menuitem" class="danger">Clear toàn bộ</button>
+            <button id="clearPick" type="button" role="menuitem">Chọn ảnh để clear</button>
+          </div>
+        </div>
+
+        <button id="logsButton" class="compact-btn" type="button" hidden>Nhật ký</button>
+      </div>
+
+      <div class="account">
+        <div class="account-meta">
+          <span id="email" class="account-email">Đăng nhập Google</span>
+          <small id="accountLimit" class="account-limit">Hạn mức: —</small>
+        </div>
+        <button id="logoutButton" class="icon" type="button" title="Đăng xuất" aria-label="Đăng xuất">↪</button>
+      </div>
+    </div>
+  </aside>
+
+  <div id="splitter" title="Kéo để thay đổi chiều rộng"></div>
+
+  <main>
+    <header>
+      <div class="header-title">
+        <span class="eyebrow">VIETHANDOCR</span>
+        <h1>Tài liệu</h1>
+      </div>
+      <div class="header-actions">
+        <button id="theme" class="icon theme-btn" type="button" title="Chuyển giao diện sáng / tối" aria-label="Đổi giao diện">☀</button>
+        <button id="import" type="button">＋ Tải ảnh lên</button>
+        <button id="cameraButton" class="primary" type="button">◉ Camera Raspberry</button>
+      </div>
+    </header>
+
+    <div id="authGate" class="auth-gate">
+      <div class="auth-card">
+        <span class="auth-mark">V</span>
+        <h2>Từ nét bút đến văn bản.</h2>
+        <p>Đăng nhập Google và xác minh qua Raspberry để mở tài liệu.<br>Ảnh chưa gửi được giữ riêng trên thiết bị của bạn.</p>
+        <button id="login" class="primary" type="button">Đăng nhập bằng Google</button>
+        <button id="gateSettings" type="button">Kết nối Raspberry</button>
+        <p id="authMessage" class="muted"></p>
+      </div>
+    </div>
+
+    <section id="workspace" hidden>
+      <div class="panels">
+        <article class="panel-image">
+          <div class="panel-head">
+            <h2>Ảnh gốc</h2>
+            <div class="panel-head-right">
+              <span id="imageInfo" class="muted">Bản nháp riêng</span>
+              <span id="editHint" class="edit-hint" hidden>Nhấn ảnh để chỉnh</span>
+            </div>
+          </div>
+          <button id="original" class="original" type="button" title="Nhấn vào ảnh để Xem & chỉnh ảnh">
+            <img id="originalImage" hidden alt="Ảnh đã chọn">
+            <div id="emptyImage">
+              <span class="paper">＋</span>
+              <h3>Bắt đầu với một tấm ảnh</h3>
+              <p>Tải từ máy tính hoặc chụp bằng Raspberry</p>
+            </div>
+          </button>
+        </article>
+
+        <article class="panel-text">
+          <div class="panel-head">
+            <h2>Văn bản</h2>
+            <span id="jobState" class="badge">Chưa gửi</span>
+          </div>
+          <textarea id="text" placeholder="Kết quả nhận dạng sẽ xuất hiện sau khi bạn nhấn Gửi. Bạn có thể chỉnh sửa trực tiếp tại đây."></textarea>
+          <div class="panel-tools">
+            <span id="textCount" class="muted">0 ký tự</span>
+            <button id="copy" type="button">Sao chép</button>
+            <button id="exportText" type="button">Xuất .txt</button>
+          </div>
+        </article>
+      </div>
+
+      <footer>
+        <div class="footer-left">
+          <label class="correct-toggle" title="Tích chọn để chạy thêm BARTpho v2 sau ML_s44 nhằm sửa lỗi dấu và ngữ cảnh tiếng Việt">
+            <input id="correct" type="checkbox"> Nội suy sửa lỗi (BARTpho)
+          </label>
+          <span id="message" class="footer-msg"></span>
+        </div>
+        <button id="send" class="primary" type="button">Gửi 0 ảnh →</button>
+      </footer>
+    </section>
+  </main>
+
+  <dialog id="settings">
+    <form method="dialog" class="dialog-head">
+      <h2>Kết nối Raspberry</h2>
+      <button class="icon" aria-label="Đóng">×</button>
+    </form>
+    <label>
+      Địa chỉ Raspberry
+      <input id="gateway" type="url" placeholder="https://api.quangnew.tech" spellcheck="false">
+    </label>
+    <div class="dialog-actions">
+      <button id="saveSettings" class="primary" type="button">Lưu & kiểm tra</button>
+    </div>
+  </dialog>
+
+  <dialog id="camera" class="large-dialog">
+    <div class="dialog-head">
+      <div>
+        <h2>Camera Raspberry</h2>
+        <p class="muted">Webcam dùng chung · chụp thành bản nháp · chỉ gửi khi bạn chọn Gửi</p>
+      </div>
+      <button id="cameraClose" class="icon" type="button" aria-label="Đóng camera">×</button>
+    </div>
+    <div class="camera-tools">
+      <select id="cameraSelect" aria-label="Chọn webcam"></select>
+      <label><input id="mirror" type="checkbox"> Lật gương</label>
+      <span id="cameraStatus">Đang mở camera…</span>
+    </div>
+    <div class="camera-stage">
+      <img id="live" alt="Góc nhìn từ webcam Raspberry">
+    </div>
+    <div class="dialog-actions">
+      <span id="reviewStatus" class="muted"></span>
+      <button id="skip" type="button" hidden>Bỏ qua · Chụp tiếp</button>
+      <button id="shoot" class="primary" type="button">◉ Chụp ảnh</button>
+    </div>
+  </dialog>
+
+  <dialog id="editor" class="large-dialog">
+    <div class="dialog-head">
+      <div>
+        <h2>Xem & chỉnh ảnh</h2>
+        <p class="muted">Mọi chỉnh sửa tạo bản nháp mới, giữ nguyên ảnh gốc.</p>
+      </div>
+      <button id="editorClose" class="icon" type="button" aria-label="Đóng trình chỉnh sửa">×</button>
+    </div>
+    <div class="editor-tools">
+      <select id="shape" aria-label="Vùng crop">
+        <option value="rectangle">Hình chữ nhật</option>
+        <option value="ellipse">Hình elip</option>
+        <option value="freehand">Vẽ tự do</option>
+      </select>
+      <label class="slider-ctl">
+        <span>Góc vùng cắt <b id="angleVal">0°</b></span>
+        <input id="angle" type="range" min="-180" max="180" value="0">
+      </label>
+      <label class="slider-ctl">
+        <span>Zoom <b id="zoomVal">0% (Vừa khung)</b></span>
+        <input id="zoom" type="range" min="0" max="200" value="0">
+      </label>
+      <button id="rotate" type="button">↶ Xoay 90°</button>
+    </div>
+    <div id="editorStage" class="editor-stage">
+      <canvas id="canvas"></canvas>
+    </div>
+    <div class="dialog-actions">
+      <span id="editorInfo" class="muted">Kéo trên ảnh để chọn vùng cắt.</span>
+      <button id="bw" type="button">Đen trắng OCR</button>
+      <button id="crop" class="primary" type="button">Lưu vùng cắt thành ảnh mới</button>
+    </div>
+  </dialog>
+
+  <dialog id="history" class="large-dialog">
+    <div class="dialog-head">
+      <div>
+        <h2>Lịch sử nhận diện</h2>
+        <p class="muted">Tối đa 50 lượt gửi gần nhất của tài khoản</p>
+      </div>
+      <div class="dialog-head-tools">
+        <label class="inline-check">
+          <input id="historyShowTime" type="checkbox" checked> Hiện thời gian gửi
+        </label>
+        <form method="dialog"><button class="icon" aria-label="Đóng lịch sử">×</button></form>
+      </div>
+    </div>
+    <div class="split-body">
+      <div class="split-left">
+        <div class="split-label">Danh sách ảnh đã gửi</div>
+        <div id="historyRows" class="history-list"></div>
+      </div>
+      <div class="split-right">
+        <div class="split-label-row">
+          <span class="split-label">Văn bản lưu gần nhất</span>
+          <span id="historyState" class="muted"></span>
+        </div>
+        <textarea id="historyText" readonly aria-label="Kết quả đã lưu" placeholder="Chọn một mục bên trái để xem văn bản."></textarea>
+      </div>
+    </div>
+    <div class="dialog-actions">
+      <button id="historyCopy" type="button">Sao chép kết quả</button>
+    </div>
+  </dialog>
+
+  <dialog id="exportDialog" class="large-dialog">
+    <div class="dialog-head">
+      <div>
+        <h2 id="exportTitle">Tải ảnh</h2>
+        <p id="exportSubtitle" class="muted">Kiểm tra danh sách ảnh và văn bản đi kèm trước khi tải về máy</p>
+      </div>
+      <div class="dialog-head-tools">
+        <button id="exportSelectAll" type="button" class="compact-btn">Chọn tất cả</button>
+        <button id="exportUnselectAll" type="button" class="compact-btn">Bỏ chọn</button>
+        <form method="dialog"><button class="icon" aria-label="Đóng">×</button></form>
+      </div>
+    </div>
+    <div class="split-body">
+      <div class="split-left">
+        <div class="split-label">Danh sách ảnh (<span id="exportSelectedCount">0</span>)</div>
+        <div id="exportImageList" class="export-list"></div>
+      </div>
+      <div class="split-right">
+        <div class="split-label">Văn bản đi kèm của từng ảnh</div>
+        <div id="exportTextList" class="export-text-list"></div>
+      </div>
+    </div>
+    <div class="dialog-actions">
+      <span class="muted">Bạn có muốn tải ảnh kèm file văn bản (.txt) đi kèm không?</span>
+      <button id="exportImagesOnly" type="button">Chỉ tải ảnh</button>
+      <button id="exportWithText" class="primary" type="button">Tải cùng text</button>
+    </div>
+  </dialog>
+
+  <dialog id="clearDialog" class="medium-dialog">
+    <div class="dialog-head">
+      <div>
+        <h2>Chọn ảnh để Clear</h2>
+        <p class="muted">Chỉ xoá bản nháp trên máy; ảnh đang tải lên hoặc đang xử lý sẽ được giữ an toàn.</p>
+      </div>
+      <div class="dialog-head-tools">
+        <button id="clearSelectAll" type="button" class="compact-btn">Chọn tất cả</button>
+        <button id="clearUnselectAll" type="button" class="compact-btn">Bỏ chọn</button>
+        <form method="dialog"><button class="icon" aria-label="Đóng">×</button></form>
+      </div>
+    </div>
+    <div id="clearGrid" class="clear-grid"></div>
+    <div class="dialog-actions">
+      <span id="clearSelectedInfo" class="muted">Đã chọn 0 ảnh</span>
+      <form method="dialog"><button type="button" id="cancelClearDialog">Huỷ</button></form>
+      <button id="confirmClearSelected" class="primary danger-btn" type="button">Xoá ảnh đã chọn</button>
+    </div>
+  </dialog>
+
+  <div id="transfers" class="transfer-panel" hidden>
+    <div class="dialog-head">
+      <strong id="transferTitle">Đang gửi tài liệu</strong>
+      <div class="transfer-actions">
+        <button id="stopAllTransfers" class="stop-transfer" type="button">Dừng tất cả</button>
+        <button id="hideTransfers" class="icon" type="button" title="Thu gọn tiến trình" aria-label="Thu gọn tiến trình">⌄</button>
+      </div>
+    </div>
+    <div id="transferRows"></div>
+  </div>
+  <button id="showTransfers" class="transfer-toggle" type="button" title="Mở lại tiến trình" aria-label="Mở tiến trình" aria-expanded="false" hidden>↑</button>
+
+  <dialog id="logs" class="large-dialog">
+    <div class="dialog-head">
+      <div>
+        <h2>Nhật ký ứng dụng (Dev)</h2>
+        <p class="muted">Lưu trên máy, không ghi ảnh hoặc văn bản nhận diện.</p>
+      </div>
+      <form method="dialog"><button class="icon" aria-label="Đóng nhật ký">×</button></form>
+    </div>
+    <textarea id="logText" readonly aria-label="Nhật ký lỗi"></textarea>
+    <div class="dialog-actions">
+      <button id="reloadLogs" type="button">Làm mới</button>
+      <button id="copyLogs" type="button">Sao chép nhật ký</button>
+    </div>
+  </dialog>
+
+  <div id="toast" role="status" hidden></div>
+  <script type="module" src="app.mjs"></script>
+</body>
+</html>

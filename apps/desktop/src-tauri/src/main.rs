@@ -38,8 +38,12 @@ async fn bootstrap(state: State<'_, Desktop>) -> Result<Value, String> {
     let workspace_allowed = cached.is_ok();
     let drafts = cached.unwrap_or_default();
     Ok(
-        json!({"config":{"gateway":client.config.gateway},"session":session,"verified":verified,"drafts":drafts,"workspaceAllowed":workspace_allowed}),
+        json!({"config":{"gateway":client.config.gateway},"session":session,"verified":verified,"drafts":drafts,"workspaceAllowed":workspace_allowed,"isDebug":cfg!(debug_assertions)}),
     )
+}
+#[tauri::command]
+async fn session_status(state: State<'_, Desktop>) -> Result<Option<Value>, String> {
+    Ok(state.client().await.verify().await.ok())
 }
 #[tauri::command]
 async fn configure(state: State<'_, Desktop>, gateway: String) -> Result<(), String> {
@@ -256,10 +260,43 @@ async fn remove_draft(state: State<'_, Desktop>, id: Uuid) -> Result<(), String>
     state.client().await.remove(id).await
 }
 #[tauri::command]
+async fn remove_drafts(state: State<'_, Desktop>, ids: Vec<Uuid>) -> Result<Vec<Uuid>, String> {
+    let client = state.client().await;
+    let mut removed = Vec::new();
+    for id in ids {
+        if client.remove(id).await.is_ok() {
+            removed.push(id);
+        }
+    }
+    Ok(removed)
+}
+fn safe_export_stem(name: &str, fallback_id: Uuid) -> String {
+    let raw = std::path::Path::new(name)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("")
+        .trim();
+    let cleaned: String = raw
+        .chars()
+        .map(|c| match c {
+            '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*' => '_',
+            c if c.is_control() => '_',
+            c => c,
+        })
+        .collect();
+    let trimmed = cleaned.trim().trim_matches('.');
+    if trimmed.is_empty() {
+        format!("VietHandOCR-{fallback_id}")
+    } else {
+        trimmed.chars().take(120).collect()
+    }
+}
+#[tauri::command]
 async fn export_images(
     app: tauri::AppHandle,
     state: State<'_, Desktop>,
     ids: Vec<Uuid>,
+    with_text: Option<bool>,
 ) -> Result<u32, String> {
     let chosen =
         tauri::async_runtime::spawn_blocking(move || app.dialog().file().blocking_pick_folder())
@@ -271,6 +308,7 @@ async fn export_images(
     let folder = chosen.into_path().map_err(|_| "Đường dẫn không hợp lệ")?;
     let client = state.client().await;
     let all = client.drafts().await?;
+    let include_text = with_text.unwrap_or(false);
     let mut count = 0;
     for id in ids {
         let draft = all.iter().find(|d| d.id == id).ok_or("Ảnh không tồn tại")?;
@@ -279,9 +317,20 @@ async fn export_images(
             "image/webp" => "webp",
             _ => "png",
         };
-        let path = folder.join(format!("VietHandOCR-{id}.{ext}"));
-        if !path.exists() {
-            vietocr_client_core::storage::atomic(&path, &client.image_bytes(id).await?)?;
+        let base_stem = safe_export_stem(&draft.name, id);
+        let mut stem = base_stem.clone();
+        let mut suffix = 2u32;
+        while folder.join(format!("{stem}.{ext}")).exists()
+            || (include_text && folder.join(format!("{stem}.txt")).exists())
+        {
+            stem = format!("{base_stem}-{suffix}");
+            suffix += 1;
+        }
+        let path = folder.join(format!("{stem}.{ext}"));
+        vietocr_client_core::storage::atomic(&path, &client.image_bytes(id).await?)?;
+        if include_text {
+            let txt_path = folder.join(format!("{stem}.txt"));
+            vietocr_client_core::storage::atomic(&txt_path, draft.text.as_bytes())?;
         }
         count += 1;
     }
@@ -361,6 +410,7 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             bootstrap,
+            session_status,
             configure,
             login,
             logout,
@@ -383,6 +433,7 @@ fn main() {
             save_edit,
             set_included,
             remove_draft,
+            remove_drafts,
             export_images,
             export_text
         ])

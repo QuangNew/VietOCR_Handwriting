@@ -9,7 +9,7 @@ public sealed class V2Exception(int status,string code) : Exception(code)
 { public int Status { get; }=status; public string Code { get; }=code; }
 public sealed record FlowIdentity(Guid UserId,Guid SessionId);
 public sealed record FlowIntent(Guid Id,Guid UserId,Guid SessionId,string ClientId,string State,
-    string Sha256,long ImageBytes,string MediaType,string Layout,int ImageVersion,long Generation);
+    string Sha256,long ImageBytes,string MediaType,string Layout,int ImageVersion,long Generation,DateTimeOffset? CreatedAt=null);
 public sealed record CreateIntent(Guid UserId,Guid SessionId,Guid RequestId,string Sha256,long ImageBytes,
     string MediaType,string Layout,int ImageVersion,bool Correct=false);
 public sealed record FlowCommand(Guid UserId,Guid SessionId,long Generation=0,bool Cancel=false);
@@ -37,10 +37,12 @@ public static class FlowJson
     public static FlowIntent Intent(JsonElement v,FlowIdentity identity)
     {
         Check(v);if(v.TryGetProperty("intent",out var wrapped))v=wrapped;
+        DateTimeOffset? createdAt=null;
+        if((v.TryGetProperty("created_at",out var ca)||v.TryGetProperty("createdAt",out ca))&&ca.ValueKind==JsonValueKind.String&&ca.TryGetDateTimeOffset(out var parsed))createdAt=parsed;
         return new(v.GetProperty("id").GetGuid(),identity.UserId,identity.SessionId,v.GetProperty("client_id").GetString()!,
             v.GetProperty("state").GetString()!,v.GetProperty("image_hash").GetString()!,v.GetProperty("image_bytes").GetInt64(),
             v.GetProperty("media_type").GetString()!,v.GetProperty("layout").GetString()!,v.GetProperty("image_version").GetInt32(),
-            v.GetProperty("lease_generation").GetInt64());
+            v.GetProperty("lease_generation").GetInt64(),createdAt);
     }
 }
 

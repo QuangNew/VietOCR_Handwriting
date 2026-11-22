@@ -14,7 +14,8 @@ const mime={'.html':'text/html','.css':'text/css','.mjs':'application/javascript
    const draft={id:'10000000-0000-4000-8000-000000000001',ownerId:'aaaaaaaa-1111-4444-8888-aaaaaaaaaaaa',name:'Trang ghi chú.jpg',state:'draft',imageBytes:204800,mediaType:'image/jpeg',text:'',jobId:null};window.nativeCalls=[];
    window.__TAURI__={core:{Channel:class{onmessage=()=>{};},invoke:async(name,args)=>{
     window.nativeCalls.push({name,args});
-    if(name==='bootstrap')return{config:{gateway:'https://pi.example.invalid'},session:{email:'fixture@example.invalid',userId:draft.ownerId},verified:{},workspaceAllowed:true,drafts:[]};
+    if(name==='bootstrap')return{config:{gateway:'https://pi.example.invalid'},session:{email:'fixture@example.invalid',userId:draft.ownerId},verified:{account:{usedToday:12,dailyLimit:500,ratePerMinute:30}},workspaceAllowed:true,drafts:[],isDebug:false};
+    if(name==='session_status')return{account:{usedToday:13,dailyLimit:500,ratePerMinute:30}};
     if(name==='pick_import')return[draft];if(name==='draft_image')return jpeg;
     if(name==='set_included')return{...draft,included:args.included};
     if(name==='prepare_send')return[draft];
@@ -37,7 +38,11 @@ const mime={'.html':'text/html','.css':'text/css','.mjs':'application/javascript
   await page.uncheck('.draft-row input[type=checkbox]');await page.waitForFunction(()=>document.querySelector('#send').disabled);assert.equal(await page.locator('#send').isDisabled(),true);
   await page.check('.draft-row input[type=checkbox]');await page.waitForFunction(()=>!document.querySelector('#send').disabled);
   const before=await page.locator('h1').boundingBox();await page.click('#theme');assert.deepEqual(await page.locator('h1').boundingBox(),before);
-  await page.click('#edit');await page.locator('#editor').waitFor({state:'visible'});assert.equal(await page.locator('#editor').evaluate(e=>e.scrollWidth<=e.clientWidth),true);
+  assert.equal(await page.locator('#logsButton').isHidden(),true,'logs button must stay hidden in release');
+  assert.equal(await page.locator('#layout').count(),0,'layout selector removed');
+  assert.match(await page.locator('#accountLimit').textContent(),/12\/500/);
+  await page.click('#original');await page.locator('#editor').waitFor({state:'visible'});assert.equal(await page.locator('#editor').evaluate(e=>e.scrollWidth<=e.clientWidth),true);
+  assert.equal(await page.inputValue('#angle'),'0');assert.equal(await page.inputValue('#zoom'),'0');
   await page.click('#editorClose');await page.click('#send');await page.waitForFunction(()=>document.querySelector('#jobState').textContent==='Hoàn tất');
   assert.equal(await page.inputValue('#text'),'Văn bản kiểm thử');
   assert.equal(await page.evaluate(()=>nativeCalls.filter(c=>c.name==='send_draft').length),3,'warm-up and rolling-minute deferrals must resume the same explicit send');
