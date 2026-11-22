@@ -111,6 +111,7 @@ class AppController extends ChangeNotifier {
 
   bool dark = true,
       splitLines = true,
+      correctText = false,
       busy = false,
       importing = false,
       initialized = false;
@@ -135,6 +136,7 @@ class AppController extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       dark = prefs.getBool('dark') ?? true;
       splitLines = prefs.getBool('splitLines') ?? true;
+      correctText = prefs.getBool('correctText') ?? false;
       serverUrl = prefs.getString('v2GatewayUrl') ?? serverUrl;
       serverInsecureLan = prefs.getBool('ocrServerInsecure') ?? false;
       _lastVerifiedAccount = prefs.getString('v2VerifiedAccount');
@@ -284,6 +286,21 @@ class AppController extends ChangeNotifier {
     }
   }
 
+  Future<void> setCorrectText(bool value) async {
+    if (busy) return;
+    correctText = value;
+    _notify();
+    try {
+      await (await SharedPreferences.getInstance()).setBool(
+        'correctText',
+        value,
+      );
+    } catch (_) {
+      message = 'Chưa lưu được lựa chọn sửa lỗi AI.';
+      _notify();
+    }
+  }
+
   Future<void> pickImages() async {
     if (importing || _picking || !initialized) return;
     _picking = true;
@@ -393,7 +410,12 @@ class AppController extends ChangeNotifier {
     _notify();
   }
 
-  Future<void> recognize({bool retryErrors = true, String? only, bool? split}) {
+  Future<void> recognize({
+    bool retryErrors = true,
+    String? only,
+    bool? split,
+    bool? correct,
+  }) {
     if (!canSend) {
       message = 'Xác minh phiên Google với Raspberry trước khi gửi.';
       _notify();
@@ -416,7 +438,12 @@ class AppController extends ChangeNotifier {
     busy = true;
     progress = 0;
     _notify();
-    final operation = _recognize(cancel, batch, split ?? splitLines);
+    final operation = _recognize(
+      cancel,
+      batch,
+      split ?? splitLines,
+      correct ?? correctText,
+    );
     _running = operation;
     return operation.whenComplete(() {
       _running = null;
@@ -427,6 +454,7 @@ class AppController extends ChangeNotifier {
     CancellationToken cancel,
     List<Document> batch,
     bool split,
+    bool correct,
   ) async {
     var completed = 0, failed = 0;
     var workerStopped = false;
@@ -446,6 +474,7 @@ class AppController extends ChangeNotifier {
           final text = await batchEngine.recognize(
             active.path,
             split: split,
+            correct: correct,
             rotation: active.rotation,
             cancel: cancel,
             progress: (label, fraction) {

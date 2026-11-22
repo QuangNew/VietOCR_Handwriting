@@ -180,12 +180,13 @@ async fn send_draft(
     state: State<'_, Desktop>,
     id: Uuid,
     layout: String,
+    correct: Option<bool>,
     progress: Channel<Value>,
 ) -> Result<Draft, String> {
     state
         .client()
         .await
-        .submit(id, &layout, |stage, done, total| {
+        .submit_with_correction(id, &layout, correct.unwrap_or(false), |stage, done, total| {
             let _ = progress.send(json!({"stage":stage,"done":done,"total":total}));
         })
         .await

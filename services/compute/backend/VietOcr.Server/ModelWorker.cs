@@ -43,7 +43,9 @@ public sealed class ModelWorker(ServerOptions options, ILogger logger,string? de
             StandardErrorEncoding=new System.Text.UTF8Encoding(false),
             WorkingDirectory = options.Root } };
         foreach (var arg in new[] { "-X", "utf8", "-u", Path.Combine(options.Root, "worker/main.py"),
-            "--model", Path.Combine(options.Root, "models/ML_s44"), "--device", Device,
+            "--model", Path.Combine(options.Root, "models/ML_s44"),
+            "--corrector-model", Path.Combine(options.Root, "models/Bartpho_v2_fp16"),
+            "--device", Device,
             "--spool", Path.Combine(options.Runtime, "images"), "--max-pixels", options.MaxPixels.ToString(),
             "--parent-pid",Environment.ProcessId.ToString() })
             process.StartInfo.ArgumentList.Add(arg);
@@ -89,7 +91,7 @@ public sealed class ModelWorker(ServerOptions options, ILogger logger,string? de
     public async Task<JsonElement> Recognize(Job job, CancellationToken ct)
     {
         await process!.StandardInput.WriteLineAsync(JsonSerializer.Serialize(new {
-            action = "recognize", id = job.Id, path = options.ImagePath(job.Id), layout = job.Layout }));
+            action = "recognize", id = job.Id, path = options.ImagePath(job.Id), layout = job.Layout, correct = job.Correct }));
         await process.StandardInput.FlushAsync(ct);
         while (true)
         {

@@ -79,6 +79,8 @@ pub struct ImageIntent {
     pub media_type: String,
     pub layout: Layout,
     pub image_version: u32,
+    #[serde(default)]
+    pub correct: bool,
 }
 impl ImageIntent {
     pub fn validate(&self, max_bytes: u64) -> Result<(), &'static str> {
@@ -228,8 +230,16 @@ mod tests {
             media_type: "image/jpeg".into(),
             layout: Layout::Auto,
             image_version: 1,
+            correct: false,
         };
         assert!(value.validate(1024).is_ok());
+        // Verify optional `correct` defaults to false when omitted in JSON.
+        let decoded: ImageIntent = serde_json::from_str(&format!(
+            r#"{{"requestId":"{}","sha256":"{}","imageBytes":256,"mediaType":"image/jpeg","layout":"auto","imageVersion":1}}"#,
+            value.request_id, value.sha256
+        ))
+        .unwrap();
+        assert!(!decoded.correct);
         value.image_bytes = 1025;
         assert_eq!(value.validate(1024), Err("image_size"));
         value.image_bytes = 256;

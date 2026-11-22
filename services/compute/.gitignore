@@ -15,3 +15,5 @@ validation/private/
 archive/
 
 models/**/*.onnx
+models/**/*.safetensors
+models/**/*.bin

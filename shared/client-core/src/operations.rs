@@ -59,6 +59,7 @@ impl Client {
                 draft.request_id = Uuid::new_v4();
                 draft.job_id = None;
                 draft.layout = None;
+                draft.correct = None;
                 draft.state = "draft".into();
                 draft.error.clear();
                 draft.text.clear();
@@ -135,6 +136,7 @@ impl Client {
                     Some(Self::intent_metadata(
                         draft,
                         draft.layout.as_deref().unwrap_or("auto"),
+                        draft.correct.unwrap_or(false),
                     )),
                 )
                 .await?;

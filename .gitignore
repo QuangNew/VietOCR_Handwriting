@@ -9,3 +9,4 @@ __pycache__/
 /services/gateway/config.local.json
 /services/gateway/secrets/
 /services/gateway/runtime/
+VietnameseOCRTextCorrection/

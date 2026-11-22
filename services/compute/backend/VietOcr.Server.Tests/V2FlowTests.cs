@@ -70,6 +70,17 @@ public sealed class V2FlowTests:IDisposable
         Assert.Throws<V2Exception>(()=>tickets.Read("voc_old_permanent_key",i.Id));
         Assert.False(GatewayTelemetryCredential.Validate("Bearer "+ticket,Secrets.Hash("machine-key-example-example-example")));
     }
+    [Fact]public void JobCorrectionStorePersistsOptionalCorrectionFlagsAcrossRestart(){
+        var store1=new JobCorrectionStore(Options);
+        var id=Guid.NewGuid().ToString("D");
+        Assert.False(store1.Get(id));
+        store1.Set(id,true);
+        Assert.True(store1.Get(id));
+        var store2=new JobCorrectionStore(Options);
+        Assert.True(store2.Get(id));
+        store2.Remove(id);
+        Assert.False(new JobCorrectionStore(Options).Get(id));
+    }
     private sealed class Verifier:IImageVerifier{public Task<ImageInfo> Verify(string path,CancellationToken ct)=>Task.FromResult(new ImageInfo(1920,1080,"image/jpeg"));}
     private sealed class FakeDb:IFlowDatabase{
         private readonly HashSet<Guid> committed=[];public int Charges;public bool FailOnce;

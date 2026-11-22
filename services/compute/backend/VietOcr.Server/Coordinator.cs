@@ -4,7 +4,7 @@ using System.Text.Json;
 namespace VietOcr.Server;
 
 public sealed class Coordinator(Store store, ServerOptions options, Hardware hardware,
-    ILogger<Coordinator> logger,V2Spool spool) : BackgroundService
+    ILogger<Coordinator> logger,V2Spool spool,JobCorrectionStore corrections) : BackgroundService
 {
     private readonly FairQueue queue = new();
     private readonly WorkerRotation rotation=new();
@@ -106,6 +106,7 @@ public sealed class Coordinator(Store store, ServerOptions options, Hardware har
     }
     private void DeleteImage(string id)
     {
+        corrections.Remove(id);
         try { File.Delete(options.ImagePath(id)); } catch (IOException) { }
     }
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -167,7 +168,7 @@ public sealed class Coordinator(Store store, ServerOptions options, Hardware har
             foreach (var job in recovered)
             {
                 if (!File.Exists(options.ImagePath(job.Id))) await store.Finish(job, "failed", error: "Input missing after server restart.");
-                else { if (job.State == "running") await store.Requeue(job.Id); Enqueue(job with { State = "queued" }); }
+                else { if (job.State == "running") await store.Requeue(job.Id); Enqueue(job with { State = "queued", Correct = corrections.Get(job.Id) }); }
             }
             // Orphan uploads are never considered jobs. Remove leftovers from an interrupted submission.
             var ids = recovered.Select(j => j.Id + ".image").ToHashSet();
@@ -204,7 +205,7 @@ public sealed class Coordinator(Store store, ServerOptions options, Hardware har
                         var pending=await store.Jobs(options.QueueCapacity,true);
                         lock(workerGate){
                             var active=workers.Values.Where(w=>w.JobId!=null).Select(w=>w.JobId!).ToHashSet();
-                            foreach(var job in queue.Recover(pending.Where(j=>File.Exists(options.ImagePath(j.Id))),active))signals.Register(job.Id);
+                            foreach(var job in queue.Recover(pending.Where(j=>File.Exists(options.ImagePath(j.Id))).Select(j=>j with { Correct = corrections.Get(j.Id) }),active))signals.Register(job.Id);
                         }
                     }catch(DatabaseUnavailableException){logger.LogWarning("Receipt recovery waiting for database; retrying without restarting model workers");}
                     finally{Admission.Release();nextReceiptRecovery=DateTime.UtcNow.AddSeconds(5);}
@@ -250,7 +251,8 @@ public sealed class Coordinator(Store store, ServerOptions options, Hardware har
         deadline.CancelAfter(TimeSpan.FromSeconds(options.JobTimeoutSeconds)); worker.JobCancellation = deadline;
         try
         {
-            job = await store.Start(job, worker.Id);
+            var useCorrection = job.Correct || corrections.Get(job.Id);
+            job = (await store.Start(job, worker.Id)) with { Correct = useCorrection };
             executing=true;
             var value = await worker.Recognize(job, deadline.Token);
             var ok = value.GetProperty("ok").GetBoolean();

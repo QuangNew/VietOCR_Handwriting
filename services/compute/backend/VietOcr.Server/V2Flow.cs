@@ -11,7 +11,7 @@ public sealed record FlowIdentity(Guid UserId,Guid SessionId);
 public sealed record FlowIntent(Guid Id,Guid UserId,Guid SessionId,string ClientId,string State,
     string Sha256,long ImageBytes,string MediaType,string Layout,int ImageVersion,long Generation);
 public sealed record CreateIntent(Guid UserId,Guid SessionId,Guid RequestId,string Sha256,long ImageBytes,
-    string MediaType,string Layout,int ImageVersion);
+    string MediaType,string Layout,int ImageVersion,bool Correct=false);
 public sealed record FlowCommand(Guid UserId,Guid SessionId,long Generation=0,bool Cancel=false);
 public sealed record ImageInfo(int Width,int Height,string MediaType);
 public interface IFlowDatabase
@@ -189,6 +189,72 @@ public sealed class ResultTickets(IDataProtectionProvider provider)
     }
 }
 
+public sealed class JobCorrectionStore
+{
+    private readonly string path;
+    private readonly object gate = new();
+    private readonly Dictionary<string, DateTimeOffset> enabled = new(StringComparer.OrdinalIgnoreCase);
+
+    public JobCorrectionStore(ServerOptions options)
+    {
+        path = Path.Combine(options.Runtime, "v2-corrections.json");
+        Load();
+    }
+
+    private void Load()
+    {
+        try
+        {
+            if (!File.Exists(path)) return;
+            var data = JsonSerializer.Deserialize<Dictionary<string, DateTimeOffset>>(File.ReadAllText(path));
+            if (data == null) return;
+            var cutoff = DateTimeOffset.UtcNow.AddHours(-48);
+            foreach (var (k, v) in data)
+                if (v >= cutoff) enabled[k] = v;
+        }
+        catch { }
+    }
+
+    private void SaveLocked()
+    {
+        try
+        {
+            var dir = Path.GetDirectoryName(path);
+            if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+            var cutoff = DateTimeOffset.UtcNow.AddHours(-48);
+            foreach (var k in enabled.Where(kv => kv.Value < cutoff).Select(kv => kv.Key).ToArray())
+                enabled.Remove(k);
+            var tmp = path + ".tmp";
+            File.WriteAllText(tmp, JsonSerializer.Serialize(enabled));
+            File.Move(tmp, path, true);
+        }
+        catch { }
+    }
+
+    public void Set(string jobId, bool correct)
+    {
+        lock (gate)
+        {
+            if (correct) enabled[jobId] = DateTimeOffset.UtcNow;
+            else enabled.Remove(jobId);
+            SaveLocked();
+        }
+    }
+
+    public bool Get(string jobId)
+    {
+        lock (gate) return enabled.ContainsKey(jobId);
+    }
+
+    public void Remove(string jobId)
+    {
+        lock (gate)
+        {
+            if (enabled.Remove(jobId)) SaveLocked();
+        }
+    }
+}
+
 public static class V2Endpoints
 {
     private static readonly SemaphoreSlim resultReaders=new(64,64);
@@ -203,12 +269,14 @@ public static class V2Endpoints
             if(!GatewayTelemetryCredential.Validate(ctx.Request.Headers.Authorization.ToString(),options.GatewayIngressKeySha256))return Results.Unauthorized();
             return await next(context);
         });
-        routes.MapPost("/intents",async(CreateIntent request,IFlowDatabase db,CancellationToken ct)=>{
+        routes.MapPost("/intents",async(CreateIntent request,IFlowDatabase db,JobCorrectionStore corrections,CancellationToken ct)=>{
             if(request.UserId==Guid.Empty||request.SessionId==Guid.Empty||request.RequestId==Guid.Empty||request.ImageVersion<1||request.ImageBytes<16||request.ImageBytes>options.MaxUploadMiB*1048576L||
                 request.Sha256.Length!=64||request.Sha256.Any(c=>!char.IsAsciiHexDigitLower(c))||request.MediaType is not ("image/jpeg" or "image/png" or "image/webp")||request.Layout is not ("auto" or "line"))
                 throw new V2Exception(400,"invalid_intent");
             var value=FlowJson.Check(await db.Gateway("create",new{request.UserId,request.SessionId,request.RequestId,jobId=Guid.NewGuid(),request.Sha256,request.ImageBytes,request.MediaType,request.Layout,request.ImageVersion},ct));
-            return Results.Ok(FlowJson.Intent(value,new(request.UserId,request.SessionId)));
+            var intent=FlowJson.Intent(value,new(request.UserId,request.SessionId));
+            if(request.Correct)corrections.Set(intent.Id.ToString("D"),true);
+            return Results.Ok(intent);
         });
         routes.MapPost("/history",async(FlowIdentity identity,IFlowDatabase db,CancellationToken ct)=>{
             var value=FlowJson.Check(await db.Gateway("history",identity,ct));
@@ -233,14 +301,14 @@ public static class V2Endpoints
             if(!long.TryParse(ctx.Request.Headers["Upload-Offset"],out var offset)||ctx.Request.ContentLength is not {} length)throw new V2Exception(400,"chunk_headers_required");
             return Results.Ok(new{offset=await spool.Append(i,offset,ctx.Request.Body,length,ct)});
         }).DisableAntiforgery();
-        routes.MapPost("/intents/{id:guid}/complete",async(Guid id,FlowCommand cmd,IFlowDatabase db,V2Spool spool,Coordinator c,Store store,HttpContext ctx,CancellationToken ct)=>{
+        routes.MapPost("/intents/{id:guid}/complete",async(Guid id,FlowCommand cmd,IFlowDatabase db,V2Spool spool,Coordinator c,Store store,JobCorrectionStore corrections,HttpContext ctx,CancellationToken ct)=>{
             var i=await Find(db,id,cmd,ct);if(i.Generation!=cmd.Generation)throw new V2Exception(409,"stale_lease");
             await c.Admission.WaitAsync(ct);
             try{
                 await spool.Complete(i,ct);
                 using var acceptedDeadline=new CancellationTokenSource(TimeSpan.FromSeconds(20));
                 var job=await store.Find(id.ToString("D"),i.ClientId);
-                if(job is {State:"queued"})c.Enqueue(job);
+                if(job is {State:"queued"})c.Enqueue(job with { Correct = corrections.Get(job.Id) });
                 return Results.Ok(new{accepted=true,jobId=id});
             }finally{c.Admission.Release();}
         });

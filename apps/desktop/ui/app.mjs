@@ -164,15 +164,16 @@ $('historyCopy').onclick=()=>run(()=>navigator.clipboard.writeText($('historyTex
 $('logsButton').onclick=()=>run(async()=>{$('logText').value=await invoke('read_logs');$('logs').showModal();});
 $('reloadLogs').onclick=()=>run(async()=>{$('logText').value=await invoke('read_logs');});
 $('copyLogs').onclick=()=>run(()=>navigator.clipboard.writeText($('logText').value));
+const correctInput=$('correct');if(correctInput){correctInput.checked=localStorage.getItem('vietocr.correct')==='1';correctInput.onchange=()=>localStorage.setItem('vietocr.correct',correctInput.checked?'1':'0');}
 $('send').onclick=()=>run(async()=>{
   if(busy||!verified)return;busy=true;renderList();
-  const selectedDrafts=drafts.filter(d=>d.included!==false&&sendableStates.includes(d.state)),epoch=accountEpoch,layout=$('layout').value;
+  const selectedDrafts=drafts.filter(d=>d.included!==false&&sendableStates.includes(d.state)),epoch=accountEpoch,layout=$('layout').value,correct=Boolean($('correct')?.checked);
   async function worker(queue){let item;while(epoch===accountEpoch&&(item=queue.shift())){
     const {d,op}=item;if(!activeOperation(d.id,op))continue;
     try{
       let result;const deadline=Date.now()+20*60000;
       while(activeOperation(d.id,op)){
-        try{result=await invoke('send_draft',{id:d.id,layout,progress:channel(p=>{
+        try{result=await invoke('send_draft',{id:d.id,layout,correct,progress:channel(p=>{
           if(activeOperation(d.id,op))transfer(d.id,p.stage==='optimizing'?'Đang tự tối ưu ảnh · giữ bản gốc':p.stage==='uploading'?`Đang gửi ${Math.round(p.done/Math.max(1,p.total)*100)}%`:p.stage,p.total?p.done:null,p.total||1);
         })});break;}
         catch(e){

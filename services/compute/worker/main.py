@@ -112,13 +112,39 @@ def run(args):
         if args.device.startswith("cuda"):
             torch.cuda.synchronize(args.device)
         Image.MAX_IMAGE_PIXELS = args.max_pixels
+        corrector_dir = args.corrector_model if args.corrector_model else (args.model.parent / "Bartpho_v2_fp16")
+        corrector_cache = {"instance": None, "failed": False}
+
+        def get_corrector():
+            if corrector_cache["instance"] is not None:
+                return corrector_cache["instance"]
+            if corrector_cache["failed"] or not corrector_dir.exists():
+                return None
+            try:
+                from core.text_corrector import BartphoCorrector
+                t_c = time.perf_counter()
+                corrector_cache["instance"] = BartphoCorrector(corrector_dir, device=args.device)
+                print(
+                    f"Loaded Bartpho_v2_fp16 on {corrector_cache['instance'].device} "
+                    f"in {(time.perf_counter() - t_c) * 1000:.0f} ms",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                return corrector_cache["instance"]
+            except Exception as err:
+                corrector_cache["failed"] = True
+                print(f"Bartpho_v2_fp16 unavailable ({type(err).__name__}: {err}); fallback to ML_s44 only", file=sys.stderr, flush=True)
+                return None
+
         send("ready", pid=os.getpid(), model=config["name"], device=args.device, pipeline="native-2026.11.19",
-             loadMs=(time.perf_counter() - started) * 1000, memory=memory(torch, args.device))
+             loadMs=(time.perf_counter() - started) * 1000, memory=memory(torch, args.device),
+             correctionAvailable=corrector_dir.exists())
         for line in sys.stdin:
             request = json.loads(line)
             if request.get("action") == "shutdown":
                 break
             job_id = request["id"]
+            use_correction = bool(request.get("correct", False))
             begun = time.perf_counter()
             try:
                 path = Path(request["path"]).resolve()
@@ -141,10 +167,18 @@ def run(args):
                     send("progress", id=job_id, completed=index, total=total)
                 if not texts:
                     raise ValueError("Model không đọc được chữ trong ảnh.")
+                correction_ms = 0.0
+                if use_correction:
+                    corr = get_corrector()
+                    if corr is not None:
+                        t_corr = time.perf_counter()
+                        texts = corr.correct_lines(texts)
+                        correction_ms = (time.perf_counter() - t_corr) * 1000
                 if args.device.startswith("cuda"):
                     torch.cuda.synchronize(args.device)
                 send("result", id=job_id, ok=True, text="\n".join(texts), width=width, height=height,
                      elapsedMs=(time.perf_counter()-begun)*1000, preprocessingMs=preprocess_ms,
+                     correctionMs=correction_ms, corrected=bool(use_correction and corrector_cache["instance"] is not None),
                      memory=memory(torch, args.device))
             except (ValueError, OSError, Image.DecompressionBombError) as error:
                 send("result", id=job_id, ok=False, error=str(error)[:400], recoverable=True,
@@ -159,6 +193,7 @@ def run(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", type=Path, required=True)
+    parser.add_argument("--corrector-model", type=Path, default=None)
     parser.add_argument("--spool", type=Path, required=True)
     parser.add_argument("--device", default="cuda:0")
     parser.add_argument("--max-pixels", type=int, default=16_000_000)

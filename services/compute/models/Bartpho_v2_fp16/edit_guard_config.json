@@ -1,0 +1,10 @@
+{
+  "max_word_dist": 3,
+  "max_line_cer": 0.08,
+  "preserve_case": false,
+  "allow_word_ins_del": false,
+  "allow_space_split": true,
+  "protect_hyphenated": true,
+  "protect_capitalized": false,
+  "only_diacritic_or_close": false
+}

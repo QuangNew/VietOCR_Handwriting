@@ -16,6 +16,7 @@ class UnavailableServerEngine implements OcrEngine {
   Future<String> recognize(
     String path, {
     required bool split,
+    bool correct = false,
     required int rotation,
     required CancellationToken cancel,
     required void Function(String, double?) progress,
@@ -92,6 +93,7 @@ class RemoteEngine
   Future<String> recognize(
     String path, {
     required bool split,
+    bool correct = false,
     required int rotation,
     required CancellationToken cancel,
     required void Function(String, double?) progress,
@@ -109,6 +111,7 @@ class RemoteEngine
       final text = await _client.recognize(
         image,
         layout: split ? 'auto' : 'line',
+        correct: correct,
         cancelled: () => cancel.isCancelled || _closed,
         onState: (state) => progress(
           state == 'queued'

@@ -46,6 +46,7 @@ class DocumentPage extends StatefulWidget {
 class _DocumentPageState extends State<DocumentPage> {
   AppController get app => widget.app;
   late bool split = app.splitLines;
+  late bool correct = app.correctText;
   late final String? owner = app.cloud.userId;
 
   Future<void> _remove(Document item) async {
@@ -282,11 +283,21 @@ class _DocumentPageState extends State<DocumentPage> {
                             ),
                           ],
                         ),
+                        FilterChip(
+                          selected: correct,
+                          onSelected: app.busy
+                              ? null
+                              : (value) => setState(() => correct = value),
+                          label: const Text('Nội suy BARTpho'),
+                        ),
                         FilledButton.icon(
                           onPressed: app.busy || !app.canSend || app.importing
                               ? null
-                              : () =>
-                                    app.recognize(only: item.id, split: split),
+                              : () => app.recognize(
+                                  only: item.id,
+                                  split: split,
+                                  correct: correct,
+                                ),
                           icon: const Icon(Icons.send_outlined),
                           label: Text(
                             item.status == DocumentStatus.error ||

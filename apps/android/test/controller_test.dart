@@ -24,6 +24,7 @@ class FakeEngine implements OcrEngine {
   Future<String> recognize(
     String path, {
     required bool split,
+    bool correct = false,
     required int rotation,
     required CancellationToken cancel,
     required void Function(String, double?) progress,

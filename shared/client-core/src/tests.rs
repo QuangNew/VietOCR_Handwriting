@@ -251,12 +251,14 @@ async fn automatic_optimization_is_immutable_across_retries_and_preserves_origin
     assert_eq!(client.image_bytes(draft.id).await.unwrap(), source);
     let (_, width, height) = image_headers::inspect(&wire).unwrap();
     assert_eq!((width, height), (512, 256));
-    let metadata = Client::intent_metadata(&draft, "auto");
+    let metadata = Client::intent_metadata(&draft, "auto", false);
     assert_eq!(metadata["imageBytes"], wire.len());
     assert_eq!(metadata["sha256"], format!("{:x}", Sha256::digest(&wire)));
+    assert_eq!(metadata["correct"], false);
+    assert_eq!(Client::intent_metadata(&draft, "auto", true)["correct"], true);
     client.prepare_transfer(&mut draft).await.unwrap();
     assert_eq!(client.transfer_bytes(&draft).await.unwrap(), wire);
-    assert_eq!(Client::intent_metadata(&draft, "auto"), metadata);
+    assert_eq!(Client::intent_metadata(&draft, "auto", false), metadata);
     assert_eq!(client.drafts().await.unwrap().len(), 1);
 }
 

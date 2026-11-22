@@ -351,6 +351,7 @@ class VietOcrRemote {
   Future<String> recognize(
     File image, {
     String layout = 'auto',
+    bool correct = false,
     bool Function()? cancelled,
     void Function(String)? onState,
     Duration timeout = const Duration(minutes: 20),
@@ -400,6 +401,7 @@ class VietOcrRemote {
         'requestId': newIdempotencyKey(),
         'sha256': hash,
         'layout': layout,
+        'correct': correct,
         'gateway': origin.toString(),
       };
       await _saveCache(image, cache);
@@ -430,6 +432,7 @@ class VietOcrRemote {
         'imageBytes': length,
         'mediaType': media,
         'layout': cache['layout'] ?? layout,
+        'correct': cache['correct'] ?? correct,
         'imageVersion': 1,
       }),
     );

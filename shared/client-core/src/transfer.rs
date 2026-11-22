@@ -45,7 +45,7 @@ impl Client {
         self.save_draft(draft).await
     }
 
-    pub(super) fn intent_metadata(draft: &Draft, layout: &str) -> Value {
+    pub(super) fn intent_metadata(draft: &Draft, layout: &str, correct: bool) -> Value {
         let transfer = draft.transfer.as_ref();
         json!({
             "requestId": draft.request_id,
@@ -53,7 +53,8 @@ impl Client {
             "imageBytes": transfer.map(|t| t.image_bytes).unwrap_or(draft.image_bytes),
             "mediaType": transfer.map(|t| t.media_type.as_str()).unwrap_or(&draft.media_type),
             "layout": layout,
-            "imageVersion": draft.version
+            "imageVersion": draft.version,
+            "correct": correct
         })
     }
 

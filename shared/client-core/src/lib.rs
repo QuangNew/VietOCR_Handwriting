@@ -80,6 +80,8 @@ pub struct Draft {
     #[serde(default)]
     pub layout: Option<String>,
     #[serde(default)]
+    pub correct: Option<bool>,
+    #[serde(default)]
     pub transfer_note: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub transfer: Option<transfer::TransferImage>,
@@ -307,6 +309,7 @@ impl Client {
             text: String::new(),
             error: String::new(),
             layout: None,
+            correct: None,
             transfer_note: String::new(),
             transfer: None,
         };
@@ -408,6 +411,16 @@ impl Client {
         layout: &str,
         on_progress: impl FnMut(&str, u64, u64),
     ) -> Result<Draft, String> {
+        self.submit_with_correction(id, layout, false, on_progress)
+            .await
+    }
+    pub async fn submit_with_correction(
+        &self,
+        id: Uuid,
+        layout: &str,
+        correct: bool,
+        on_progress: impl FnMut(&str, u64, u64),
+    ) -> Result<Draft, String> {
         let operation = self.operation(id).await;
         let _guard = operation.gate.lock().await;
         let mut stopped = operation.stop.subscribe();
@@ -417,13 +430,14 @@ impl Client {
         tokio::select! {
             biased;
             _ = stopped.wait_for(|value| *value) => Err("operation_stopped".into()),
-            result = self.submit_inner(id, layout, on_progress) => result,
+            result = self.submit_inner(id, layout, correct, on_progress) => result,
         }
     }
     async fn submit_inner(
         &self,
         id: Uuid,
         layout: &str,
+        correct: bool,
         mut on_progress: impl FnMut(&str, u64, u64),
     ) -> Result<Draft, String> {
         if !matches!(layout, "auto" | "line") {
@@ -444,8 +458,9 @@ impl Client {
             on_progress("optimizing", 0, 0);
             self.prepare_transfer(&mut draft).await?;
         }
-        // Retrying a partial upload keeps the original layout/idempotency key.
+        // Retrying a partial upload keeps the original layout/correction/idempotency key.
         let layout = draft.layout.get_or_insert_with(|| layout.into()).clone();
+        let correct = *draft.correct.get_or_insert(correct);
         self.save_draft(&draft).await?;
         let bytes = self.transfer_bytes(&draft).await?;
         let intent = self
@@ -453,7 +468,7 @@ impl Client {
                 Some(owner),
                 reqwest::Method::POST,
                 "/api/v2/intents",
-                Some(Self::intent_metadata(&draft, &layout)),
+                Some(Self::intent_metadata(&draft, &layout, correct)),
             )
             .await?;
         let job: Uuid = intent["id"]

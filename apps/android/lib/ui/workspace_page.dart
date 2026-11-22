@@ -504,6 +504,12 @@ class _SendBar extends StatelessWidget {
                         ),
                       ),
                     ),
+                    FilterChip(
+                      selected: app.correctText,
+                      onSelected: app.busy ? null : app.setCorrectText,
+                      label: const Text('Nội suy BARTpho'),
+                      tooltip: 'Chạy thêm BARTpho v2 sau ML_s44 để sửa lỗi dấu/ngữ cảnh',
+                    ),
                     FilledButton.icon(
                       onPressed: app.canSend && !app.importing
                           ? () async {

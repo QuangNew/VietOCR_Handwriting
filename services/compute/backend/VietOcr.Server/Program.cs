@@ -45,6 +45,7 @@ builder.Services.AddSingleton<GoogleAccounts>();
 builder.Services.AddSingleton<IFlowDatabase,FlowDatabase>();
 builder.Services.AddSingleton<IImageVerifier,PillowImageVerifier>();
 builder.Services.AddSingleton<V2Spool>();
+builder.Services.AddSingleton<JobCorrectionStore>();
 builder.Services.AddSingleton<ResultTickets>();
 builder.Services.AddSingleton<ServerLoadMonitor>();
 builder.Services.AddHostedService(p=>p.GetRequiredService<ServerLoadMonitor>());
@@ -203,6 +204,7 @@ api.MapPost("/jobs",async (HttpContext ctx,Store store,Coordinator c)=> {
     if(form.Files.Count!=1 || form.Files[0].Name!="image")return Results.BadRequest(new { error="one_image_required" });
     var image=form.Files[0]; var layout=form["layout"].ToString(); if(layout=="")layout="auto";
     if(layout is not ("line" or "auto")) return Results.BadRequest(new { error="invalid_layout" });
+    var correct=string.Equals(form["correct"].ToString(),"true",StringComparison.OrdinalIgnoreCase);
     if(image.Length is < 16 || image.Length>options.MaxUploadMiB*1048576L) return Results.BadRequest(new { error="image_size" });
     await c.Admission.WaitAsync(ctx.RequestAborted);
     var id=Guid.NewGuid().ToString("N"); var path=options.ImagePath(id); var retained=false;
@@ -221,7 +223,7 @@ api.MapPost("/jobs",async (HttpContext ctx,Store store,Coordinator c)=> {
             if(!valid) return Results.BadRequest(new { error="image_format",message="JPEG, PNG, WEBP only." });
             file.Position=0; hash=Convert.ToHexStringLower(await SHA256.HashDataAsync(file,ctx.RequestAborted));
         }
-        var job=new Job(id,client.Id,client.Name,idem==""?null:idem,hash,layout,"queued",image.Length,DateTime.UtcNow);
+        var job=new Job(id,client.Id,client.Name,idem==""?null:idem,hash,layout,"queued",image.Length,DateTime.UtcNow,Correct:correct);
         var admitted=await store.Admit(job);
         if(admitted.TryGetProperty("error",out var admissionError)){
             if(admitted.TryGetProperty("retryAfter",out var retry))ctx.Response.Headers.RetryAfter=retry.ToString();
@@ -232,7 +234,8 @@ api.MapPost("/jobs",async (HttpContext ctx,Store store,Coordinator c)=> {
                 statusCode:admitted.GetProperty("status").GetInt32());
         }
         if(admitted.GetProperty("duplicate").GetBoolean())return Results.Ok(PublicJob(admitted.GetProperty("job").Deserialize<Job>(new JsonSerializerOptions(JsonSerializerDefaults.Web))!));
-        job=admitted.GetProperty("job").Deserialize<Job>(new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+        job=admitted.GetProperty("job").Deserialize<Job>(new JsonSerializerOptions(JsonSerializerDefaults.Web))! with { Correct = correct };
+        if(correct)ctx.RequestServices.GetRequiredService<JobCorrectionStore>().Set(job.Id,true);
         retained=true; c.Enqueue(job);
         ctx.Response.Headers.RetryAfter="1"; return Results.Accepted("/api/v1/jobs/"+id,PublicJob(job));
     }
