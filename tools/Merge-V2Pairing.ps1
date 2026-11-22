@@ -2,7 +2,7 @@
 param([switch]$Apply)
 $ErrorActionPreference='Stop'
 $repo=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
-$private=Join-Path $repo 'Server/server.local.json'
+$private=Join-Path $repo 'services/compute/server.local.json'
 $patch=Get-Content -LiteralPath (Join-Path $repo '.toolchain/refactor/pairing/compute.patch.json') -Raw|ConvertFrom-Json -AsHashtable
 $current=Get-Content -LiteralPath $private -Raw|ConvertFrom-Json -AsHashtable
 if(!$current.Server -or !$current.Server.SupabaseServiceKey){throw 'Configure compute Supabase privately first; no configuration changed.'}

@@ -20,7 +20,7 @@ if(!$IsWindows){throw 'Prepare pairing on Windows with PowerShell7; copy only Pi
 $account=[Security.Principal.WindowsIdentity]::GetCurrent().Name
 & icacls $destination /inheritance:r /grant:r ($account+':(OI)(CI)F') /Q|Out-Null
 if($LASTEXITCODE-ne0){throw 'Cannot protect pairing directory before writing credentials.'}
-$public=Get-Content -LiteralPath (Join-Path $repo 'Mobile/assets/config/supabase.json') -Raw|ConvertFrom-Json
+$public=Get-Content -LiteralPath (Join-Path $repo 'apps/android/assets/config/supabase.json') -Raw|ConvertFrom-Json
 $tokens=@{}
 foreach($name in @('ingress','telemetry')){
     $file=Join-Path $destination ($name+'.token')
@@ -31,7 +31,7 @@ foreach($name in @('ingress','telemetry')){
     if($token-notmatch'^[a-zA-Z0-9_-]{32,256}$'){throw 'Invalid machine token file.'}
     $tokens[$name]=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($token))).ToLowerInvariant()
 }
-$gateway=Get-Content -LiteralPath (Join-Path $repo 'Gateway/config.example.json') -Raw|ConvertFrom-Json
+$gateway=Get-Content -LiteralPath (Join-Path $repo 'services/gateway/config.example.json') -Raw|ConvertFrom-Json
 $gateway.auth.supabaseUrl=$public.url;$gateway.auth.publishableKey=$public.publishableKey
 $gateway.compute=@{origin=$ComputeOrigin.TrimEnd('/');publicResultsOrigin=$ResultsOrigin.TrimEnd('/');tokenFile='/etc/vietocr/ingress.token';concurrentUploads=4}
 $gateway.telemetry=@{url=$ComputeOrigin.TrimEnd('/')+'/api/internal/v2/status';tokenFile='/etc/vietocr/telemetry.token'}

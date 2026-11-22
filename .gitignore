@@ -4,11 +4,9 @@
 .venv/
 .venv-cpu/
 __pycache__/
-/VietHandOCR_API_Release/.desktop-preferences.json
-/VietHandOCR_API_Release/.logs/
 /.toolchain/
-/Mobile/assets/models/*.onnx
 /target/
-/Gateway/config.local.json
-/Gateway/secrets/
-/Gateway/runtime/
+/services/gateway/config.local.json
+/services/gateway/secrets/
+/services/gateway/runtime/
+VietnameseOCRTextCorrection/

@@ -1,6 +1,0 @@
-# Reuse the existing server CUDA environment; do not install a second torch wheel by default.
-torch>=2.6
-numpy>=1.26
-Pillow>=11.0
-opencv-python-headless>=4.10
-scipy>=1.13

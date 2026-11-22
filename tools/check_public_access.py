@@ -14,7 +14,7 @@ TABLES = ('ocr_clients', 'ocr_jobs', 'ocr_daily_usage', 'ocr_admins', 'ocr_setti
 
 
 def main():
-    public = json.loads((ROOT / 'Mobile/assets/config/supabase.json').read_text(encoding='utf-8-sig'))
+    public = json.loads((ROOT / 'apps/android/assets/config/supabase.json').read_text(encoding='utf-8-sig'))
     if not public['url'].startswith('https://') or not public['url'].endswith('.supabase.co'):
         raise ValueError('Expected project HTTPS origin')
     report = []

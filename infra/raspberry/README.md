@@ -9,7 +9,7 @@ Máy đã kiểm: Pi4B4GB `rasp4gb`, Raspberry Pi OS aarch64 / Debian13.7, µStr
 - `/etc/vietocr/ingress.token`, `/etc/vietocr/telemetry.token`: credential máy riêng,0600.
 - `/etc/vietocr/camera-desk.env`: camera loopback8080.
 - `vietocr-gateway.service`, `vietocr-camera@desk.service`: đã enable và active.
-- `/usr/local/bin/cloudflared`: bản2026.10.7, đã kiểm SHA-256 và chạy `--version`. Connector chưa được cấu hình nếu chưa có Authorize/credential tunnel.
+- `/usr/local/bin/cloudflared`: bản2026.10.7, đã kiểm SHA-256 và chạy `--version`. Named tunnel Pi đang chạy bằng systemd.
 
 User `vietocr` là tài khoản hệ thống không đăng nhập, có group video/spi/gpio; HTTP gateway không chạy root. SSH/RDP/Tailscale giữ nguyên. GPIO/TFT/còi chưa bật vì cần xác minh dây thực tế.
 
