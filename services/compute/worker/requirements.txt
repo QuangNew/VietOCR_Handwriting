@@ -2,7 +2,7 @@
 torch>=2.6
 numpy>=1.26
 Pillow>=11.0
-opencv-python-headless>=4.10
+opencv-python-headless>=5.1.0.95
 scipy>=1.13
 transformers>=4.45
 sentencepiece>=0.2
