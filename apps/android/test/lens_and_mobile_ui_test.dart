@@ -285,4 +285,42 @@ void main() {
       }
     },
   );
+
+  test('tightenLinePolygons prevents tall boxes from bleeding into neighbor lines', () {
+    final raw = <Map<String, dynamic>>[
+      {
+        'id': 1,
+        'polygon': [
+          [594.5, 510.5],
+          [1500.5, 510.5],
+          [1500.5, 619.5],
+          [594.5, 619.5],
+        ],
+      },
+      {
+        'id': 2,
+        'polygon': [
+          [587.5, 578.5],
+          [1472.5, 578.5],
+          [1472.5, 682.5],
+          [587.5, 682.5],
+        ],
+      },
+      {
+        'id': 3,
+        'polygon': [
+          [583.5, 630.5],
+          [1481.5, 630.5],
+          [1481.5, 748.5],
+          [583.5, 748.5],
+        ],
+      },
+    ];
+    final tight = tightenLinePolygons(raw);
+    for (var i = 1; i <= 2; i++) {
+      final a = polygonBounds(tight[i]!);
+      final b = polygonBounds(tight[i + 1]!);
+      expect(a.maxY, lessThan(b.minY));
+    }
+  });
 }

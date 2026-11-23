@@ -95,6 +95,89 @@ def _poly_bbox(poly: list[list[float]]) -> list[float]:
     return [round(min(xs), 1), round(min(ys), 1), round(max(xs), 1), round(max(ys), 1)]
 
 
+def _tight_line_source_polygon(crop: dict, document: dict, work_w: int, work_h: int) -> list[list[float]]:
+    """Build a tight oriented ink-core quad in source space so tall ascenders/descenders or tilt never bleed onto neighbor lines."""
+    box = crop.get("bbox") or [0, 0, work_w, work_h]
+    mask = crop.get("mask")
+    if mask is not None:
+        mask_arr = np.asarray(mask, dtype=bool)
+        if mask_arr.ndim == 2 and mask_arr.size > 0:
+            ys, xs = np.nonzero(mask_arr)
+            if len(xs) >= 12:
+                x0, y0 = float(box[0]), float(box[1])
+                gx = x0 + xs.astype(np.float64)
+                gy = y0 + ys.astype(np.float64)
+                xmin = float(np.percentile(gx, 0.5))
+                xmax = float(np.percentile(gx, 99.5))
+                mx = float(np.mean(gx))
+                my = float(np.median(gy))
+                slope = 0.0
+                if xmax - xmin >= 40.0:
+                    dx = gx - mx
+                    denom = float(np.dot(dx, dx))
+                    if denom > 1.0:
+                        slope = float(np.dot(dx, gy - my) / denom)
+                        slope = max(-0.22, min(0.22, slope))
+                residuals = gy - (slope * (gx - mx) + my)
+                top_off = float(np.percentile(residuals, 10))
+                bot_off = float(np.percentile(residuals, 90))
+                core_h = max(8.0, bot_off - top_off)
+                pad = max(1.5, core_h * 0.08)
+                top_off -= pad
+                bot_off += pad
+                corners = np.float64(
+                    [
+                        [xmin, slope * (xmin - mx) + my + top_off],
+                        [xmax, slope * (xmax - mx) + my + top_off],
+                        [xmax, slope * (xmax - mx) + my + bot_off],
+                        [xmin, slope * (xmin - mx) + my + bot_off],
+                    ]
+                ) - 0.5
+                mapped = cv2.perspectiveTransform(
+                    corners[:, None, :], np.linalg.inv(document["source_to_working"])
+                )
+                return mapped[:, 0, :].tolist()
+    if "source_polygon" in crop and crop["source_polygon"] is not None:
+        return crop["source_polygon"]
+    return native.scanner_source_polygon(box, document["source_to_working"])
+
+
+def _clamp_adjacent_line_polys(polys: list[list[list[float]]]) -> list[list[list[float]]]:
+    """Ensure vertically adjacent overlapping line quads never cross each other's centerline midpoint."""
+    if len(polys) < 2:
+        return polys
+    out = [[[float(p[0]), float(p[1])] for p in poly] for poly in polys]
+    meta = []
+    for idx, poly in enumerate(out):
+        if len(poly) != 4:
+            continue
+        xs = [p[0] for p in poly]
+        ys = [p[1] for p in poly]
+        meta.append((idx, min(xs), max(xs), (min(ys) + max(ys)) * 0.5))
+    meta.sort(key=lambda m: m[3])
+    for k in range(len(meta) - 1):
+        i_prev, px0, px1, pcy = meta[k]
+        i_curr, cx0, cx1, ccy = meta[k + 1]
+        overlap = min(px1, cx1) - max(px0, cx0)
+        min_w = max(1.0, min(px1 - px0, cx1 - cx0))
+        pitch = ccy - pcy
+        if overlap <= 0.15 * min_w or pitch <= 6.0:
+            continue
+        mid_y = (pcy + ccy) * 0.5
+        gap = max(2.0, pitch * 0.12)
+        prev_bot_cap = mid_y - gap * 0.5
+        curr_top_cap = mid_y + gap * 0.5
+        prev_poly = out[i_prev]
+        curr_poly = out[i_curr]
+        for corner_i in (2, 3):
+            if prev_poly[corner_i][1] > prev_bot_cap:
+                prev_poly[corner_i][1] = round(max(prev_poly[3 - corner_i][1] + 6.0, prev_bot_cap), 1)
+        for corner_i in (0, 1):
+            if curr_poly[corner_i][1] < curr_top_cap:
+                curr_poly[corner_i][1] = round(min(curr_poly[3 - corner_i][1] - 6.0, curr_top_cap), 1)
+    return out
+
+
 def _extract_paper_quad(
     source_paper: np.ndarray,
     route: str,
@@ -242,16 +325,14 @@ def prepare_document_bundle(image: Image.Image, layout: str) -> dict:
     sx = orig_w / max(1, work_w)
     sy = orig_h / max(1, work_h)
 
+    raw_scaled_polys = []
+    for crop in crops:
+        raw_poly = _tight_line_source_polygon(crop, document, work_w, work_h)
+        raw_scaled_polys.append(_scale_polygon(raw_poly, sx, sy, orig_w, orig_h))
+    line_polys = _clamp_adjacent_line_polys(raw_scaled_polys)
+
     line_metas = []
-    line_polys = []
-    for idx, crop in enumerate(crops, 1):
-        if "source_polygon" in crop and crop["source_polygon"] is not None:
-            raw_poly = crop["source_polygon"]
-        else:
-            box = crop.get("bbox") or [0, 0, work_w, work_h]
-            raw_poly = native.scanner_source_polygon(box, document["source_to_working"])
-        scaled_poly = _scale_polygon(raw_poly, sx, sy, orig_w, orig_h)
-        line_polys.append(scaled_poly)
+    for idx, (crop, scaled_poly) in enumerate(zip(crops, line_polys), 1):
         line_metas.append(
             {
                 "lineId": int(crop.get("line_id", idx)),

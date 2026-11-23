@@ -9,6 +9,7 @@ import {
   quadScrimPath,
   pointInPolygon,
   linesInsideQuad,
+  tightenLinePolygons,
   detectPaperQuadFromRgba,
 } from '../ui/lens.mjs';
 import {
@@ -17,6 +18,7 @@ import {
   computeQuadFlatSize,
   computeHomography,
   projectPoint,
+  tightenFlatLineHits,
 } from '../ui/docview.mjs';
 import {
   formatMs,
@@ -151,5 +153,47 @@ test('computeHomography and computeQuadFlatSize rectify tilted paper to exact 90
   for (let i = 0; i < 4; i++) {
     const p = projectPoint(H, tilted[i]);
     assert.ok(Math.abs(p[0] - dst[i][0]) < 1e-4 && Math.abs(p[1] - dst[i][1]) < 1e-4);
+  }
+});
+
+test('tightenLinePolygons and tightenFlatLineHits eliminate vertical bleed across overlapping lines', () => {
+  // Real coordinates from 902437440 where raw axis-aligned line boxes were 104-118px tall while pitch was 52-65px
+  const rawLines = [
+    { id: 1, polygon: [[594.5, 510.5], [1500.5, 510.5], [1500.5, 619.5], [594.5, 619.5]] },
+    { id: 2, polygon: [[587.5, 578.5], [1472.5, 578.5], [1472.5, 682.5], [587.5, 682.5]] },
+    { id: 3, polygon: [[583.5, 630.5], [1481.5, 630.5], [1481.5, 748.5], [583.5, 748.5]] },
+    { id: 4, polygon: [[577.5, 687.5], [1513.5, 687.5], [1513.5, 795.5], [577.5, 795.5]] },
+  ];
+  const tight = tightenLinePolygons(rawLines);
+  for (let i = 1; i <= 3; i++) {
+    const a = polygonBounds(tight.get(i));
+    const b = polygonBounds(tight.get(i + 1));
+    assert.ok(a.maxY < b.minY, `Lens poly #${i} bottom (${a.maxY}) must stay strictly above #${i + 1} top (${b.minY})`);
+  }
+
+  const hits = tightenFlatLineHits(
+    rawLines.map((l, idx) => {
+      const b = polygonBounds(l.polygon);
+      return {
+        id: idx + 1,
+        lineText: `Line ${idx + 1}`,
+        rawText: `Line ${idx + 1}`,
+        changed: false,
+        x1: 20,
+        x2: 500,
+        w: 480,
+        drawY: (b.cy - 475) * 0.8,
+        boxH: (b.maxY - b.minY) * 0.8,
+        fontSize: 18,
+      };
+    }),
+    540,
+    460,
+  );
+  for (let i = 0; i < hits.length - 1; i++) {
+    assert.ok(
+      hits[i].y + hits[i].h < hits[i + 1].y,
+      `Flat hit #${i + 1} bottom (${hits[i].y + hits[i].h}) must stay strictly above #${i + 2} top (${hits[i + 1].y})`,
+    );
   }
 });

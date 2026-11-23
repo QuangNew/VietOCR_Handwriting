@@ -116,6 +116,102 @@ export function linesInsideQuad(lines, quad) {
   });
 }
 
+/**
+ * Tighten handwritten OCR line polygons so loose ascender/descender or tilted bounding boxes
+ * NEVER bleed across adjacent lines in the Google Lens overlay.
+ * Returns a Map<lineId, tightened4PointPolygon>.
+ */
+export function tightenLinePolygons(lines) {
+  const out = new Map();
+  if (!Array.isArray(lines) || !lines.length) return out;
+
+  const items = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (!Array.isArray(line?.polygon) || line.polygon.length < 3) continue;
+    const ordered = line.polygon.length === 4 ? (orderQuad(line.polygon) || line.polygon) : null;
+    const b = polygonBounds(line.polygon);
+    const poly = ordered
+      ? ordered.map(([x, y]) => [Number(x), Number(y)])
+      : [[b.minX, b.minY], [b.maxX, b.minY], [b.maxX, b.maxY], [b.minX, b.maxY]];
+    const leftMidY = (poly[0][1] + poly[3][1]) * 0.5;
+    const rightMidY = (poly[1][1] + poly[2][1]) * 0.5;
+    const halfLeft = Math.max(4, Math.abs(poly[3][1] - poly[0][1]) * 0.5);
+    const halfRight = Math.max(4, Math.abs(poly[2][1] - poly[1][1]) * 0.5);
+    items.push({
+      id: line.id ?? i + 1,
+      minX: b.minX,
+      maxX: b.maxX,
+      width: Math.max(1, b.maxX - b.minX),
+      cy: (leftMidY + rightMidY) * 0.5,
+      leftX: (poly[0][0] + poly[3][0]) * 0.5,
+      rightX: (poly[1][0] + poly[2][0]) * 0.5,
+      leftMidY,
+      rightMidY,
+      topOffL: poly[0][1] - leftMidY,
+      botOffL: poly[3][1] - leftMidY,
+      topOffR: poly[1][1] - rightMidY,
+      botOffR: poly[2][1] - rightMidY,
+      rawHalf: Math.max(4, (halfLeft + halfRight) * 0.5),
+    });
+  }
+
+  items.sort((a, b) => a.cy - b.cy);
+
+  // Measure horizontal-overlap neighbor vertical pitches
+  const pitches = [];
+  for (let i = 0; i < items.length; i++) {
+    const cur = items[i];
+    let upPitch = Infinity;
+    let downPitch = Infinity;
+    for (let j = i - 1; j >= 0; j--) {
+      const prev = items[j];
+      const ov = Math.min(cur.maxX, prev.maxX) - Math.max(cur.minX, prev.minX);
+      if (ov > 0.15 * Math.min(cur.width, prev.width)) {
+        const dy = cur.cy - prev.cy;
+        if (dy > 4) { upPitch = dy; break; }
+      }
+    }
+    for (let j = i + 1; j < items.length; j++) {
+      const next = items[j];
+      const ov = Math.min(cur.maxX, next.maxX) - Math.max(cur.minX, next.minX);
+      if (ov > 0.15 * Math.min(cur.width, next.width)) {
+        const dy = next.cy - cur.cy;
+        if (dy > 4) { downPitch = dy; break; }
+      }
+    }
+    cur.upPitch = upPitch;
+    cur.downPitch = downPitch;
+    if (Number.isFinite(downPitch)) pitches.push(downPitch);
+  }
+
+  pitches.sort((a, b) => a - b);
+  const medianPitch = pitches.length ? pitches[Math.floor(pitches.length / 2)] : null;
+
+  // Shrink overly tall line boxes toward their true pitch band (preserving tilt!)
+  for (const cur of items) {
+    const localPitch = Math.min(cur.upPitch, cur.downPitch);
+    const refPitch = Number.isFinite(localPitch) ? localPitch : medianPitch;
+    const maxHalf = refPitch ? Math.max(6, refPitch * 0.37) : cur.rawHalf * 0.85;
+    const upCap = Number.isFinite(cur.upPitch) ? Math.max(5, cur.upPitch * 0.43) : maxHalf;
+    const downCap = Number.isFinite(cur.downPitch) ? Math.max(5, cur.downPitch * 0.43) : maxHalf;
+    const capTop = Math.min(maxHalf, upCap);
+    const capBot = Math.min(maxHalf, downCap);
+
+    const tlY = cur.leftMidY - Math.min(Math.abs(cur.topOffL), capTop);
+    const trY = cur.rightMidY - Math.min(Math.abs(cur.topOffR), capTop);
+    const brY = cur.rightMidY + Math.min(Math.abs(cur.botOffR), capBot);
+    const blY = cur.leftMidY + Math.min(Math.abs(cur.botOffL), capBot);
+    out.set(cur.id, [
+      [cur.leftX, tlY],
+      [cur.rightX, trY],
+      [cur.rightX, brY],
+      [cur.leftX, blY],
+    ]);
+  }
+  return out;
+}
+
 /* ---------- Convex hull & minimum-area oriented bounding quad ---------- */
 function cross2d(o, a, b) {
   return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);

@@ -134,6 +134,120 @@ List<Map<String, dynamic>> linesInsideQuad(
   }).toList();
 }
 
+/// Tighten handwritten line polygons so tilted/ascender bounding boxes never bleed across neighbor lines.
+Map<int, List<Point2D>> tightenLinePolygons(List<Map<String, dynamic>> lines) {
+  final out = <int, List<Point2D>>{};
+  if (lines.isEmpty) return out;
+  final items = <Map<String, dynamic>>[];
+  for (var i = 0; i < lines.length; i++) {
+    final raw = lines[i]['polygon'];
+    if (raw is! List || raw.length < 3) continue;
+    final pts = raw
+        .whereType<List>()
+        .where((p) => p.length >= 2)
+        .map<Point2D>((p) => [(p[0] as num).toDouble(), (p[1] as num).toDouble()])
+        .toList();
+    if (pts.length < 3) continue;
+    final b = polygonBounds(pts);
+    final poly = pts.length == 4
+        ? (orderQuad(pts) ?? pts)
+        : <Point2D>[
+            [b.minX, b.minY],
+            [b.maxX, b.minY],
+            [b.maxX, b.maxY],
+            [b.minX, b.maxY],
+          ];
+    final leftMidY = (poly[0][1] + poly[3][1]) * 0.5;
+    final rightMidY = (poly[1][1] + poly[2][1]) * 0.5;
+    final halfL = math.max(4.0, (poly[3][1] - poly[0][1]).abs() * 0.5);
+    final halfR = math.max(4.0, (poly[2][1] - poly[1][1]).abs() * 0.5);
+    items.add({
+      'id': (lines[i]['id'] as num?)?.toInt() ?? (i + 1),
+      'minX': b.minX,
+      'maxX': b.maxX,
+      'w': math.max(1.0, b.width),
+      'cy': (leftMidY + rightMidY) * 0.5,
+      'leftX': (poly[0][0] + poly[3][0]) * 0.5,
+      'rightX': (poly[1][0] + poly[2][0]) * 0.5,
+      'leftMidY': leftMidY,
+      'rightMidY': rightMidY,
+      'topOffL': (poly[0][1] - leftMidY).abs(),
+      'botOffL': (poly[3][1] - leftMidY).abs(),
+      'topOffR': (poly[1][1] - rightMidY).abs(),
+      'botOffR': (poly[2][1] - rightMidY).abs(),
+      'rawHalf': math.max(4.0, (halfL + halfR) * 0.5),
+    });
+  }
+  items.sort((a, b) => (a['cy'] as double).compareTo(b['cy'] as double));
+
+  final pitches = <double>[];
+  for (var i = 0; i < items.length; i++) {
+    final cur = items[i];
+    var up = double.infinity;
+    var down = double.infinity;
+    for (var j = i - 1; j >= 0; j--) {
+      final prev = items[j];
+      final ov =
+          math.min(cur['maxX'] as double, prev['maxX'] as double) -
+          math.max(cur['minX'] as double, prev['minX'] as double);
+      if (ov > 0.15 * math.min(cur['w'] as double, prev['w'] as double)) {
+        final dy = (cur['cy'] as double) - (prev['cy'] as double);
+        if (dy > 4.0) {
+          up = dy;
+          break;
+        }
+      }
+    }
+    for (var j = i + 1; j < items.length; j++) {
+      final next = items[j];
+      final ov =
+          math.min(cur['maxX'] as double, next['maxX'] as double) -
+          math.max(cur['minX'] as double, next['minX'] as double);
+      if (ov > 0.15 * math.min(cur['w'] as double, next['w'] as double)) {
+        final dy = (next['cy'] as double) - (cur['cy'] as double);
+        if (dy > 4.0) {
+          down = dy;
+          break;
+        }
+      }
+    }
+    cur['up'] = up;
+    cur['down'] = down;
+    if (down.isFinite) pitches.add(down);
+  }
+  pitches.sort();
+  final medPitch = pitches.isNotEmpty ? pitches[pitches.length ~/ 2] : null;
+
+  for (final cur in items) {
+    final up = cur['up'] as double;
+    final down = cur['down'] as double;
+    final local = math.min(up, down);
+    final refPitch = local.isFinite ? local : medPitch;
+    final maxHalf = refPitch != null
+        ? math.max(6.0, refPitch * 0.37)
+        : (cur['rawHalf'] as double) * 0.85;
+    final capTop = math.min(
+      maxHalf,
+      up.isFinite ? math.max(5.0, up * 0.43) : maxHalf,
+    );
+    final capBot = math.min(
+      maxHalf,
+      down.isFinite ? math.max(5.0, down * 0.43) : maxHalf,
+    );
+    final lx = cur['leftX'] as double;
+    final rx = cur['rightX'] as double;
+    final lmy = cur['leftMidY'] as double;
+    final rmy = cur['rightMidY'] as double;
+    out[cur['id'] as int] = [
+      [lx, lmy - math.min(cur['topOffL'] as double, capTop)],
+      [rx, rmy - math.min(cur['topOffR'] as double, capTop)],
+      [rx, rmy + math.min(cur['botOffR'] as double, capBot)],
+      [lx, lmy + math.min(cur['botOffL'] as double, capBot)],
+    ];
+  }
+  return out;
+}
+
 double _cross2d(Point2D o, Point2D a, Point2D b) =>
     (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
 

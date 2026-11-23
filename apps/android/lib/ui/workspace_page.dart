@@ -64,9 +64,25 @@ class _HomePageState extends State<HomePage> {
     listenable: app,
     builder: (context, _) => Scaffold(
       appBar: AppBar(
-        title: const Text(
-          'VietHandOCR',
-          style: TextStyle(fontWeight: FontWeight.w800),
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(7),
+              child: Image.asset(
+                'assets/icon.png',
+                width: 26,
+                height: 26,
+                fit: BoxFit.cover,
+                errorBuilder: (_, _, _) => const SizedBox.shrink(),
+              ),
+            ),
+            const SizedBox(width: 9),
+            const Text(
+              'VietHandOCR',
+              style: TextStyle(fontWeight: FontWeight.w800),
+            ),
+          ],
         ),
         actions: [
           IconButton(
@@ -104,16 +120,25 @@ class _HomePageState extends State<HomePage> {
             children: [
               Align(
                 alignment: Alignment.centerLeft,
-                child: Container(
-                  padding: const EdgeInsets.all(18),
-                  decoration: BoxDecoration(
-                    color: colors.primaryContainer,
-                    borderRadius: BorderRadius.circular(24),
-                  ),
-                  child: Icon(
-                    Icons.document_scanner_outlined,
-                    size: 34,
-                    color: colors.onPrimaryContainer,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(18),
+                  child: Image.asset(
+                    'assets/icon.png',
+                    width: 68,
+                    height: 68,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, _, _) => Container(
+                      padding: const EdgeInsets.all(18),
+                      decoration: BoxDecoration(
+                        color: colors.primaryContainer,
+                        borderRadius: BorderRadius.circular(24),
+                      ),
+                      child: Icon(
+                        Icons.document_scanner_outlined,
+                        size: 34,
+                        color: colors.onPrimaryContainer,
+                      ),
+                    ),
                   ),
                 ),
               ),

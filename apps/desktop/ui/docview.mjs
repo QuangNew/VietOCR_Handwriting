@@ -188,7 +188,7 @@ export function warpImageQuadToFlatCanvas(imgElement, quad, maxSide = 1000) {
         const w01 = fx1 * fy;
         const w11 = fx * fy;
 
-        dst[p]     = (srcData[idx00]     * w00 + srcData[idx10]     * w10 + srcData[idx01]     * w01 + srcData[idx11]     * w11) | 0;
+        dst[p] = (srcData[idx00] * w00 + srcData[idx10] * w10 + srcData[idx01] * w01 + srcData[idx11] * w11) | 0;
         dst[p + 1] = (srcData[idx00 + 1] * w00 + srcData[idx10 + 1] * w10 + srcData[idx01 + 1] * w01 + srcData[idx11 + 1] * w11) | 0;
         dst[p + 2] = (srcData[idx00 + 2] * w00 + srcData[idx10 + 2] * w10 + srcData[idx01 + 2] * w01 + srcData[idx11 + 2] * w11) | 0;
         dst[p + 3] = 255;
@@ -227,6 +227,66 @@ export function drawRectifiedPhoto(canvas, warpedCanvas, cssWidth, cssHeight) {
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
   ctx.drawImage(warpedCanvas, 0, 0, pxW, pxH);
+}
+
+/**
+ * Compute tight, strictly non-overlapping vertical highlight boxes for flat 90-degree lines.
+ */
+export function tightenFlatLineHits(metrics, cssWidth, cssHeight) {
+  const ordered = metrics.slice().sort((a, b) => a.drawY - b.drawY);
+  const pitches = [];
+  for (let i = 0; i < ordered.length; i++) {
+    const cur = ordered[i];
+    cur._up = null;
+    cur._down = null;
+    for (let j = i - 1; j >= 0; j--) {
+      const prev = ordered[j];
+      const ov = Math.min(cur.x2, prev.x2) - Math.max(cur.x1, prev.x1);
+      if (ov > 0.12 * Math.min(cur.w, prev.w) && cur.drawY - prev.drawY > 3) {
+        cur._up = prev;
+        break;
+      }
+    }
+    for (let j = i + 1; j < ordered.length; j++) {
+      const next = ordered[j];
+      const ov = Math.min(cur.x2, next.x2) - Math.max(cur.x1, next.x1);
+      if (ov > 0.12 * Math.min(cur.w, next.w) && next.drawY - cur.drawY > 3) {
+        cur._down = next;
+        pitches.push(next.drawY - cur.drawY);
+        break;
+      }
+    }
+  }
+  pitches.sort((a, b) => a - b);
+  const medPitch = pitches.length ? pitches[Math.floor(pitches.length / 2)] : null;
+
+  return metrics.map(m => {
+    const upDist = m._up ? m.drawY - m._up.drawY : Infinity;
+    const downDist = m._down ? m._down.drawY - m.drawY : Infinity;
+    const localPitch = Math.min(upDist, downDist);
+    const refPitch = Number.isFinite(localPitch) ? localPitch : medPitch;
+
+    const idealHalf = Math.max(m.fontSize * 0.64, Math.min(m.boxH * 0.36, m.fontSize * 0.78));
+    const maxHalf = refPitch ? Math.min(idealHalf, refPitch * 0.41) : idealHalf;
+    const topHalf = Number.isFinite(upDist) ? Math.min(maxHalf, Math.max(4, upDist * 0.43)) : maxHalf;
+    const botHalf = Number.isFinite(downDist) ? Math.min(maxHalf, Math.max(4, downDist * 0.43)) : maxHalf;
+
+    const yTop = Math.max(2, m.drawY - topHalf);
+    const yBot = Math.min(cssHeight - 2, m.drawY + botHalf);
+    const xLeft = Math.max(2, m.x1 - 4);
+    const wBox = Math.min(cssWidth - xLeft - 2, Math.max(12, m.w + 8));
+    return {
+      id: m.id,
+      text: m.lineText,
+      rawText: m.rawText,
+      changed: m.changed,
+      x: xLeft,
+      y: yTop,
+      w: wBox,
+      h: Math.max(8, yBot - yTop),
+      cy: m.drawY,
+    };
+  });
 }
 
 /**
@@ -282,7 +342,7 @@ export function renderDigitalDocument(canvas, opts) {
   const editedLines = String(text ?? '').split('\n');
   const hasGeoLines = lines.length > 0 && lines.some(l => Array.isArray(l.polygon) && l.polygon.length >= 3);
   const fontStack = '"Calibri", "Segoe UI", "Roboto", system-ui, sans-serif';
-  const lineHits = [];
+  let lineHits = [];
 
   if (hasGeoLines) {
     // Warp every handwritten line polygon through exact Homography H into the 90-deg flat Word page!
@@ -305,15 +365,29 @@ export function renderDigitalDocument(canvas, opts) {
       });
     }
 
+    // Measure actual line-to-line vertical pitch so loose tilted/ascender boxes never inflate font or hit rects
+    const byCy = metrics.slice().sort((a, b) => a.b.cy - b.b.cy);
+    const pitchSamples = [];
+    for (let i = 0; i < byCy.length - 1; i++) {
+      const a = byCy[i].b;
+      const b = byCy[i + 1].b;
+      const ov = Math.min(a.maxX, b.maxX) - Math.max(a.minX, b.minX);
+      if (ov > 0 && b.cy - a.cy > 4) pitchSamples.push(b.cy - a.cy);
+    }
+    pitchSamples.sort((a, b) => a - b);
+    const medPitch = pitchSamples.length ? pitchSamples[Math.floor(pitchSamples.length / 2)] : null;
+
     const sortedH = metrics.map(m => m.boxH).sort((a, b) => a - b);
     const medH = sortedH.length ? sortedH[Math.floor(sortedH.length / 2)] : 16;
-    const uniformBaseSize = Math.max(10, Math.min(28, medH * 0.56));
+    const effectiveLineH = medPitch ? Math.min(medH, medPitch * 0.86) : medH;
+    const uniformBaseSize = Math.max(9.5, Math.min(26, effectiveLineH * 0.58));
     const padX = Math.max(8, cssWidth * 0.025);
 
     ctx.textBaseline = 'middle';
     ctx.fillStyle = '#141a22';
+    const hitInputs = [];
     for (const m of metrics) {
-      let fontSize = Math.max(uniformBaseSize * 0.9, Math.min(uniformBaseSize * 1.12, m.boxH * 0.6));
+      let fontSize = Math.max(uniformBaseSize * 0.9, Math.min(uniformBaseSize * 1.1, effectiveLineH * 0.6));
       ctx.font = `400 ${fontSize.toFixed(1)}px ${fontStack}`;
 
       const startX = Math.max(padX, Math.min(cssWidth - padX - 24, m.b.minX));
@@ -328,19 +402,21 @@ export function renderDigitalDocument(canvas, opts) {
       const drawY = Math.max(fontSize * 0.6, Math.min(cssHeight - fontSize * 0.6, m.b.cy));
       ctx.fillText(m.lineText, startX, drawY);
 
-      const hitPadY = Math.max(3, fontSize * 0.24);
-      const hitH = Math.max(m.boxH * 0.82, fontSize + hitPadY * 2);
-      lineHits.push({
+      const lineW = Math.max(measured, m.b.maxX - startX);
+      hitInputs.push({
         id: m.id,
-        text: m.lineText,
+        lineText: m.lineText,
         rawText: m.rawText,
         changed: m.changed,
-        x: Math.max(2, startX - 4),
-        y: Math.max(2, drawY - hitH / 2),
-        w: Math.min(cssWidth - Math.max(2, startX - 4) - 2, Math.max(measured, m.b.maxX - startX) + 8),
-        h: Math.min(cssHeight - 4, hitH),
+        x1: startX,
+        x2: startX + lineW,
+        w: lineW,
+        drawY,
+        boxH: m.boxH,
+        fontSize,
       });
     }
+    lineHits = tightenFlatLineHits(hitInputs, cssWidth, cssHeight);
   } else {
     // 1-to-1 single-line Word layout (NEVER wraps a single recognized line onto 2 lines!)
     const padX = Math.max(16, cssWidth * 0.065);

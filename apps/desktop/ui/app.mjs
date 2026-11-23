@@ -8,6 +8,7 @@ import {
   detectPaperQuadFromImage,
   orderQuad,
   linesInsideQuad,
+  tightenLinePolygons,
 } from './lens.mjs';
 import {
   renderDigitalDocument,
@@ -2210,12 +2211,19 @@ function hitTestFlatLine(clientX, clientY) {
   if (r.width <= 0 || r.height <= 0) return null;
   const fx = clientX - r.left;
   const fy = clientY - r.top;
+  let best = null;
+  let bestDist = Infinity;
   for (const hit of activeDigitalLineHits) {
     if (fx >= hit.x && fx <= hit.x + hit.w && fy >= hit.y && fy <= hit.y + hit.h) {
-      return hit;
+      const cy = hit.cy ?? (hit.y + hit.h * 0.5);
+      const dist = Math.abs(fy - cy);
+      if (dist < bestDist) {
+        bestDist = dist;
+        best = hit;
+      }
     }
   }
-  return null;
+  return best;
 }
 
 $('compareOverlay').addEventListener('pointerdown', e => {
@@ -2509,14 +2517,14 @@ function renderLensOverlay() {
     if (scrimD) svg.append(svgEl('path', { class: 'lens-scrim', d: scrimD }));
   }
 
-  // 2) Frosted white/sky-blue highlight pills over every recognized text line
+  // 2) Tight non-overlapping Google Lens highlight pills over every recognized text line
   if (hasLines) {
-    const linePad = Math.max(2, Math.min(srcW, srcH) * 0.003);
     const strokeW = Math.max(1.2, Math.min(srcW, srcH) * 0.0018);
+    const tightPolys = tightenLinePolygons(lensData.lines);
     for (const line of lensData.lines) {
       if (!Array.isArray(line.polygon) || line.polygon.length < 3) continue;
-      const expanded = expandPolygon(line.polygon, linePad);
-      const pts = expanded.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(' ');
+      const tight = tightPolys.get(line.id) || line.polygon;
+      const pts = tight.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(' ');
       const isSel = lensSelectedLines.has(line.id);
       const isHov = lensHoveredLine === line.id;
       const poly = svgEl('polygon', {

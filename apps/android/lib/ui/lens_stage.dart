@@ -961,20 +961,28 @@ class _LensOverlayPainter extends CustomPainter {
       );
     }
 
-    // 2) Text line highlight pills
-    for (final line in lines) {
-      final rawPoly = line['polygon'];
-      if (rawPoly is! List || rawPoly.length < 3) continue;
-      final pts = rawPoly
-          .whereType<List>()
-          .where((p) => p.length >= 2)
-          .map(
-            (p) => _map([(p[0] as num).toDouble(), (p[1] as num).toDouble()]),
-          )
-          .toList();
+    // 2) Tight non-overlapping text line highlight pills
+    final tightened = tightenLinePolygons(lines);
+    for (var i = 0; i < lines.length; i++) {
+      final line = lines[i];
+      final id = (line['id'] as num?)?.toInt() ?? (i + 1);
+      final tightPoly = tightened[id];
+      final List<Offset> pts;
+      if (tightPoly != null && tightPoly.length >= 3) {
+        pts = tightPoly.map(_map).toList();
+      } else {
+        final rawPoly = line['polygon'];
+        if (rawPoly is! List || rawPoly.length < 3) continue;
+        pts = rawPoly
+            .whereType<List>()
+            .where((p) => p.length >= 2)
+            .map(
+              (p) => _map([(p[0] as num).toDouble(), (p[1] as num).toDouble()]),
+            )
+            .toList();
+      }
       if (pts.length < 3) continue;
-      final id = (line['id'] as num?)?.toInt();
-      final isSel = id != null && selectedLineIds.contains(id);
+      final isSel = selectedLineIds.contains(id);
       final polyPath = Path()..addPolygon(pts, true);
       canvas.drawPath(
         polyPath,
@@ -1196,13 +1204,32 @@ class DigitalDocumentPainter extends CustomPainter {
           boxH: math.max(9.0, b.height),
         ));
       }
+      final byCy = [...metrics]
+        ..sort((a, b) => a.bounds.cy.compareTo(b.bounds.cy));
+      final pitchSamples = <double>[];
+      for (var i = 0; i < byCy.length - 1; i++) {
+        final a = byCy[i].bounds;
+        final b = byCy[i + 1].bounds;
+        final ov = math.min(a.maxX, b.maxX) - math.max(a.minX, b.minX);
+        if (ov > 0 && b.cy - a.cy > 3.0) pitchSamples.add(b.cy - a.cy);
+      }
+      pitchSamples.sort();
+      final medPitch = pitchSamples.isNotEmpty
+          ? pitchSamples[pitchSamples.length ~/ 2]
+          : null;
+
       final heights = metrics.map((m) => m.boxH).toList()..sort();
       final medH = heights.isNotEmpty ? heights[heights.length ~/ 2] : 14.0;
-      final baseSize = (medH * 0.56).clamp(8.5, 22.0);
+      final effectiveH = medPitch != null
+          ? math.min(medH, medPitch * 0.86)
+          : medH;
+      final baseSize = (effectiveH * 0.58).clamp(8.5, 22.0);
       final padX = math.max(6.0, size.width * 0.025);
 
+      final pre =
+          <({int id, String text, double x, double y, double w, double boxH, double fontSize})>[];
       for (final m in metrics) {
-        var fontSize = (m.boxH * 0.6).clamp(baseSize * 0.9, baseSize * 1.12);
+        var fontSize = (effectiveH * 0.6).clamp(baseSize * 0.9, baseSize * 1.1);
         final startX = m.bounds.minX
             .clamp(padX, math.max(padX, size.width - padX - 24))
             .toDouble();
@@ -1232,15 +1259,61 @@ class DigitalDocumentPainter extends CustomPainter {
               math.max(fontSize * 0.6, size.height - fontSize * 0.6),
             )
             .toDouble();
-        final hitH = math.max(m.boxH * 0.85, fontSize * 1.45);
-        out.add((
+        pre.add((
           id: m.id,
           text: m.lineText,
           x: startX,
           y: drawY,
           w: math.max(tp.width, m.bounds.width),
-          h: hitH,
+          boxH: m.boxH,
           fontSize: fontSize,
+        ));
+      }
+
+      final sortedPre = [...pre]..sort((a, b) => a.y.compareTo(b.y));
+      for (final p in pre) {
+        var upDist = double.infinity;
+        var downDist = double.infinity;
+        final idx = sortedPre.indexWhere((e) => e.id == p.id);
+        for (var j = idx - 1; j >= 0; j--) {
+          final prev = sortedPre[j];
+          final ov = math.min(p.x + p.w, prev.x + prev.w) - math.max(p.x, prev.x);
+          if (ov > 0.12 * math.min(p.w, prev.w) && p.y - prev.y > 3.0) {
+            upDist = p.y - prev.y;
+            break;
+          }
+        }
+        for (var j = idx + 1; j < sortedPre.length; j++) {
+          final next = sortedPre[j];
+          final ov = math.min(p.x + p.w, next.x + next.w) - math.max(p.x, next.x);
+          if (ov > 0.12 * math.min(p.w, next.w) && next.y - p.y > 3.0) {
+            downDist = next.y - p.y;
+            break;
+          }
+        }
+        final localPitch = math.min(upDist, downDist);
+        final refPitch = localPitch.isFinite ? localPitch : medPitch;
+        final idealHalf = math.max(
+          p.fontSize * 0.64,
+          math.min(p.boxH * 0.36, p.fontSize * 0.78),
+        );
+        final maxHalf = refPitch != null
+            ? math.min(idealHalf, refPitch * 0.41)
+            : idealHalf;
+        final topHalf = upDist.isFinite
+            ? math.min(maxHalf, math.max(4.0, upDist * 0.43))
+            : maxHalf;
+        final botHalf = downDist.isFinite
+            ? math.min(maxHalf, math.max(4.0, downDist * 0.43))
+            : maxHalf;
+        out.add((
+          id: p.id,
+          text: p.text,
+          x: p.x,
+          y: p.y,
+          w: p.w,
+          h: math.max(8.0, topHalf + botHalf),
+          fontSize: p.fontSize,
         ));
       }
       return out;
@@ -1314,11 +1387,19 @@ class DigitalDocumentPainter extends CustomPainter {
       paperQuad: paperQuad,
       sourceSize: sourceSize,
     );
+    int? bestId;
+    var bestDist = double.infinity;
     for (final r in rows) {
       final rect = Rect.fromLTWH(r.x - 4, r.y - r.h / 2, r.w + 8, r.h);
-      if (rect.contains(local)) return r.id;
+      if (rect.contains(local)) {
+        final d = (local.dy - r.y).abs();
+        if (d < bestDist) {
+          bestDist = d;
+          bestId = r.id;
+        }
+      }
     }
-    return null;
+    return bestId;
   }
 
   @override

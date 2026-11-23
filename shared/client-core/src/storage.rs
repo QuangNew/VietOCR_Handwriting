@@ -1,4 +1,11 @@
-use std::{fs::File, io::Write, path::Path};
+use std::{
+    fs::File,
+    io::Write,
+    path::Path,
+    sync::atomic::{AtomicU64, Ordering},
+};
+
+static ATOMIC_SEQ: AtomicU64 = AtomicU64::new(0);
 /// One desktop writer per app-data directory. The OS releases the lock on exit,
 /// including a crash; a stale PID file can never permanently block the app.
 pub fn workspace_lock(root: &Path) -> std::io::Result<Option<File>> {
@@ -16,11 +23,15 @@ pub fn workspace_lock(root: &Path) -> std::io::Result<Option<File>> {
     }
 }
 pub fn atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
-    let temp = path.with_extension("tmp");
+    let seq = ATOMIC_SEQ.fetch_add(1, Ordering::Relaxed);
+    let stem = path.file_name().and_then(|n| n.to_str()).unwrap_or("data");
+    let temp = path.with_file_name(format!("{stem}.{}.{seq}.tmp", std::process::id()));
     let mut file = File::create(&temp).map_err(|_| "Không tạo được file tạm")?;
-    file.write_all(bytes)
-        .and_then(|_| file.sync_all())
-        .map_err(|_| "Không ghi được dữ liệu")?;
+    if file.write_all(bytes).and_then(|_| file.sync_all()).is_err() {
+        drop(file);
+        let _ = std::fs::remove_file(&temp);
+        return Err("Không ghi được dữ liệu".into());
+    }
     drop(file);
     #[cfg(windows)]
     {
@@ -39,13 +50,25 @@ pub fn atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
             .encode_wide()
             .chain(Some(0))
             .collect::<Vec<_>>();
-        // SAFETY: both UTF-16 buffers are NUL-terminated and live for the call.
-        if unsafe { MoveFileExW(a.as_ptr(), b.as_ptr(), 1 | 8) } == 0 {
+        let mut moved = false;
+        for attempt in 0..8u64 {
+            // SAFETY: both UTF-16 buffers are NUL-terminated and live for the call.
+            if unsafe { MoveFileExW(a.as_ptr(), b.as_ptr(), 1 | 8) } != 0 {
+                moved = true;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(12 * (attempt + 1)));
+        }
+        if !moved {
+            let _ = std::fs::remove_file(&temp);
             return Err("Không thay thế được file".into());
         }
     }
     #[cfg(not(windows))]
-    std::fs::rename(temp, path).map_err(|_| "Không thay thế được file")?;
+    if std::fs::rename(&temp, path).is_err() {
+        let _ = std::fs::remove_file(&temp);
+        return Err("Không thay thế được file".into());
+    }
     Ok(())
 }
 #[cfg(windows)]
