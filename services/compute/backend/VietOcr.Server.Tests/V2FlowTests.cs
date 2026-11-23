@@ -81,6 +81,23 @@ public sealed class V2FlowTests:IDisposable
         store2.Remove(id);
         Assert.False(new JobCorrectionStore(Options).Get(id));
     }
+    [Fact]public void JobArtifactStorePersistsLensAndPipelineAndCleansExpiredFiles(){
+        var store=new JobArtifactStore(Options);
+        var id=Guid.NewGuid().ToString("D");
+        Assert.False(store.HasPipeline(id));
+        Assert.Null(store.ReadLens(id));
+        using var lens=JsonDocument.Parse("{\"paperDetected\":true,\"lines\":[{\"id\":1,\"text\":\"Xin chào\"}]}");
+        using var pipe=JsonDocument.Parse("{\"route\":\"scanner\",\"timings\":{\"totalMs\":520}}");
+        store.Save(id,lens.RootElement,pipe.RootElement);
+        Assert.True(store.HasPipeline(id));
+        Assert.Equal("Xin chào",store.ReadLens(id)!.Value.GetProperty("lines")[0].GetProperty("text").GetString());
+        Assert.Equal("scanner",store.ReadPipeline(id)!.Value.GetProperty("route").GetString());
+        store.Cleanup(TimeSpan.FromHours(24));
+        Assert.True(store.HasPipeline(id));
+        store.Cleanup(TimeSpan.Zero);
+        Assert.False(store.HasPipeline(id));
+        Assert.Null(store.ReadLens(id));
+    }
     private sealed class Verifier:IImageVerifier{public Task<ImageInfo> Verify(string path,CancellationToken ct)=>Task.FromResult(new ImageInfo(1920,1080,"image/jpeg"));}
     private sealed class FakeDb:IFlowDatabase{
         private readonly HashSet<Guid> committed=[];public int Charges;public bool FailOnce;

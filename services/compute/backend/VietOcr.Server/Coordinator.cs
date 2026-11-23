@@ -4,7 +4,7 @@ using System.Text.Json;
 namespace VietOcr.Server;
 
 public sealed class Coordinator(Store store, ServerOptions options, Hardware hardware,
-    ILogger<Coordinator> logger,V2Spool spool,JobCorrectionStore corrections) : BackgroundService
+    ILogger<Coordinator> logger,V2Spool spool,JobCorrectionStore corrections,JobArtifactStore? artifacts=null) : BackgroundService
 {
     private readonly FairQueue queue = new();
     private readonly WorkerRotation rotation=new();
@@ -192,7 +192,7 @@ public sealed class Coordinator(Store store, ServerOptions options, Hardware har
                     await hardware.Sample(ct);
                     nextSample = DateTime.UtcNow.AddSeconds(3);
                 }
-                if (DateTime.UtcNow >= nextCleanup) { await store.Cleanup(); if(!string.IsNullOrEmpty(options.GatewayIngressKeySha256))await store.V2("ocr_v2_expire",new{}); nextCleanup = DateTime.UtcNow.AddMinutes(10); }
+                if (DateTime.UtcNow >= nextCleanup) { await store.Cleanup(); artifacts?.Cleanup(TimeSpan.FromHours(options.RetentionHours)); if(!string.IsNullOrEmpty(options.GatewayIngressKeySha256))await store.V2("ocr_v2_expire",new{}); nextCleanup = DateTime.UtcNow.AddMinutes(10); }
                 if(DateTime.UtcNow>=nextReceiptRecovery&&await Admission.WaitAsync(0,ct)){
                     try{
                         // A committed receipt can outlive the request/response
@@ -256,6 +256,12 @@ public sealed class Coordinator(Store store, ServerOptions options, Hardware har
             executing=true;
             var value = await worker.Recognize(job, deadline.Token);
             var ok = value.GetProperty("ok").GetBoolean();
+            if (ok && artifacts != null)
+            {
+                JsonElement? lens = value.TryGetProperty("lens", out var l) ? l : null;
+                JsonElement? pipeline = value.TryGetProperty("pipeline", out var p) ? p : null;
+                if (lens != null || pipeline != null) artifacts.Save(job.Id, lens, pipeline);
+            }
             await store.Finish(job, ok ? "succeeded" : "failed", ok ? value.GetProperty("text").GetString() : null,
                 ok ? null : value.GetProperty("error").GetString(), value.GetProperty("elapsedMs").GetDouble(),
                 ok ? value.GetProperty("width").GetInt32() : 0, ok ? value.GetProperty("height").GetInt32() : 0);

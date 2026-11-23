@@ -102,17 +102,24 @@
             <h2>Ảnh gốc</h2>
             <div class="panel-head-right">
               <span id="imageInfo" class="muted">Bản nháp riêng</span>
-              <span id="editHint" class="edit-hint" hidden>Nhấn ảnh để chỉnh</span>
+              <button id="lensToggleBtn" class="mini-pill active" type="button" hidden title="Bật / tắt khung nhận diện giấy và bôi chữ kiểu Google Lens">✦ Lens</button>
+              <button id="editImageBtn" class="mini-pill" type="button" hidden title="Mở Xem & chỉnh ảnh (cắt, xoay, đen trắng)">✎ Chỉnh ảnh</button>
+              <button id="pipelineBtn" class="mini-pill accent-pill" type="button" hidden title="Xem trực quan toàn bộ 5 khâu xử lý đằng sau">◈ Pipeline</button>
             </div>
           </div>
-          <button id="original" class="original" type="button" title="Nhấn vào ảnh để Xem & chỉnh ảnh">
-            <img id="originalImage" hidden alt="Ảnh đã chọn">
+          <div id="original" class="original" role="button" tabindex="0" title="Nhấn vào ảnh để Xem & chỉnh ảnh">
+            <div id="originalStage" class="original-stage" hidden>
+              <img id="originalImage" alt="Ảnh đã chọn" draggable="false">
+              <svg id="lensSvg" class="lens-svg" style="display:none" aria-label="Lớp nhận diện giấy và bôi chữ kiểu Google Lens"></svg>
+              <div id="lensFloatingBar" class="lens-floating-bar" hidden></div>
+              <div id="lensTooltip" class="lens-tooltip" hidden></div>
+            </div>
             <div id="emptyImage">
               <span class="paper">＋</span>
               <h3>Bắt đầu với một tấm ảnh</h3>
               <p>Tải từ máy tính hoặc chụp bằng Raspberry</p>
             </div>
-          </button>
+          </div>
         </article>
 
         <article class="panel-text">
@@ -129,10 +136,18 @@
         </article>
       </div>
 
+      <div id="pipelineMiniBar" class="pipeline-mini-bar" hidden>
+        <div id="pipelineMiniSteps" class="pipeline-mini-steps"></div>
+        <button id="openPipelineFromBar" class="primary mini-bar-btn" type="button">▶ Mở Pipeline</button>
+      </div>
+
       <footer>
         <div class="footer-left">
           <label class="correct-toggle" title="Tích chọn để chạy thêm BARTpho v2 sau ML_s44 nhằm sửa lỗi dấu và ngữ cảnh tiếng Việt">
             <input id="correct" type="checkbox"> Nội suy sửa lỗi (BARTpho)
+          </label>
+          <label class="correct-toggle demo-toggle" title="Hiển thị trực quan đầy đủ 5 khâu xử lý đằng sau (Tiền xử lý, Tách mực, Tách dòng, V2c + ML_s44, BARTpho) để trình diễn demo">
+            <input id="demoPipeline" type="checkbox"> Demo Pipeline
           </label>
           <span id="message" class="footer-msg"></span>
         </div>
@@ -303,6 +318,34 @@
     <div id="transferRows"></div>
   </div>
   <button id="showTransfers" class="transfer-toggle" type="button" title="Mở lại tiến trình" aria-label="Mở tiến trình" aria-expanded="false" hidden>↑</button>
+
+  <dialog id="pipelineDialog" class="pipeline-dialog">
+    <div class="dialog-head">
+      <div>
+        <h2>Trực quan hóa Pipeline VietHandOCR</h2>
+        <p id="pipelineMeta" class="muted">Quan sát trực tiếp từng khâu xử lý từ ảnh chụp thô đến văn bản cuối cùng.</p>
+      </div>
+      <div class="dialog-head-tools">
+        <div class="pipe-mode-switch" role="group" aria-label="Chế độ xem Pipeline">
+          <button id="pipeModeOverview" type="button" class="pin-btn active">Tổng quan</button>
+          <button id="pipeModeStep" type="button" class="pin-btn">Từng bước</button>
+        </div>
+        <button id="pipeAutoPlay" type="button" class="compact-btn">▶ Tự chạy</button>
+        <button id="pipelineClose" class="icon" type="button" aria-label="Đóng Pipeline">×</button>
+      </div>
+    </div>
+    <div id="pipelineStepper" class="pipeline-stepper"></div>
+    <div id="pipelineTimingWrap" class="pipeline-timing-wrap">
+      <div id="pipelineTimingBar" class="pipeline-timing-bar"></div>
+      <div id="pipelineTimingLegend" class="pipeline-timing-legend"></div>
+    </div>
+    <div id="pipelineBody" class="pipeline-body"></div>
+    <div class="dialog-actions" id="pipelineFoot">
+      <span id="pipelineFootHint" class="muted">Dữ liệu được trích xuất trực tiếp từ Worker Native + ML_s44 + BARTpho v2.</span>
+      <button id="pipePrev" type="button" hidden>← Khâu trước</button>
+      <button id="pipeNext" type="button" class="primary" hidden>Khâu tiếp theo →</button>
+    </div>
+  </dialog>
 
   <dialog id="logs" class="large-dialog">
     <div class="dialog-head">

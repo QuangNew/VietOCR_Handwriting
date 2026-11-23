@@ -1,4 +1,20 @@
 import { outline, bounds, detectSelfClose, finalizeFreehand, dist } from './editor.mjs';
+import {
+  computeContainedRect,
+  buildCornerBracketPaths,
+  expandPolygon,
+  polygonBounds,
+  quadScrimPath,
+  detectPaperQuadFromImage,
+} from './lens.mjs';
+import {
+  formatMs,
+  routeLabel,
+  translateReason,
+  diffWords,
+  computeTimingShares,
+  LINE_COLORS,
+} from './pipeline.mjs';
 
 const $ = id => document.getElementById(id);
 const invoke = (name, args = {}) =>
@@ -36,6 +52,20 @@ const transferRows = new Map();
 const operations = new Map();
 const thumbCache = new Map();
 const thumbLoading = new Set();
+const clientPaperCache = new Map();
+const pipelineCache = new Map();
+const lensSelectedLines = new Set();
+let lensEnabled = localStorage.getItem('viethandocr.lensEnabled') !== '0';
+let demoPipelineMode = localStorage.getItem('viethandocr.demoPipeline') === '1';
+let lensHoveredLine = null;
+let lensDragging = false;
+let lensDragDidMove = false;
+let lensDragAction = 'add';
+let pipeViewMode = 'overview';
+let pipeActiveStep = 0;
+let pipeAutoTimer = null;
+let activePipelineData = null;
+let activePipelineDraft = null;
 const sendableStates = ['draft', 'awaiting_upload', 'upload_granted', 'uploading', 'cancelled', 'succeeded', 'failed', 'expired'];
 const terminalStates = ['succeeded', 'failed', 'cancelled', 'expired'];
 let transfersCollapsed = false;
@@ -349,30 +379,61 @@ function renderList() {
   $('clearAll').disabled = !drafts.some(isRemovable);
   $('clearPick').disabled = !drafts.some(isRemovable);
   $('historyButton').disabled = !verified;
-  $('editHint').hidden = !current;
+  $('lensToggleBtn').hidden = !current;
+  $('editImageBtn').hidden = !current;
+  $('pipelineBtn').hidden = !(current && (current.state === 'succeeded' || current.hasPipeline || demoPipelineMode));
+  $('pipelineBtn').disabled = !current || current.state !== 'succeeded';
+  $('pipelineBtn').classList.toggle('pulse-ready', Boolean(demoPipelineMode && current?.state === 'succeeded'));
   $('text').disabled = !!current && ['queued', 'running', 'cancel_pending'].includes(current.state);
+  renderPipelineMiniBar();
 }
 
 async function select(id) {
   selected = id;
+  lensSelectedLines.clear();
+  lensHoveredLine = null;
   renderList();
   const d = drafts.find(x => x.id === id);
   $('text').value = d?.text ?? '';
   countText();
   if (!d) {
-    $('originalImage').hidden = true;
+    $('originalStage').hidden = true;
     $('originalImage').removeAttribute('src');
+    $('lensSvg').style.display = 'none';
+    $('lensFloatingBar').hidden = true;
+    $('lensTooltip').hidden = true;
     $('emptyImage').hidden = false;
     $('imageInfo').textContent = 'Bản nháp riêng';
+    renderPipelineMiniBar();
     return;
   }
   const url = thumbCache.get(id) ?? (await invoke('draft_image', { id }));
   if (url) thumbCache.set(id, url);
   if (selected !== id) return;
-  $('originalImage').src = url;
-  $('originalImage').hidden = false;
+  const img = $('originalImage');
+  $('originalStage').hidden = false;
   $('emptyImage').hidden = true;
   $('imageInfo').textContent = `${d.width && d.height ? `${d.width} × ${d.height} px · ` : ''}${(d.imageBytes / 1024).toFixed(0)} KiB · ${d.mediaType.replace('image/', '').toUpperCase()}`;
+  img.onload = () => {
+    if (selected !== id) return;
+    if (!d.lens && !clientPaperCache.has(id)) {
+      const detected = detectPaperQuadFromImage(img);
+      if (detected) clientPaperCache.set(id, detected);
+    }
+    renderLensOverlay();
+  };
+  img.src = url;
+  if (img.complete && img.naturalWidth > 0) {
+    if (!d.lens && !clientPaperCache.has(id)) {
+      const detected = detectPaperQuadFromImage(img);
+      if (detected) clientPaperCache.set(id, detected);
+    }
+    renderLensOverlay();
+  }
+  if (demoPipelineMode && d.state === 'succeeded' && d.jobId) {
+    void prefetchPipeline(d);
+  }
+  renderPipelineMiniBar();
 }
 
 async function boot() {
@@ -474,6 +535,9 @@ $('logoutButton').onclick = () =>
     verifiedInfo = null;
     thumbCache.clear();
     thumbLoading.clear();
+    clientPaperCache.clear();
+    pipelineCache.clear();
+    lensSelectedLines.clear();
     closeCamera();
     await invoke('logout');
     drafts = [];
@@ -489,7 +553,35 @@ $('import').onclick = () =>
     if (items.length) $('message').textContent = `Đã thêm ${items.length} ảnh vào danh sách.`;
   });
 
-$('original').onclick = () => (selected ? run(openEditor) : $('import').click());
+$('editImageBtn').onclick = e => {
+  e.stopPropagation();
+  if (selected) run(openEditor);
+};
+$('lensToggleBtn').onclick = e => {
+  e.stopPropagation();
+  lensEnabled = !lensEnabled;
+  localStorage.setItem('viethandocr.lensEnabled', lensEnabled ? '1' : '0');
+  renderLensOverlay();
+};
+$('original').onclick = e => {
+  if (lensDragDidMove) {
+    lensDragDidMove = false;
+    return;
+  }
+  if (e.target.closest?.('.lens-floating-bar') || e.target.closest?.('.lens-line')) return;
+  if (!selected) {
+    $('import').click();
+    return;
+  }
+  run(openEditor);
+};
+$('original').onkeydown = e => {
+  if (e.key === 'Enter' || e.key === ' ') {
+    e.preventDefault();
+    if (selected) run(openEditor);
+    else $('import').click();
+  }
+};
 $('copy').onclick = () =>
   run(async () => {
     await navigator.clipboard.writeText($('text').value);
@@ -677,7 +769,11 @@ async function removeDraftIds(ids) {
   if (!ids.length) return;
   const removed = await invoke('remove_drafts', { ids });
   const removedSet = new Set(removed);
-  for (const id of removedSet) thumbCache.delete(id);
+  for (const id of removedSet) {
+    thumbCache.delete(id);
+    clientPaperCache.delete(id);
+    pipelineCache.delete(id);
+  }
   drafts = drafts.filter(d => !removedSet.has(d.id));
   const nextSel = drafts.some(d => d.id === selected) ? selected : drafts[0]?.id ?? null;
   await select(nextSel);
@@ -942,6 +1038,11 @@ async function pollResult(id, op = operations.get(id) ?? newOperation(id)) {
         $('text').value = d.text;
         countText();
       }
+      if (selected === id && d.state === 'succeeded') {
+        renderLensOverlay();
+        if (demoPipelineMode && d.jobId) void prefetchPipeline(d);
+        renderPipelineMiniBar();
+      }
       if (op.finished) {
         void refreshSessionQuota();
         break;
@@ -1114,6 +1215,17 @@ const correctInput = $('correct');
 if (correctInput) {
   correctInput.checked = localStorage.getItem('vietocr.correct') === '1';
   correctInput.onchange = () => localStorage.setItem('vietocr.correct', correctInput.checked ? '1' : '0');
+}
+const demoPipelineInput = $('demoPipeline');
+if (demoPipelineInput) {
+  demoPipelineInput.checked = demoPipelineMode;
+  demoPipelineInput.onchange = () => {
+    demoPipelineMode = demoPipelineInput.checked;
+    localStorage.setItem('viethandocr.demoPipeline', demoPipelineMode ? '1' : '0');
+    const cur = drafts.find(x => x.id === selected);
+    if (demoPipelineMode && cur?.state === 'succeeded' && cur.jobId) void prefetchPipeline(cur);
+    renderList();
+  };
 }
 
 $('send').onclick = () =>
@@ -1671,5 +1783,791 @@ $('bw').onclick = () =>
       $('bw').disabled = false;
     }
   });
+
+/* ---------- Google Lens Paper Detection & Text Highlight Overlay on Ảnh gốc ---------- */
+const SVG_NS = 'http://www.w3.org/2000/svg';
+function svgEl(tag, attrs = {}) {
+  const el = document.createElementNS(SVG_NS, tag);
+  for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, String(v));
+  return el;
+}
+
+function getActiveLensData(d) {
+  if (!d) return null;
+  if (d.lens && typeof d.lens === 'object') return d.lens;
+  return clientPaperCache.get(d.id) || null;
+}
+
+function highlightLineInTextarea(lineIdx1Based) {
+  const ta = $('text');
+  if (!ta || !ta.value) return;
+  const lines = ta.value.split('\n');
+  const idx = lineIdx1Based - 1;
+  if (idx < 0 || idx >= lines.length) return;
+  let start = 0;
+  for (let i = 0; i < idx; i++) start += lines[i].length + 1;
+  const end = start + lines[idx].length;
+  ta.focus({ preventScroll: true });
+  ta.setSelectionRange(start, end);
+  const ratio = lines.length > 1 ? idx / (lines.length - 1) : 0;
+  ta.scrollTop = Math.max(0, ratio * (ta.scrollHeight - ta.clientHeight));
+}
+
+function updateLensTooltip(line) {
+  const tip = $('lensTooltip');
+  if (!line || !lensEnabled) {
+    tip.hidden = true;
+    return;
+  }
+  tip.replaceChildren();
+  const badge = document.createElement('span');
+  badge.className = 'lens-tip-idx';
+  badge.textContent = `#${line.id}`;
+  const text = document.createElement('span');
+  text.className = 'lens-tip-text';
+  text.textContent = line.text || '';
+  tip.append(badge, text);
+  if (line.changed) {
+    const bp = document.createElement('span');
+    bp.className = 'lens-tip-badge';
+    bp.textContent = 'BARTpho';
+    tip.append(bp);
+  }
+  tip.hidden = false;
+}
+
+function renderLensFloatingBar(lensData, rect) {
+  const bar = $('lensFloatingBar');
+  if (!lensEnabled || !lensData || !rect || rect.width < 40) {
+    bar.hidden = true;
+    return;
+  }
+  const lines = Array.isArray(lensData.lines) ? lensData.lines : [];
+  const hasLines = lines.length > 0;
+  if (!hasLines && !lensData.paperDetected) {
+    bar.hidden = true;
+    return;
+  }
+
+  bar.replaceChildren();
+  if (!hasLines) {
+    const labelSpan = document.createElement('span');
+    labelSpan.textContent = '✦ Đã nhận diện vùng giấy · Nhấn Gửi để bôi chữ';
+    bar.append(labelSpan);
+  } else if (lensSelectedLines.size === 0) {
+    const labelSpan = document.createElement('span');
+    labelSpan.textContent = `Chọn văn bản · ${lines.length} dòng`;
+    const selAll = document.createElement('button');
+    selAll.type = 'button';
+    selAll.className = 'lens-pill-btn';
+    selAll.textContent = 'Chọn tất cả';
+    selAll.onclick = e => {
+      e.stopPropagation();
+      lines.forEach(l => lensSelectedLines.add(l.id));
+      renderLensOverlay();
+    };
+    bar.append(labelSpan, selAll);
+  } else {
+    const chosen = lines.filter(l => lensSelectedLines.has(l.id));
+    const labelSpan = document.createElement('span');
+    labelSpan.textContent = `Đã chọn ${chosen.length}/${lines.length} dòng`;
+    const copyBtn = document.createElement('button');
+    copyBtn.type = 'button';
+    copyBtn.className = 'lens-pill-btn primary-lens';
+    copyBtn.textContent = 'Sao chép';
+    copyBtn.onclick = e => {
+      e.stopPropagation();
+      const text = chosen.map(l => l.text).join('\n');
+      run(async () => {
+        await navigator.clipboard.writeText(text);
+        toast(`Đã sao chép ${chosen.length} dòng đã chọn`);
+      });
+    };
+    const clearBtn = document.createElement('button');
+    clearBtn.type = 'button';
+    clearBtn.className = 'lens-pill-btn';
+    clearBtn.textContent = 'Bỏ chọn';
+    clearBtn.onclick = e => {
+      e.stopPropagation();
+      lensSelectedLines.clear();
+      renderLensOverlay();
+    };
+    bar.append(labelSpan, copyBtn, clearBtn);
+  }
+
+  const stage = $('originalStage');
+  const srcW = lensData.sourceWidth || $('originalImage').naturalWidth || 1;
+  const srcH = lensData.sourceHeight || $('originalImage').naturalHeight || 1;
+  let anchorX = rect.left + rect.width / 2;
+  let anchorY = Math.max(8, rect.top + 8);
+  if (Array.isArray(lensData.paperQuad) && lensData.paperQuad.length === 4) {
+    const pb = polygonBounds(lensData.paperQuad);
+    anchorX = rect.left + (pb.cx / srcW) * rect.width;
+    const quadTop = rect.top + (pb.minY / srcH) * rect.height;
+    anchorY = quadTop > 44 ? quadTop - 36 : Math.max(8, quadTop + 8);
+  }
+  anchorX = Math.max(96, Math.min(stage.clientWidth - 96, anchorX));
+  anchorY = Math.max(6, Math.min(stage.clientHeight - 40, anchorY));
+  bar.style.left = `${Math.round(anchorX)}px`;
+  bar.style.top = `${Math.round(anchorY)}px`;
+  bar.hidden = false;
+}
+
+function renderLensOverlay() {
+  const d = drafts.find(x => x.id === selected);
+  const svg = $('lensSvg');
+  const stage = $('originalStage');
+  const img = $('originalImage');
+  $('lensToggleBtn').classList.toggle('active', lensEnabled);
+
+  const lensData = getActiveLensData(d);
+  const hasLines = Boolean(lensData?.lines?.length);
+  const hasPaper = Boolean(lensData?.paperQuad?.length === 4);
+  $('original').classList.toggle('lens-interactive', Boolean(lensEnabled && hasLines));
+
+  if (!d || !lensEnabled || (!hasLines && !hasPaper) || stage.hidden || !img.naturalWidth) {
+    svg.style.display = 'none';
+    svg.replaceChildren();
+    $('lensFloatingBar').hidden = true;
+    $('lensTooltip').hidden = true;
+    return;
+  }
+
+  const srcW = lensData.sourceWidth || img.naturalWidth;
+  const srcH = lensData.sourceHeight || img.naturalHeight;
+  const rect = computeContainedRect(stage.clientWidth, stage.clientHeight, img.naturalWidth, img.naturalHeight);
+  if (rect.width < 10 || rect.height < 10) {
+    svg.style.display = 'none';
+    return;
+  }
+
+  svg.style.left = `${rect.left}px`;
+  svg.style.top = `${rect.top}px`;
+  svg.style.width = `${rect.width}px`;
+  svg.style.height = `${rect.height}px`;
+  svg.setAttribute('viewBox', `0 0 ${srcW} ${srcH}`);
+  svg.replaceChildren();
+
+  // 1) Subtle outside-paper dark scrim (Google Lens style)
+  if (hasPaper && (lensData.paperDetected || hasLines)) {
+    const scrimD = quadScrimPath(srcW, srcH, lensData.paperQuad);
+    if (scrimD) svg.append(svgEl('path', { class: 'lens-scrim', d: scrimD }));
+  }
+
+  // 2) Frosted white/sky-blue highlight pills over every recognized text line
+  if (hasLines) {
+    const linePad = Math.max(2, Math.min(srcW, srcH) * 0.003);
+    const strokeW = Math.max(1.2, Math.min(srcW, srcH) * 0.0018);
+    for (const line of lensData.lines) {
+      if (!Array.isArray(line.polygon) || line.polygon.length < 3) continue;
+      const expanded = expandPolygon(line.polygon, linePad);
+      const pts = expanded.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(' ');
+      const isSel = lensSelectedLines.has(line.id);
+      const isHov = lensHoveredLine === line.id;
+      const poly = svgEl('polygon', {
+        class: `lens-line${isSel ? ' selected' : ''}${isHov ? ' hovered' : ''}`,
+        points: pts,
+        'stroke-width': strokeW.toFixed(2),
+        'data-line-id': line.id,
+      });
+      poly.addEventListener('pointerdown', e => {
+        e.stopPropagation();
+        lensDragging = true;
+        lensDragDidMove = true;
+        lensDragAction = lensSelectedLines.has(line.id) ? 'remove' : 'add';
+        if (lensDragAction === 'add') lensSelectedLines.add(line.id);
+        else lensSelectedLines.delete(line.id);
+        highlightLineInTextarea(line.id);
+        updateLensTooltip(line);
+        renderLensOverlay();
+      });
+      poly.addEventListener('pointerenter', () => {
+        lensHoveredLine = line.id;
+        updateLensTooltip(line);
+        if (lensDragging) {
+          if (lensDragAction === 'add') lensSelectedLines.add(line.id);
+          else lensSelectedLines.delete(line.id);
+          renderLensOverlay();
+        }
+      });
+      poly.addEventListener('pointerleave', () => {
+        if (lensHoveredLine === line.id) {
+          lensHoveredLine = null;
+          updateLensTooltip(null);
+        }
+      });
+      svg.append(poly);
+    }
+  }
+
+  // 3) 4 crisp white rounded Google Lens corner brackets around paper quad
+  if (hasPaper) {
+    const pb = polygonBounds(lensData.paperQuad);
+    const minDim = Math.max(40, Math.min(pb.maxX - pb.minX, pb.maxY - pb.minY));
+    const armLen = Math.min(minDim * 0.14, Math.min(srcW, srcH) * 0.095);
+    const cornerR = Math.max(8, armLen * 0.42);
+    const bracketW = Math.max(4, Math.min(srcW, srcH) * 0.011);
+    for (const dPath of buildCornerBracketPaths(lensData.paperQuad, armLen, cornerR)) {
+      svg.append(svgEl('path', { class: 'lens-bracket', d: dPath, 'stroke-width': bracketW.toFixed(1) }));
+    }
+  }
+
+  svg.style.display = 'block';
+  renderLensFloatingBar(lensData, rect);
+}
+
+window.addEventListener('pointerup', () => {
+  if (lensDragging) {
+    lensDragging = false;
+    setTimeout(() => { lensDragDidMove = false; }, 0);
+  }
+});
+
+const originalStageObserver = new ResizeObserver(() => {
+  if (!$('originalStage').hidden) renderLensOverlay();
+});
+originalStageObserver.observe($('originalStage'));
+
+/* ---------- Interactive 5-Stage Visual Pipeline Demo ---------- */
+async function prefetchPipeline(d) {
+  if (!d?.id || !d.jobId) return null;
+  const cached = pipelineCache.get(d.id);
+  if (cached && cached.jobId === d.jobId) return cached.data;
+  try {
+    const data = await invoke('draft_pipeline', { id: d.id });
+    if (data && typeof data === 'object') {
+      pipelineCache.set(d.id, { jobId: d.jobId, data });
+      if (selected === d.id) renderPipelineMiniBar();
+      return data;
+    }
+  } catch {
+    /* server may be older or result expired; handled gracefully when user clicks open */
+  }
+  return null;
+}
+
+function renderPipelineMiniBar() {
+  const bar = $('pipelineMiniBar');
+  const stepsEl = $('pipelineMiniSteps');
+  const cur = drafts.find(x => x.id === selected);
+  if (!demoPipelineMode || !cur) {
+    bar.hidden = true;
+    document.body.classList.remove('has-pipeline-bar');
+    return;
+  }
+  bar.hidden = false;
+  document.body.classList.add('has-pipeline-bar');
+  stepsEl.replaceChildren();
+  const cached = pipelineCache.get(cur.id);
+  const pipe = cached && cached.jobId === cur.jobId ? cached.data : null;
+  const t = pipe?.timings;
+  const lineCount = pipe?.lines?.length ?? cur.lens?.lines?.length ?? null;
+  const chips = [
+    { step: 0, label: '① Vùng giấy', meta: pipe ? (pipe.route === 'scanner' ? 'Scanner' : 'Legacy') : (cur.state === 'succeeded' ? 'Sẵn sàng' : 'Chờ gửi') },
+    { step: 1, label: '② Tách mực', meta: t ? formatMs(t.preprocessMs) : 'Sauvola' },
+    { step: 2, label: '③ Tách dòng', meta: lineCount != null ? `${lineCount} dòng · ${t ? formatMs(t.segmentMs) : ''}`.replace(/ · $/, '') : 'Native' },
+    { step: 3, label: '④ V2c + ML_s44', meta: t ? formatMs(t.recognitionMs) : '64px' },
+    { step: 4, label: '⑤ BARTpho', meta: pipe ? (pipe.corrected ? `${formatMs(t.correctionMs)}` : 'Tắt') : ($('correct')?.checked ? 'Bật' : 'Tắt') },
+  ];
+  chips.forEach((c, idx) => {
+    if (idx > 0) {
+      const arrow = document.createElement('span');
+      arrow.className = 'pipe-mini-arrow';
+      arrow.textContent = '→';
+      stepsEl.append(arrow);
+    }
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'pipe-mini-chip';
+    const b = document.createElement('b');
+    b.textContent = c.label;
+    const sm = document.createElement('small');
+    sm.textContent = c.meta;
+    btn.append(b, sm);
+    btn.disabled = cur.state !== 'succeeded';
+    btn.onclick = () => run(() => openPipelineDialog(c.step, 'step'));
+    stepsEl.append(btn);
+  });
+  $('openPipelineFromBar').disabled = cur.state !== 'succeeded';
+}
+
+function stopPipeAutoPlay() {
+  if (pipeAutoTimer) {
+    clearInterval(pipeAutoTimer);
+    pipeAutoTimer = null;
+  }
+  $('pipeAutoPlay').textContent = '▶ Tự chạy';
+}
+
+function buildDiffFragment(raw, fixed) {
+  const frag = document.createDocumentFragment();
+  const segs = diffWords(raw, fixed);
+  segs.forEach((seg, i) => {
+    if (i > 0) frag.append(document.createTextNode(' '));
+    if (seg.type === 'eq') {
+      frag.append(document.createTextNode(seg.text));
+    } else {
+      const span = document.createElement('span');
+      span.className = seg.type === 'del' ? 'diff-del' : 'diff-ins';
+      span.textContent = seg.text;
+      frag.append(span);
+    }
+  });
+  return frag;
+}
+
+function buildStageCard(stepIdx, pipe, origUrl) {
+  const card = document.createElement('section');
+  card.className = 'pipe-stage-card';
+  const t = pipe.timings || {};
+  const lines = Array.isArray(pipe.lines) ? pipe.lines : [];
+
+  const head = document.createElement('div');
+  head.className = 'pipe-stage-head';
+  const h3 = document.createElement('h3');
+  const tag = document.createElement('span');
+  tag.className = 'pipe-stage-tag';
+
+  if (stepIdx === 0) {
+    tag.textContent = 'KHÂU 1 / 5';
+    h3.append(tag, document.createTextNode('Định vị vùng giấy & Phân loại nền (Paper Detection)'));
+    const dur = document.createElement('span');
+    dur.className = 'muted';
+    dur.textContent = `Tiền xử lý: ${formatMs(t.preprocessMs)}`;
+    head.append(h3, dur);
+    card.append(head);
+
+    const kpis = document.createElement('div');
+    kpis.className = 'pipe-kpi-row';
+    const items = [
+      ['Nhánh xử lý', routeLabel(pipe.route)],
+      ['Ảnh gốc', `${pipe.sourceWidth} × ${pipe.sourceHeight} px`],
+      ['Ảnh làm việc', `${pipe.workWidth} × ${pipe.workHeight} px`],
+      ['Vùng giấy', pipe.paperDetected ? 'Phát hiện tự động (Scanner)' : 'Toàn khung (Legacy)'],
+    ];
+    for (const [k, v] of items) {
+      const el = document.createElement('span');
+      el.className = 'pipe-kpi';
+      el.innerHTML = `${k}:<b></b>`;
+      el.querySelector('b').textContent = v;
+      kpis.append(el);
+    }
+    card.append(kpis);
+
+    if (Array.isArray(pipe.reasons) && pipe.reasons.length) {
+      const p = document.createElement('p');
+      p.className = 'muted';
+      p.style.margin = '0';
+      p.style.fontSize = '12px';
+      p.textContent = `Lý do chọn nhánh: ${pipe.reasons.map(translateReason).join(' · ')}`;
+      card.append(p);
+    }
+
+    const grid = document.createElement('div');
+    grid.className = 'pipe-img-grid';
+    const box1 = document.createElement('div');
+    box1.className = 'pipe-img-box';
+    box1.innerHTML = '<header><span>Ảnh đầu vào gốc</span><small class="muted">Sau định hướng EXIF</small></header>';
+    const img1 = document.createElement('img');
+    img1.src = origUrl || '';
+    img1.alt = 'Ảnh gốc';
+    box1.append(img1);
+
+    const box2 = document.createElement('div');
+    box2.className = 'pipe-img-box';
+    box2.innerHTML = '<header><span>Bản đồ phân vùng giấy & lọc nền</span><small class="muted">Native Paper Mask</small></header>';
+    const img2 = document.createElement('img');
+    img2.src = pipe.previews?.paperOverlay || origUrl || '';
+    img2.alt = 'Bản đồ nhận diện vùng giấy';
+    const leg = document.createElement('div');
+    leg.className = 'pipe-legend-dots';
+    leg.innerHTML =
+      '<span><i style="background:#72e68a"></i>Khung giấy giữ lại</span>' +
+      '<span><i style="background:#eb4438"></i>Nền ngoài giấy bị loại</span>' +
+      '<span><i style="background:#f5a82a"></i>Nhiễu / nét mờ bị lọc</span>';
+    box2.append(img2, leg);
+    grid.append(box1, box2);
+    card.append(grid);
+  } else if (stepIdx === 1) {
+    tag.textContent = 'KHÂU 2 / 5';
+    h3.append(tag, document.createTextNode('Khử bóng nền & Tách nét mực (Background Correction + Sauvola/Otsu)'));
+    const dur = document.createElement('span');
+    dur.className = 'muted';
+    dur.textContent = `Thời gian tiền xử lý: ${formatMs(t.preprocessMs)}`;
+    head.append(h3, dur);
+    card.append(head);
+
+    const grid = document.createElement('div');
+    grid.className = 'pipe-img-grid';
+    const box1 = document.createElement('div');
+    box1.className = 'pipe-img-box';
+    box1.innerHTML = '<header><span>Ảnh lọc nền giữ sắc độ mực (Ink Only)</span><small class="muted">Khử bóng đổ & vân bàn</small></header>';
+    const img1 = document.createElement('img');
+    img1.src = pipe.previews?.inkOnly || '';
+    img1.alt = 'Ảnh lọc nền giữ mực';
+    box1.append(img1);
+
+    const box2 = document.createElement('div');
+    box2.className = 'pipe-img-box';
+    box2.innerHTML = '<header><span>Mặt nạ nét mực nhị phân (Ink Mask)</span><small class="muted">Đầu vào bộ phân đoạn dòng</small></header>';
+    const img2 = document.createElement('img');
+    img2.src = pipe.previews?.inkMask || '';
+    img2.alt = 'Mặt nạ nét mực nhị phân';
+    box2.append(img2);
+    grid.append(box1, box2);
+    card.append(grid);
+  } else if (stepIdx === 2) {
+    tag.textContent = 'KHÂU 3 / 5';
+    h3.append(tag, document.createTextNode(`Phân đoạn dòng thích nghi (Native Adaptive Segmentation · ${lines.length} dòng)`));
+    const dur = document.createElement('span');
+    dur.className = 'muted';
+    dur.textContent = `Tách dòng: ${formatMs(t.segmentMs)}`;
+    head.append(h3, dur);
+    card.append(head);
+
+    const hint = document.createElement('p');
+    hint.className = 'muted';
+    hint.style.margin = '0';
+    hint.style.fontSize = '12px';
+    hint.textContent = 'Di chuột lên từng khung dòng trên ảnh để xem văn bản đã nhận dạng tương ứng.';
+    card.append(hint);
+
+    const stageWrap = document.createElement('div');
+    stageWrap.className = 'pipe-seg-stage';
+    const bgImg = document.createElement('img');
+    bgImg.src = origUrl || '';
+    bgImg.alt = 'Kết quả phân đoạn dòng';
+    const segSvg = svgEl('svg', { class: 'pipe-seg-svg', viewBox: `0 0 ${pipe.sourceWidth} ${pipe.sourceHeight}` });
+    stageWrap.append(bgImg, segSvg);
+    card.append(stageWrap);
+
+    const previewLine = document.createElement('div');
+    previewLine.className = 'pipe-kpi';
+    previewLine.textContent = lines.length
+      ? `Dòng #1: ${lines[0].text}`
+      : 'Không có dòng nào được phân đoạn.';
+    card.append(previewLine);
+
+    const syncSegSvg = () => {
+      const r = computeContainedRect(stageWrap.clientWidth, stageWrap.clientHeight, bgImg.naturalWidth || pipe.sourceWidth, bgImg.naturalHeight || pipe.sourceHeight);
+      segSvg.style.left = `${r.left}px`;
+      segSvg.style.top = `${r.top}px`;
+      segSvg.style.width = `${r.width}px`;
+      segSvg.style.height = `${r.height}px`;
+    };
+    const strokeW = Math.max(2, Math.min(pipe.sourceWidth, pipe.sourceHeight) * 0.003);
+    const fontSize = Math.max(14, Math.min(pipe.sourceWidth, pipe.sourceHeight) * 0.018);
+    lines.forEach((l, idx) => {
+      if (!Array.isArray(l.polygon) || l.polygon.length < 3) return;
+      const color = LINE_COLORS[idx % LINE_COLORS.length];
+      const pts = l.polygon.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(' ');
+      const poly = svgEl('polygon', {
+        class: 'pipe-seg-poly',
+        points: pts,
+        fill: color,
+        stroke: color,
+        'stroke-width': strokeW.toFixed(1),
+      });
+      poly.addEventListener('pointerenter', () => {
+        previewLine.textContent = `Dòng #${l.id} (${formatMs(l.ms)}): ${l.text}`;
+      });
+      const b = polygonBounds(l.polygon);
+      const txt = svgEl('text', {
+        class: 'pipe-seg-label',
+        x: (b.minX + 4).toFixed(1),
+        y: Math.max(fontSize, b.minY + fontSize * 0.85).toFixed(1),
+        fill: color,
+        'font-size': fontSize.toFixed(1),
+      });
+      txt.textContent = `#${l.id}`;
+      segSvg.append(poly, txt);
+    });
+    bgImg.onload = syncSegSvg;
+    requestAnimationFrame(syncSegSvg);
+    new ResizeObserver(syncSegSvg).observe(stageWrap);
+  } else if (stepIdx === 3) {
+    tag.textContent = 'KHÂU 4 / 5';
+    h3.append(tag, document.createTextNode(`Chuẩn hóa V2c (64px) & Nhận dạng ${pipe.model || 'ML_s44'} (${pipe.device || 'GPU/CPU'})`));
+    const dur = document.createElement('span');
+    dur.className = 'muted';
+    dur.textContent = `Tổng suy luận ML_s44: ${formatMs(t.recognitionMs)}`;
+    head.append(h3, dur);
+    card.append(head);
+
+    const list = document.createElement('div');
+    list.className = 'pipe-line-list';
+    for (const l of lines) {
+      const row = document.createElement('div');
+      row.className = 'pipe-line-row';
+      const idxEl = document.createElement('span');
+      idxEl.className = 'pipe-line-idx';
+      idxEl.textContent = `#${l.id}`;
+      let stripEl;
+      if (l.v2cThumb) {
+        stripEl = document.createElement('img');
+        stripEl.className = 'pipe-v2c-img';
+        stripEl.src = l.v2cThumb;
+        stripEl.alt = `Ảnh dòng #${l.id} chuẩn hóa V2c`;
+      } else {
+        stripEl = document.createElement('span');
+        stripEl.className = 'muted';
+        stripEl.style.fontSize = '11px';
+        stripEl.textContent = '(Ẩn thumbnail > 40 dòng)';
+      }
+      const txtEl = document.createElement('span');
+      txtEl.className = 'pipe-line-text';
+      txtEl.textContent = l.rawText ?? l.text ?? '';
+      const msEl = document.createElement('span');
+      msEl.className = 'pipe-line-ms';
+      msEl.textContent = formatMs(l.ms);
+      row.append(idxEl, stripEl, txtEl, msEl);
+      list.append(row);
+    }
+    card.append(list);
+  } else {
+    tag.textContent = 'KHÂU 5 / 5';
+    h3.append(tag, document.createTextNode('Hậu xử lý Bartpho_v2_fp16 + Edit Guard v3 + Smart Continuation Context'));
+    const dur = document.createElement('span');
+    dur.className = 'muted';
+    dur.textContent = pipe.corrected ? `Nội suy: ${formatMs(t.correctionMs)}` : 'Đã tắt (0 MiB VRAM thêm)';
+    head.append(h3, dur);
+    card.append(head);
+
+    const changedCount = lines.filter(l => l.changed).length;
+    const chunkCount = Array.isArray(pipe.chunks) ? pipe.chunks.length : 0;
+    const kpis = document.createElement('div');
+    kpis.className = 'pipe-kpi-row';
+    const items = [
+      ['Trạng thái BARTpho', pipe.corrected ? 'Đã áp dụng (FP16 + Edit Guard v3)' : 'Tắt (chỉ dùng ML_s44)'],
+      ['Số dòng được sửa', `${changedCount} / ${lines.length} dòng`],
+      ['Cụm ngữ cảnh nối tiếp', pipe.corrected ? `${chunkCount} cụm` : '—'],
+      ['Thời gian hậu xử lý', pipe.corrected ? formatMs(t.correctionMs) : '0 ms'],
+    ];
+    for (const [k, v] of items) {
+      const el = document.createElement('span');
+      el.className = 'pipe-kpi';
+      el.innerHTML = `${k}:<b></b>`;
+      el.querySelector('b').textContent = v;
+      kpis.append(el);
+    }
+    card.append(kpis);
+
+    if (!pipe.corrected) {
+      const note = document.createElement('p');
+      note.className = 'muted';
+      note.style.margin = '4px 0';
+      note.textContent =
+        'Lượt gửi này đang tắt "Nội suy sửa lỗi (BARTpho)" nên giữ nguyên 100% đầu ra ML_s44 (0 MiB VRAM cộng thêm). Hãy tích chọn "Nội suy sửa lỗi (BARTpho)" và gửi lại ảnh để xem so sánh từng từ trước & sau hậu xử lý.';
+      card.append(note);
+    }
+
+    const diffList = document.createElement('div');
+    diffList.className = 'pipe-diff-list';
+    for (const l of lines) {
+      const row = document.createElement('div');
+      row.className = `pipe-diff-row${l.changed ? ' changed' : ''}`;
+      const colIdx = document.createElement('div');
+      const num = document.createElement('div');
+      num.className = 'pipe-line-idx';
+      num.style.textAlign = 'left';
+      num.textContent = `Dòng #${l.id}`;
+      colIdx.append(num);
+      if (pipe.corrected && typeof l.chunkIndex === 'number') {
+        const cb = document.createElement('span');
+        cb.className = 'pipe-chunk-badge';
+        cb.textContent = `Cụm #${l.chunkIndex + 1}`;
+        colIdx.append(cb);
+      }
+      const colRaw = document.createElement('div');
+      colRaw.className = 'muted';
+      colRaw.textContent = l.rawText ?? l.text ?? '';
+      const colFix = document.createElement('div');
+      if (l.changed) colFix.append(buildDiffFragment(l.rawText, l.text));
+      else colFix.textContent = l.text ?? '';
+      row.append(colIdx, colRaw, colFix);
+      diffList.append(row);
+    }
+    card.append(diffList);
+  }
+  return card;
+}
+
+function renderPipelineDialogContent() {
+  const pipe = activePipelineData;
+  const d = activePipelineDraft;
+  const body = $('pipelineBody');
+  const stepper = $('pipelineStepper');
+  const tBar = $('pipelineTimingBar');
+  const tLeg = $('pipelineTimingLegend');
+  body.replaceChildren();
+  stepper.replaceChildren();
+  tBar.replaceChildren();
+  tLeg.replaceChildren();
+
+  $('pipeModeOverview').classList.toggle('active', pipeViewMode === 'overview');
+  $('pipeModeStep').classList.toggle('active', pipeViewMode === 'step');
+  $('pipePrev').hidden = pipeViewMode !== 'step';
+  $('pipeNext').hidden = pipeViewMode !== 'step';
+
+  if (!pipe) {
+    $('pipelineTimingWrap').hidden = true;
+    const empty = document.createElement('div');
+    empty.className = 'pipe-empty';
+    empty.textContent =
+      'Chưa có dữ liệu chi tiết pipeline cho ảnh này (có thể ảnh chưa gửi hoặc được xử lý bởi bản server cũ). Hãy nhấn "Gửi" lại ảnh với bản Compute Server mới để ghi đầy đủ 5 khâu xử lý.';
+    body.append(empty);
+    return;
+  }
+
+  $('pipelineTimingWrap').hidden = false;
+  const t = pipe.timings || {};
+  const shares = computeTimingShares(t);
+  $('pipelineMeta').textContent =
+    `${d?.name || 'Tài liệu'} · ${pipe.sourceWidth}×${pipe.sourceHeight} px · ${pipe.device || 'auto'} · Nhánh: ${pipe.route} · Tổng ${formatMs(t.totalMs)}`;
+
+  const stepDefs = [
+    { num: 'KHÂU 1', title: 'Định vị giấy', meta: pipe.paperDetected ? 'Scanner' : 'Legacy' },
+    { num: 'KHÂU 2', title: 'Khử nền & Mực', meta: formatMs(t.preprocessMs) },
+    { num: 'KHÂU 3', title: 'Tách dòng Native', meta: `${pipe.lines?.length ?? 0} dòng · ${formatMs(t.segmentMs)}` },
+    { num: 'KHÂU 4', title: 'V2c + ML_s44', meta: formatMs(t.recognitionMs) },
+    { num: 'KHÂU 5', title: 'BARTpho + Guard', meta: pipe.corrected ? formatMs(t.correctionMs) : 'Tắt' },
+  ];
+  stepDefs.forEach((s, idx) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = `pipe-step-btn${pipeViewMode === 'step' && pipeActiveStep === idx ? ' active' : ''}`;
+    btn.innerHTML = `<span class="step-num">${s.num}</span><strong>${s.title}</strong><small></small>`;
+    btn.querySelector('small').textContent = s.meta;
+    btn.onclick = () => {
+      stopPipeAutoPlay();
+      pipeActiveStep = idx;
+      if (pipeViewMode === 'overview') {
+        const target = body.children[idx];
+        if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } else {
+        renderPipelineDialogContent();
+      }
+    };
+    stepper.append(btn);
+  });
+
+  const timingSegs = [
+    { cls: 'pipe-t-pre', color: '#72cfff', label: `Tiền xử lý & tách mực: ${formatMs(t.preprocessMs)} (${shares.preprocessPct}%)`, pct: shares.preprocessPct },
+    { cls: 'pipe-t-segm', color: '#f7c873', label: `Phân đoạn dòng: ${formatMs(t.segmentMs)} (${shares.segmentPct}%)`, pct: shares.segmentPct },
+    { cls: 'pipe-t-rec', color: '#a6e38a', label: `ML_s44: ${formatMs(t.recognitionMs)} (${shares.recognitionPct}%)`, pct: shares.recognitionPct },
+    { cls: 'pipe-t-cor', color: '#c8a2ff', label: `BARTpho: ${pipe.corrected ? `${formatMs(t.correctionMs)} (${shares.correctionPct}%)` : 'Tắt'}`, pct: shares.correctionPct },
+  ];
+  for (const seg of timingSegs) {
+    if (seg.pct > 0) {
+      const div = document.createElement('div');
+      div.className = `pipe-t-seg ${seg.cls}`;
+      div.style.width = `${seg.pct}%`;
+      tBar.append(div);
+    }
+    const leg = document.createElement('span');
+    leg.innerHTML = `<i style="background:${seg.color}"></i>`;
+    leg.append(document.createTextNode(seg.label));
+    tLeg.append(leg);
+  }
+
+  const origUrl = d ? thumbCache.get(d.id) || $('originalImage').src : '';
+  if (pipeViewMode === 'overview') {
+    for (let i = 0; i < 5; i++) body.append(buildStageCard(i, pipe, origUrl));
+    $('pipelineFootHint').textContent = 'Đang xem tổng quan toàn bộ 5 khâu · Chọn "Từng bước" hoặc "Tự chạy" để trình chiếu demo.';
+  } else {
+    body.append(buildStageCard(pipeActiveStep, pipe, origUrl));
+    $('pipePrev').disabled = pipeActiveStep <= 0;
+    $('pipeNext').disabled = pipeActiveStep >= 4;
+    $('pipelineFootHint').textContent = `Khâu ${pipeActiveStep + 1} / 5 · Dùng nút Trước / Tiếp hoặc Tự chạy để trình bày từng bước.`;
+  }
+}
+
+async function openPipelineDialog(initialStep = 0, initialMode = 'overview') {
+  const d = drafts.find(x => x.id === selected);
+  if (!d) return;
+  stopPipeAutoPlay();
+  pipeViewMode = initialMode;
+  pipeActiveStep = Math.max(0, Math.min(4, initialStep));
+  activePipelineDraft = d;
+  activePipelineData = null;
+
+  $('pipelineMeta').textContent = `Đang tải dữ liệu chi tiết 5 khâu xử lý cho ${d.name}…`;
+  $('pipelineBody').innerHTML = '<div class="pipe-empty">Đang tải dữ liệu Pipeline từ Compute Server…</div>';
+  $('pipelineTimingWrap').hidden = true;
+  $('pipelineDialog').showModal();
+
+  const cached = pipelineCache.get(d.id);
+  if (cached && cached.jobId === d.jobId) {
+    activePipelineData = cached.data;
+    renderPipelineDialogContent();
+    return;
+  }
+  try {
+    const data = await invoke('draft_pipeline', { id: d.id });
+    if (data && typeof data === 'object') {
+      pipelineCache.set(d.id, { jobId: d.jobId, data });
+      activePipelineData = data;
+      renderPipelineMiniBar();
+    }
+  } catch (err) {
+    activePipelineData = null;
+    $('pipelineMeta').textContent = sanitizeError(err) || 'Chưa có dữ liệu Pipeline';
+  }
+  renderPipelineDialogContent();
+}
+
+$('pipelineBtn').onclick = e => {
+  e.stopPropagation();
+  run(() => openPipelineDialog(0, 'overview'));
+};
+$('openPipelineFromBar').onclick = () => run(() => openPipelineDialog(0, 'overview'));
+$('pipeModeOverview').onclick = () => {
+  stopPipeAutoPlay();
+  pipeViewMode = 'overview';
+  renderPipelineDialogContent();
+};
+$('pipeModeStep').onclick = () => {
+  stopPipeAutoPlay();
+  pipeViewMode = 'step';
+  renderPipelineDialogContent();
+};
+$('pipePrev').onclick = () => {
+  stopPipeAutoPlay();
+  if (pipeActiveStep > 0) {
+    pipeActiveStep--;
+    renderPipelineDialogContent();
+  }
+};
+$('pipeNext').onclick = () => {
+  stopPipeAutoPlay();
+  if (pipeActiveStep < 4) {
+    pipeActiveStep++;
+    renderPipelineDialogContent();
+  }
+};
+$('pipeAutoPlay').onclick = () => {
+  if (pipeAutoTimer) {
+    stopPipeAutoPlay();
+    return;
+  }
+  if (!activePipelineData) return;
+  pipeViewMode = 'step';
+  pipeActiveStep = 0;
+  renderPipelineDialogContent();
+  $('pipeAutoPlay').textContent = '■ Dừng';
+  pipeAutoTimer = setInterval(() => {
+    if (!$('pipelineDialog').open) {
+      stopPipeAutoPlay();
+      return;
+    }
+    pipeActiveStep = (pipeActiveStep + 1) % 5;
+    renderPipelineDialogContent();
+  }, 3500);
+};
+$('pipelineClose').onclick = () => {
+  stopPipeAutoPlay();
+  $('pipelineDialog').close();
+};
+$('pipelineDialog').addEventListener('close', stopPipeAutoPlay);
 
 run(boot);

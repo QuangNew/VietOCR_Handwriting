@@ -205,6 +205,10 @@ async fn read_result(state: State<'_, Desktop>, id: Uuid) -> Result<Draft, Strin
     state.client().await.read_draft_result(id).await
 }
 #[tauri::command]
+async fn draft_pipeline(state: State<'_, Desktop>, id: Uuid) -> Result<Value, String> {
+    state.client().await.draft_pipeline(id).await
+}
+#[tauri::command]
 async fn prepare_send(state: State<'_, Desktop>, ids: Vec<Uuid>) -> Result<Vec<Draft>, String> {
     state.client().await.prepare_send(ids).await
 }
@@ -463,6 +467,7 @@ fn main() {
             prepare_send,
             stop_draft,
             read_result,
+            draft_pipeline,
             save_text,
             save_edit,
             set_included,

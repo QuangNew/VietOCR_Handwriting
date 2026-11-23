@@ -85,6 +85,10 @@ pub struct Draft {
     pub transfer_note: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub transfer: Option<transfer::TransferImage>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lens: Option<Value>,
+    #[serde(default)]
+    pub has_pipeline: bool,
 }
 fn included_by_default() -> bool {
     true
@@ -129,6 +133,7 @@ impl Client {
         )?;
         let _ = std::fs::remove_file(root.join(format!("{id}.image")));
         let _ = std::fs::remove_file(root.join(format!("{id}.upload")));
+        let _ = std::fs::remove_file(root.join(format!("{id}.pipeline.json")));
         Ok(())
     }
     pub fn new(config: Config, root: PathBuf) -> Result<Self, String> {
@@ -151,8 +156,11 @@ impl Client {
         })
     }
     pub async fn response(response: reqwest::Response) -> Result<Value, String> {
+        Self::response_bounded(response, 2 * 1024 * 1024).await
+    }
+    async fn response_bounded(response: reqwest::Response, max: usize) -> Result<Value, String> {
         let status = response.status();
-        let bytes = bounded(response, 2 * 1024 * 1024).await?;
+        let bytes = bounded(response, max).await?;
         let value: Value =
             serde_json::from_slice(&bytes).map_err(|_| "Phản hồi JSON không hợp lệ")?;
         if !status.is_success() {
@@ -312,6 +320,8 @@ impl Client {
             correct: None,
             transfer_note: String::new(),
             transfer: None,
+            lens: None,
+            has_pipeline: false,
         };
         self.save_draft(&draft).await?;
         Ok(draft)
@@ -538,6 +548,13 @@ impl Client {
         Ok(draft)
     }
     pub async fn result(&self, id: Uuid) -> Result<Value, String> {
+        self.result_with_include(id, None).await
+    }
+    pub async fn result_with_include(
+        &self,
+        id: Uuid,
+        include: Option<&str>,
+    ) -> Result<Value, String> {
         let _slot = self
             .result_slots
             .acquire()
@@ -556,19 +573,57 @@ impl Client {
         } else {
             self.mint_result_ticket(id, owner).await?
         };
-        let response = self
+        let mut req = self
             .http
             .get(access.url)
-            .query(&[("wait", "8")])
             .bearer_auth(access.bearer)
-            .timeout(Duration::from_secs(20))
+            .timeout(Duration::from_secs(20));
+        req = if let Some(inc) = include {
+            req.query(&[("include", inc)])
+        } else {
+            req.query(&[("wait", "8")])
+        };
+        let response = req
             .send()
             .await
             .map_err(|_| "Chưa nhận được kết quả; thử lại")?;
         if matches!(response.status().as_u16(), 401 | 403 | 410) {
             self.result_tickets.lock().await.remove(&id);
         }
-        Self::response(response).await
+        let max_bytes = if include.is_some() {
+            4 * 1024 * 1024
+        } else {
+            2 * 1024 * 1024
+        };
+        Self::response_bounded(response, max_bytes).await
+    }
+    pub async fn draft_pipeline(&self, id: Uuid) -> Result<Value, String> {
+        let root = self.account_root().await?;
+        let draft = self
+            .drafts()
+            .await?
+            .into_iter()
+            .find(|d| d.id == id)
+            .ok_or("Bản nháp không tồn tại")?;
+        let job = draft.job_id.ok_or("Ảnh chưa được gửi xử lý OCR")?;
+        let cache_path = root.join(format!("{id}.pipeline.json"));
+        if let Ok(raw) = std::fs::read(&cache_path)
+            && let Ok(cached) = serde_json::from_slice::<Value>(&raw)
+            && cached["jobId"].as_str() == Some(&job.to_string())
+            && cached["pipeline"].is_object()
+        {
+            return Ok(cached["pipeline"].clone());
+        }
+        let result = self.result_with_include(job, Some("pipeline")).await?;
+        let pipeline = result["pipeline"].clone();
+        if !pipeline.is_object() {
+            return Err("Server chưa có dữ liệu chi tiết pipeline cho lượt gửi này. Hãy gửi lại ảnh với bản server mới.".into());
+        }
+        let payload = json!({ "jobId": job.to_string(), "pipeline": pipeline });
+        if let Ok(bytes) = serde_json::to_vec(&payload) {
+            let _ = storage::atomic(&cache_path, &bytes);
+        }
+        Ok(pipeline)
     }
     async fn mint_result_ticket(
         &self,

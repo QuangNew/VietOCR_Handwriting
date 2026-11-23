@@ -46,6 +46,7 @@ builder.Services.AddSingleton<IFlowDatabase,FlowDatabase>();
 builder.Services.AddSingleton<IImageVerifier,PillowImageVerifier>();
 builder.Services.AddSingleton<V2Spool>();
 builder.Services.AddSingleton<JobCorrectionStore>();
+builder.Services.AddSingleton<JobArtifactStore>();
 builder.Services.AddSingleton<ResultTickets>();
 builder.Services.AddSingleton<ServerLoadMonitor>();
 builder.Services.AddHostedService(p=>p.GetRequiredService<ServerLoadMonitor>());

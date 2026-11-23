@@ -126,7 +126,7 @@ def run(args):
         import torch
         import cv2
         from PIL import Image
-        from core.document_pipeline import prepare_lines, read_document
+        from core.document_pipeline import encode_line_thumb, prepare_document_bundle, read_document
         from core.recognizer import LineRecognizer
         torch.set_num_threads(2)
         torch.set_num_interop_threads(1)
@@ -226,37 +226,117 @@ def run(args):
                 image = read_document(path, args.max_pixels)
                 width, height = image.size
                 pre = time.perf_counter()
-                total, lines = prepare_lines(image, request.get("layout", "auto"))
+                bundle = prepare_document_bundle(image, request.get("layout", "auto"))
+                total = bundle["total"]
+                lines = bundle["lines"]
                 del image
                 preprocess_ms = (time.perf_counter() - pre) * 1000
-                texts = []
+                raw_texts = []
+                line_records = []
+                recognition_ms = 0.0
                 for index in range(1, total + 1):
                     pre = time.perf_counter()
-                    crop = next(lines)
+                    meta, crop = next(lines)
                     preprocess_ms += (time.perf_counter() - pre) * 1000
-                    text = recognizer.predict(crop)
-                    if text.strip():
-                        texts.append(text.strip())
+                    t_rec = time.perf_counter()
+                    text = recognizer.predict(crop).strip()
+                    line_ms = (time.perf_counter() - t_rec) * 1000
+                    recognition_ms += line_ms
+                    thumb = encode_line_thumb(crop) if index <= 40 else None
                     del crop
+                    if text:
+                        raw_texts.append(text)
+                        line_records.append(
+                            {
+                                "id": len(raw_texts),
+                                "lineId": meta["lineId"],
+                                "polygon": meta["polygon"],
+                                "bbox": meta["bbox"],
+                                "rawText": text,
+                                "text": text,
+                                "changed": False,
+                                "chunkIndex": None,
+                                "ms": round(line_ms, 1),
+                                "v2cThumb": thumb,
+                            }
+                        )
                     send("progress", id=job_id, completed=index, total=total)
-                if not texts:
+                if not raw_texts:
                     raise ValueError("Model không đọc được chữ trong ảnh.")
+                texts = list(raw_texts)
                 correction_ms = 0.0
+                chunks = []
+                corrected_applied = False
                 if use_correction:
                     corr = get_corrector()
                     if corr is not None:
                         t_corr = time.perf_counter()
-                        texts = corr.correct_lines(texts)
+                        texts, chunks = corr.correct_lines_with_meta(raw_texts)
                         correction_ms = (time.perf_counter() - t_corr) * 1000
+                        corrected_applied = True
                         if not corrector_cache["steady_measured"] and corrector_cache["baseline_ram_mib"] is not None:
                             steady_delta = max(0.0, _process_ram_mib() - corrector_cache["baseline_ram_mib"])
                             corrector_cache["ram_mib"] = round(max(corrector_cache["ram_mib"], steady_delta), 2)
                             corrector_cache["steady_measured"] = True
+                chunk_lookup = {}
+                for c_idx, idxs in enumerate(chunks):
+                    for pos in idxs:
+                        chunk_lookup[pos] = c_idx
+                for pos, (rec, final_text) in enumerate(zip(line_records, texts)):
+                    rec["text"] = final_text
+                    rec["changed"] = final_text != rec["rawText"]
+                    rec["chunkIndex"] = chunk_lookup.get(pos)
                 if args.device.startswith("cuda"):
                     torch.cuda.synchronize(args.device)
+                total_ms = (time.perf_counter() - begun) * 1000
+                lens = {
+                    "sourceWidth": bundle["sourceWidth"],
+                    "sourceHeight": bundle["sourceHeight"],
+                    "route": bundle["route"],
+                    "paperDetected": bundle["paperDetected"],
+                    "paperQuad": bundle["paperQuad"],
+                    "corrected": corrected_applied,
+                    "lines": [
+                        {
+                            "id": r["id"],
+                            "polygon": r["polygon"],
+                            "text": r["text"],
+                            "rawText": r["rawText"],
+                            "changed": r["changed"],
+                        }
+                        for r in line_records
+                    ],
+                }
+                pipeline = {
+                    "sourceWidth": bundle["sourceWidth"],
+                    "sourceHeight": bundle["sourceHeight"],
+                    "workWidth": bundle["workWidth"],
+                    "workHeight": bundle["workHeight"],
+                    "route": bundle["route"],
+                    "reasons": bundle["reasons"],
+                    "geometry": bundle["geometry"],
+                    "reviewFlags": bundle["reviewFlags"],
+                    "paperDetected": bundle["paperDetected"],
+                    "paperQuad": bundle["paperQuad"],
+                    "device": args.device,
+                    "model": config["name"],
+                    "corrected": corrected_applied,
+                    "correctionRequested": use_correction,
+                    "timings": {
+                        "preprocessMs": bundle["preprocessMs"],
+                        "segmentMs": bundle["segmentMs"],
+                        "recognitionMs": round(recognition_ms, 2),
+                        "correctionMs": round(correction_ms, 2),
+                        "totalMs": round(total_ms, 2),
+                    },
+                    "previews": bundle["previews"],
+                    "chunks": chunks,
+                    "lines": line_records,
+                }
                 send("result", id=job_id, ok=True, text="\n".join(texts), width=width, height=height,
-                     elapsedMs=(time.perf_counter()-begun)*1000, preprocessingMs=preprocess_ms,
-                     correctionMs=correction_ms, corrected=bool(use_correction and corrector_cache["instance"] is not None),
+                     elapsedMs=total_ms, preprocessingMs=preprocess_ms,
+                     correctionMs=correction_ms, corrected=corrected_applied,
+                     lens=lens, pipeline=pipeline,
                      memory=memory(torch, args.device, corrector_cache))
             except (ValueError, OSError, Image.DecompressionBombError) as error:
                 send("result", id=job_id, ok=False, error=str(error)[:400], recoverable=True,

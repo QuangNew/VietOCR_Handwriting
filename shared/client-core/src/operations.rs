@@ -64,8 +64,13 @@ impl Client {
                 draft.job_id = None;
                 draft.layout = None;
                 draft.correct = None;
+                draft.lens = None;
+                draft.has_pipeline = false;
                 draft.state = "draft".into();
                 draft.error.clear();
+                if let Ok(root) = self.account_root().await {
+                    let _ = std::fs::remove_file(root.join(format!("{id}.pipeline.json")));
+                }
                 if was_cancelled {
                     draft.text.clear();
                 }
@@ -179,6 +184,12 @@ impl Client {
             draft.state = result["state"].as_str().unwrap_or(state).into();
             draft.text = result["text"].as_str().unwrap_or("").into();
             draft.error = result["error"].as_str().unwrap_or("").into();
+            if result["lens"].is_object() {
+                draft.lens = Some(result["lens"].clone());
+            }
+            if let Some(has_p) = result["hasPipeline"].as_bool() {
+                draft.has_pipeline = has_p;
+            }
         } else {
             draft.state = "cancelled".into();
             draft.error = if value["accepted"] == true {
@@ -223,6 +234,12 @@ impl Client {
         draft.state = result["state"].as_str().unwrap_or("queued").into();
         draft.text = result["text"].as_str().unwrap_or("").into();
         draft.error = result["error"].as_str().unwrap_or("").into();
+        if result["lens"].is_object() {
+            draft.lens = Some(result["lens"].clone());
+        }
+        if let Some(has_p) = result["hasPipeline"].as_bool() {
+            draft.has_pipeline = has_p;
+        }
         self.save_draft(&draft).await?;
         Ok(draft)
     }

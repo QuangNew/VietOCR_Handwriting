@@ -397,24 +397,25 @@ class BartphoCorrector:
         return raw_preds
 
     @torch.inference_mode()
-    def correct_lines(
+    def correct_lines_with_meta(
         self,
         lines: list[str],
         batch_size: int = 16,
         use_context: bool = True,
-    ) -> list[str]:
-        """Sua loi danh sach dong cua 1 trang (tu dong gop khoi ngu canh 2-5 dong khi trang co nhieu dong)."""
+    ) -> tuple[list[str], list[list[int]]]:
+        """Sua loi danh sach dong va tra them nhom ngu canh (chunks) phuc vu truc quan hoa pipeline."""
         if not lines:
-            return []
+            return [], []
         normed = [norm_nfc(line) for line in lines]
 
         # Neu chi co 1 dong hoac tat ngu canh -> chay tung dong truc tiep
         if not use_context or len(normed) <= 1:
             raw_preds = self._generate_batch(normed, batch_size=batch_size, max_length=192)
-            return [
+            out = [
                 apply_edit_guard(raw, pred, **self.guard_cfg) if raw else ""
                 for raw, pred in zip(normed, raw_preds)
             ]
+            return out, [[i] for i in range(len(normed))]
 
         # Gop thong minh chi cac dong noi tiep cung cau (khong ket thuc .!?) hoac dong ngan <=5 tu
         chunks = group_lines_into_chunks(normed, max_words=45, max_lines=3)
@@ -446,4 +447,14 @@ class BartphoCorrector:
             for i, r, p in zip(fallback_indices, fb_raws, fb_preds):
                 out_lines[i] = apply_edit_guard(r, p, **self.guard_cfg) if r else ""
 
-        return out_lines
+        return out_lines, chunks
+
+    @torch.inference_mode()
+    def correct_lines(
+        self,
+        lines: list[str],
+        batch_size: int = 16,
+        use_context: bool = True,
+    ) -> list[str]:
+        """Sua loi danh sach dong cua 1 trang (tu dong gop khoi ngu canh 2-5 dong khi trang co nhieu dong)."""
+        return self.correct_lines_with_meta(lines, batch_size=batch_size, use_context=use_context)[0]

@@ -257,6 +257,62 @@ public sealed class JobCorrectionStore
     }
 }
 
+public sealed class JobArtifactStore(ServerOptions options)
+{
+    private string Root => Path.Combine(options.Runtime, "v2-artifacts");
+    private static bool IsSafeId(string id) =>
+        Guid.TryParseExact(id, "D", out _) || (id.Length is >= 8 and <= 64 && id.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_'));
+    private string LensPath(string jobId) => Path.Combine(Root, $"{jobId}.lens.json");
+    private string PipelinePath(string jobId) => Path.Combine(Root, $"{jobId}.pipeline.json");
+
+    public void Save(string jobId, JsonElement? lens, JsonElement? pipeline)
+    {
+        if (!IsSafeId(jobId)) return;
+        try
+        {
+            Directory.CreateDirectory(Root);
+            if (lens is { ValueKind: JsonValueKind.Object } l)
+                WriteAtomic(LensPath(jobId), l.GetRawText());
+            if (pipeline is { ValueKind: JsonValueKind.Object } p)
+                WriteAtomic(PipelinePath(jobId), p.GetRawText());
+        }
+        catch { }
+    }
+
+    private static void WriteAtomic(string path, string content)
+    {
+        var tmp = path + ".tmp";
+        File.WriteAllText(tmp, content);
+        File.Move(tmp, path, true);
+    }
+
+    public JsonElement? ReadLens(string jobId) => ReadJson(LensPath(jobId), jobId);
+    public JsonElement? ReadPipeline(string jobId) => ReadJson(PipelinePath(jobId), jobId);
+    public bool HasPipeline(string jobId) => IsSafeId(jobId) && File.Exists(PipelinePath(jobId));
+
+    private static JsonElement? ReadJson(string path, string jobId)
+    {
+        if (!IsSafeId(jobId) || !File.Exists(path)) return null;
+        try
+        {
+            using var doc = JsonDocument.Parse(File.ReadAllText(path));
+            return doc.RootElement.Clone();
+        }
+        catch { return null; }
+    }
+
+    public void Cleanup(TimeSpan maxAge)
+    {
+        if (!Directory.Exists(Root)) return;
+        var cutoff = DateTime.UtcNow - maxAge;
+        foreach (var file in Directory.EnumerateFiles(Root, "*.json"))
+        {
+            try { if (File.GetLastWriteTimeUtc(file) < cutoff) File.Delete(file); }
+            catch { }
+        }
+    }
+}
+
 public static class V2Endpoints
 {
     private static readonly SemaphoreSlim resultReaders=new(64,64);
@@ -342,7 +398,7 @@ public static class V2Endpoints
         routes.MapPost("/capacity",(Coordinator c)=>Results.Ok(new{workers=c.Workers.Count(w=>!w.Draining),queued=c.Queued,ready=c.Ready}));
         // The only v2 client route on compute is read-only. A Google/API key
         // cannot create work here, and no ticket travels in the URL.
-        app.MapGet("/api/v2/results/{id:guid}",async(Guid id,int? wait,HttpContext ctx,ResultTickets tickets,IFlowDatabase db,Store store,Coordinator c,CancellationToken ct)=>{
+        app.MapGet("/api/v2/results/{id:guid}",async(Guid id,int? wait,string? include,HttpContext ctx,ResultTickets tickets,IFlowDatabase db,Store store,Coordinator c,JobArtifactStore artifacts,CancellationToken ct)=>{
             if(!await resultReaders.WaitAsync(0,ct))throw new V2Exception(429,"result_capacity");
             try{
             if(!ctx.Request.IsHttps&&ctx.Connection.RemoteIpAddress is {} ip&&!System.Net.IPAddress.IsLoopback(ip))throw new V2Exception(426,"https_required");
@@ -357,7 +413,12 @@ public static class V2Endpoints
                 tickets.Read(header[7..],id);intent=await Find(db,id,new(access.UserId,access.SessionId),ct);
                 job=await store.Find(job.Id,access.ClientId);
             }
-            return job==null?Results.Json(new{id,state=FlowResultState.WithoutJob(intent.State)}):Results.Ok(new{job.Id,job.State,job.Text,job.Error,job.Width,job.Height,job.QueueMs,job.InferenceMs,job.TotalMs});
+            if(job==null)return Results.Json(new{id,state=FlowResultState.WithoutJob(intent.State)});
+            var ok=job.State=="succeeded";
+            var lens=ok?artifacts.ReadLens(job.Id):null;
+            var hasPipeline=ok&&artifacts.HasPipeline(job.Id);
+            var pipeline=ok&&string.Equals(include,"pipeline",StringComparison.OrdinalIgnoreCase)?artifacts.ReadPipeline(job.Id):null;
+            return Results.Ok(new{job.Id,job.State,job.Text,job.Error,job.Width,job.Height,job.QueueMs,job.InferenceMs,job.TotalMs,lens,hasPipeline,pipeline});
             }finally{resultReaders.Release();}
         });
     }
