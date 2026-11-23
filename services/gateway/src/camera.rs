@@ -420,9 +420,11 @@ impl CameraService {
             .await
             .map_err(ApiError::unavailable)?;
         let image = frame.jpeg.clone();
-        let hash = tokio::task::spawn_blocking(move || format!("{:x}", Sha256::digest(&image)))
-            .await
-            .map_err(|_| ApiError::unavailable("snapshot_failed"))?;
+        let hash = tokio::task::spawn_blocking(move || {
+            vietocr_contracts::hex_lower(&Sha256::digest(&image))
+        })
+        .await
+        .map_err(|_| ApiError::unavailable("snapshot_failed"))?;
         let image = frame.jpeg.clone();
         let body = stream::unfold((Some(image), permit), |(image, permit)| async move {
             image.map(|image| (Ok::<Bytes, std::io::Error>(image), (None, permit)))

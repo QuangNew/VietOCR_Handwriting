@@ -253,7 +253,10 @@ async fn automatic_optimization_is_immutable_across_retries_and_preserves_origin
     assert_eq!((width, height), (512, 256));
     let metadata = Client::intent_metadata(&draft, "auto", false);
     assert_eq!(metadata["imageBytes"], wire.len());
-    assert_eq!(metadata["sha256"], format!("{:x}", Sha256::digest(&wire)));
+    assert_eq!(
+        metadata["sha256"],
+        vietocr_contracts::hex_lower(&Sha256::digest(&wire))
+    );
     assert_eq!(metadata["correct"], false);
     assert_eq!(
         Client::intent_metadata(&draft, "auto", true)["correct"],

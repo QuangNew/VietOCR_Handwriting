@@ -308,7 +308,7 @@ impl Client {
             image_bytes: bytes.len() as u64,
             width,
             height,
-            sha256: format!("{:x}", Sha256::digest(&bytes)),
+            sha256: vietocr_contracts::hex_lower(&Sha256::digest(&bytes)),
             version: 1,
             state: "draft".into(),
             included: true,
@@ -367,7 +367,7 @@ impl Client {
             .and_then(|h| h.to_str().ok())
             .map(str::to_owned);
         let bytes = bounded(response, 8 * 1024 * 1024).await?;
-        if expected.is_some_and(|h| h != format!("{:x}", Sha256::digest(&bytes))) {
+        if expected.is_some_and(|h| h != vietocr_contracts::hex_lower(&Sha256::digest(&bytes))) {
             return Err("Ảnh sai mã toàn vẹn".into());
         }
         self.import_for(

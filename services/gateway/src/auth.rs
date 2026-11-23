@@ -92,7 +92,7 @@ impl Auth {
         self.authenticate_token(Arc::from(token)).await
     }
     pub async fn authenticate_token(&self, token: Arc<str>) -> Result<Identity, ApiError> {
-        let header = decode_header(&token).map_err(|_| ApiError::unauthorized())?;
+        let header = decode_header(token.as_ref()).map_err(|_| ApiError::unauthorized())?;
         if header.alg != Algorithm::ES256 {
             return Err(ApiError::unauthorized());
         }
@@ -277,7 +277,7 @@ mod tests {
         let hmac = encode(
             &Header::new(Algorithm::HS256),
             &valid,
-            &EncodingKey::from_secret(b"not-a-signing-key"),
+            &EncodingKey::from_secret(b"not-a-signing-key").unwrap(),
         )
         .unwrap();
         assert!(validate_token(&hmac, &key, origin).is_err());

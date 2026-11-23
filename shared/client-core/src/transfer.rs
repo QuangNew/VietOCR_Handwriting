@@ -31,7 +31,7 @@ impl Client {
             draft.transfer = Some(TransferImage {
                 media_type: image.media.into(),
                 image_bytes: image.bytes.len() as u64,
-                sha256: format!("{:x}", Sha256::digest(&image.bytes)),
+                sha256: vietocr_contracts::hex_lower(&Sha256::digest(&image.bytes)),
             });
             draft.transfer_note = if image.lossless {
                 "Đã tối ưu PNG · giữ nguyên pixel và độ phân giải"
@@ -67,7 +67,7 @@ impl Client {
             )
             .map_err(|_| "Thiếu bản ảnh gửi. Giữ ảnh gốc và dừng lượt cũ trước khi gửi lại.")?;
             if bytes.len() as u64 != transfer.image_bytes
-                || format!("{:x}", Sha256::digest(&bytes)) != transfer.sha256
+                || vietocr_contracts::hex_lower(&Sha256::digest(&bytes)) != transfer.sha256
             {
                 return Err("Bản ảnh gửi không toàn vẹn; dừng lượt cũ trước khi gửi lại.".into());
             }
