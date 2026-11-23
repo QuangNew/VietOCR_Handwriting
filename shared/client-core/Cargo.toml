@@ -14,5 +14,5 @@ sha2.workspace = true
 uuid.workspace = true
 futures-util.workspace = true
 bytes.workspace = true
-base64 = "0.22.1"
+base64 = "0.23.1"
 image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "webp"] }
