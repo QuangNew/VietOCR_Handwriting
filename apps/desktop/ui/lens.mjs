@@ -422,7 +422,7 @@ export function detectPaperQuadFromRgba(data, w, h, natW = w, natH = h) {
     const x = idx % w;
     const y = (idx - x) / w;
     if (x === 0 || y === 0 || x === w - 1 || y === h - 1 ||
-        !inBest[idx - 1] || !inBest[idx + 1] || !inBest[idx - w] || !inBest[idx + w]) {
+      !inBest[idx - 1] || !inBest[idx + 1] || !inBest[idx - w] || !inBest[idx + w]) {
       boundary.push([x + 0.5, y + 0.5]);
     }
   }

@@ -11,7 +11,13 @@ import {
   linesInsideQuad,
   detectPaperQuadFromRgba,
 } from '../ui/lens.mjs';
-import { wrapParagraph, estimateLineAngle } from '../ui/docview.mjs';
+import {
+  wrapParagraph,
+  estimateLineAngle,
+  computeQuadFlatSize,
+  computeHomography,
+  projectPoint,
+} from '../ui/docview.mjs';
 import {
   formatMs,
   routeLabel,
@@ -132,4 +138,18 @@ test('docview wrapParagraph and estimateLineAngle work deterministically', () =>
   assert.equal(flat, 0);
   const steep = estimateLineAngle([[0, 0], [100, 100], [80, 120], [-20, 20]]);
   assert.ok(Math.abs(steep - (12 * Math.PI) / 180) < 1e-6, 'angle clamped to +12 deg');
+});
+
+test('computeHomography and computeQuadFlatSize rectify tilted paper to exact 90-deg flat sheet', () => {
+  const tilted = [[270, 50], [1470, 82], [1430, 926], [230, 894]];
+  const flat = computeQuadFlatSize(tilted, 1920, 1080);
+  assert.equal(flat.orientation, 'landscape');
+  assert.ok(flat.width >= 1180 && flat.width <= 1220, `flatW=${flat.width}`);
+  assert.ok(flat.height >= 830 && flat.height <= 860, `flatH=${flat.height}`);
+  const dst = [[0, 0], [flat.width, 0], [flat.width, flat.height], [0, flat.height]];
+  const H = computeHomography(tilted, dst);
+  for (let i = 0; i < 4; i++) {
+    const p = projectPoint(H, tilted[i]);
+    assert.ok(Math.abs(p[0] - dst[i][0]) < 1e-4 && Math.abs(p[1] - dst[i][1]) < 1e-4);
+  }
 });

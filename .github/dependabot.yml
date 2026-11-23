@@ -1,0 +1,100 @@
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    target-branch: "main"
+    schedule:
+      interval: "monthly"
+      day: "monday"
+      time: "03:00"
+      timezone: "Asia/Ho_Chi_Minh"
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "ci"]
+
+  - package-ecosystem: "cargo"
+    directory: "/"
+    target-branch: "main"
+    schedule:
+      interval: "monthly"
+      day: "monday"
+      time: "03:00"
+      timezone: "Asia/Ho_Chi_Minh"
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "rust"]
+
+  - package-ecosystem: "cargo"
+    directory: "/apps/desktop/src-tauri"
+    target-branch: "main"
+    schedule:
+      interval: "monthly"
+      day: "monday"
+      time: "03:00"
+      timezone: "Asia/Ho_Chi_Minh"
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "desktop"]
+
+  - package-ecosystem: "npm"
+    directory: "/services/compute/web"
+    target-branch: "main"
+    schedule:
+      interval: "monthly"
+      day: "monday"
+      time: "03:00"
+      timezone: "Asia/Ho_Chi_Minh"
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "web"]
+
+  - package-ecosystem: "npm"
+    directory: "/shared/contracts/tests"
+    target-branch: "main"
+    schedule:
+      interval: "monthly"
+      day: "monday"
+      time: "03:00"
+      timezone: "Asia/Ho_Chi_Minh"
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "contracts"]
+
+  - package-ecosystem: "nuget"
+    directory: "/services/compute/backend/VietOcr.Server"
+    target-branch: "main"
+    schedule:
+      interval: "monthly"
+      day: "monday"
+      time: "03:00"
+      timezone: "Asia/Ho_Chi_Minh"
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "backend"]
+
+  - package-ecosystem: "nuget"
+    directory: "/services/compute/backend/VietOcr.Server.Tests"
+    target-branch: "main"
+    schedule:
+      interval: "monthly"
+      day: "monday"
+      time: "03:00"
+      timezone: "Asia/Ho_Chi_Minh"
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "backend"]
+
+  - package-ecosystem: "pub"
+    directory: "/apps/android"
+    target-branch: "main"
+    schedule:
+      interval: "monthly"
+      day: "monday"
+      time: "03:00"
+      timezone: "Asia/Ho_Chi_Minh"
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "android"]
+
+  - package-ecosystem: "pip"
+    directory: "/services/compute/worker"
+    target-branch: "main"
+    schedule:
+      interval: "monthly"
+      day: "monday"
+      time: "03:00"
+      timezone: "Asia/Ho_Chi_Minh"
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "python"]

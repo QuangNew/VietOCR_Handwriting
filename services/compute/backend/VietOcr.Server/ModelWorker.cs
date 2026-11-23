@@ -89,7 +89,7 @@ public sealed class ModelWorker(ServerOptions options, ILogger logger,string? de
             logger.LogWarning("Worker {Worker} pipe closed. {Diagnostic}",Id,string.Join("\n",diagnostics));
             throw new IOException("Model process exited unexpectedly.");
         }
-        if (line.Length > 4_000_000) throw new IOException("Invalid worker response size.");
+        if (line.Length > 12_000_000) throw new IOException("Invalid worker response size.");
         using var document = JsonDocument.Parse(line); return document.RootElement.Clone();
     }
     public async Task<JsonElement> Recognize(Job job, CancellationToken ct)

@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
@@ -7,7 +8,10 @@ import 'package:share_plus/share_plus.dart';
 
 import '../domain/app_controller.dart';
 import '../domain/document.dart';
+import '../ocr/paper_detector.dart';
 import 'image_detail_page.dart';
+import 'lens_stage.dart';
+import 'pipeline_sheet.dart';
 
 String documentStatus(Document item) => switch (item.status) {
   DocumentStatus.ready => item.included ? 'Chờ gửi' : 'Bản nháp · chưa chọn',
@@ -63,6 +67,8 @@ class _DocumentPageState extends State<DocumentPage> {
   AppController get app => widget.app;
   late bool correct = app.correctText;
   late final String? owner = app.cloud.userId;
+  DocumentViewMode _viewMode = DocumentViewMode.original;
+  bool _lensEnabled = true;
 
   Future<void> _remove(Document item) async {
     final confirmed = await showDialog<bool>(
@@ -103,6 +109,67 @@ class _DocumentPageState extends State<DocumentPage> {
     }
   }
 
+  Future<void> _cropFromLens(
+    Document item,
+    List<Point2D> quad, {
+    required bool autoSend,
+  }) async {
+    try {
+      final rawBytes = await File(item.path).readAsBytes();
+      final croppedBytes = await compute(
+        cropPhotoToLensQuad,
+        (bytes: rawBytes, rotation: item.rotation, quad: quad),
+      );
+      if (!mounted || owner != app.cloud.userId) return;
+      final name = 'LensCrop_${DateTime.now().millisecondsSinceEpoch}.png';
+      await app.importImages([(croppedBytes, name)]);
+      final derived = app.documents.where((d) => d.name == name).firstOrNull;
+      if (derived == null) return;
+      app.setIncluded(item.id, false);
+      if (autoSend && app.canSend) {
+        app.enqueueAutoSend(derived.id, correct: correct);
+        if (mounted) {
+          showNotice(context, 'Đã cắt theo khung Lens và tự động gửi OCR.');
+        }
+      } else if (mounted) {
+        showNotice(context, 'Đã lưu ảnh cắt theo khung Lens.');
+      }
+      if (mounted && owner == app.cloud.userId) {
+        await Navigator.of(context).pushReplacement<void, void>(
+          MaterialPageRoute(
+            builder: (_) => DocumentPage(app: app, id: derived.id),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) showNotice(context, AppController.readableError(e));
+    }
+  }
+
+  void _openFullscreen(Document item) {
+    Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => FullscreenDocumentStagePage(
+          item: item,
+          initialMode: _viewMode,
+          lensEnabled: _lensEnabled,
+          canSend: app.canSend,
+          onQuadChanged: (q) => app.setCustomQuad(item.id, q),
+          onCropAndSend: (q, {required bool autoSend}) =>
+              _cropFromLens(item, q, autoSend: autoSend),
+        ),
+      ),
+    );
+  }
+
+  void _openPipeline(Document item) {
+    Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => PipelineDemoPage(app: app, item: item),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: app,
@@ -118,10 +185,23 @@ class _DocumentPageState extends State<DocumentPage> {
       }
       final colors = Theme.of(context).colorScheme;
       final processing = item.status == DocumentStatus.processing;
+      final hasText = item.text.trim().isNotEmpty;
+      final activeMode =
+          hasText ? _viewMode : DocumentViewMode.original;
+      final stageHeight = (MediaQuery.sizeOf(context).height * 0.44).clamp(
+        260.0,
+        420.0,
+      );
+
       return Scaffold(
         appBar: AppBar(
           title: Text(item.name, maxLines: 1, overflow: TextOverflow.ellipsis),
           actions: [
+            IconButton(
+              tooltip: 'Cắt & chỉnh ảnh',
+              onPressed: () => _openEditor(item),
+              icon: const Icon(Icons.crop_rotate_outlined),
+            ),
             IconButton(
               tooltip: 'Xóa ảnh',
               onPressed: app.busy || processing || app.importing
@@ -134,138 +214,222 @@ class _DocumentPageState extends State<DocumentPage> {
         body: SafeArea(
           top: false,
           child: ListView(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
+            padding: const EdgeInsets.fromLTRB(14, 10, 14, 24),
             children: [
+              // 1) Compact mobile 3-way view mode switcher ("Ảnh gốc" | "Ảnh văn bản" | "Đối chiếu")
               Card(
                 color: colors.surfaceContainerLow,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    ClipRRect(
-                      borderRadius: const BorderRadius.vertical(
-                        top: Radius.circular(18),
+                child: Padding(
+                  padding: const EdgeInsets.all(10),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      ViewModeSegmentedBar(
+                        mode: activeMode,
+                        canDigital: hasText,
+                        onChanged: (next) => setState(() => _viewMode = next),
                       ),
-                      child: InkWell(
-                        onTap: () => _openEditor(item),
-                        child: ColoredBox(
-                          color: colors.surfaceContainer,
-                          child: SizedBox(
-                            height: 200,
-                            child: RotatedBox(
-                              quarterTurns: item.rotation,
-                              child: Image.file(
-                                File(item.path),
-                                fit: BoxFit.contain,
-                                cacheWidth: 1080,
-                                errorBuilder: (_, _, _) => const Center(
-                                  child: Text('Không mở được ảnh này.'),
-                                ),
-                              ),
-                            ),
-                          ),
+                      const SizedBox(height: 10),
+                      // 2) Generous visual stage tailored for touch-dragging Lens corners or ⇄ compare slider
+                      SizedBox(
+                        height: stageHeight,
+                        child: LensStage(
+                          item: item,
+                          mode: activeMode,
+                          lensEnabled: _lensEnabled,
+                          canSend: app.canSend,
+                          onQuadChanged: (q) => app.setCustomQuad(item.id, q),
+                          onCropAndSend: (q, {required bool autoSend}) =>
+                              _cropFromLens(item, q, autoSend: autoSend),
+                          onCopyText: (t) async {
+                            await Clipboard.setData(ClipboardData(text: t));
+                            if (context.mounted) {
+                              showNotice(context, 'Đã sao chép văn bản đã chọn.');
+                            }
+                          },
+                          onTapBackground: () => _openEditor(item),
+                          onOpenFullscreen: () => _openFullscreen(item),
                         ),
                       ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.all(10),
-                      child: Wrap(
-                        alignment: WrapAlignment.spaceBetween,
+                      const SizedBox(height: 10),
+                      // 3) Compact mobile tool strip below preview (wraps cleanly on 360dp phones)
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 6,
                         crossAxisAlignment: WrapCrossAlignment.center,
                         children: [
-                          Text(
-                            documentStatus(item),
-                            style: Theme.of(context).textTheme.labelLarge,
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 9,
+                              vertical: 5,
+                            ),
+                            decoration: BoxDecoration(
+                              color: colors.surfaceContainer,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(
+                              documentStatus(item),
+                              style: Theme.of(context).textTheme.labelMedium,
+                            ),
                           ),
-                          TextButton.icon(
-                            onPressed: () => _openEditor(item),
-                            icon: const Icon(Icons.crop),
-                            label: const Text('Cắt và chỉnh ảnh'),
+                          if (activeMode == DocumentViewMode.original)
+                            FilterChip(
+                              visualDensity: VisualDensity.compact,
+                              selected: _lensEnabled,
+                              label: const Text('✦ Lens'),
+                              onSelected: (v) =>
+                                  setState(() => _lensEnabled = v),
+                            ),
+                          ActionChip(
+                            visualDensity: VisualDensity.compact,
+                            avatar: const Icon(Icons.open_in_full, size: 15),
+                            label: const Text('Phóng to'),
+                            onPressed: () => _openFullscreen(item),
                           ),
+                          if (item.status == DocumentStatus.done ||
+                              item.hasPipeline)
+                            ActionChip(
+                              visualDensity: VisualDensity.compact,
+                              avatar: const Icon(
+                                Icons.auto_graph_rounded,
+                                size: 15,
+                              ),
+                              label: const Text('Pipeline'),
+                              onPressed: () => _openPipeline(item),
+                            ),
                         ],
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
               if (item.error.isNotEmpty)
                 Padding(
-                  padding: const EdgeInsets.only(top: 16),
+                  padding: const EdgeInsets.only(top: 12),
                   child: Text(
                     item.error,
                     style: TextStyle(color: colors.error),
                   ),
                 ),
               if (processing) ...[
-                const SizedBox(height: 16),
+                const SizedBox(height: 12),
                 LinearProgressIndicator(value: app.busy ? app.progress : null),
-                const SizedBox(height: 8),
+                const SizedBox(height: 6),
                 Text(
                   app.busy && app.progressLabel.isNotEmpty
                       ? app.progressLabel
-                      : 'Đang chờ văn bản từ máy chủ…',
+                      : 'Đang tự động gửi & nhận dạng từ máy chủ…',
+                  style: Theme.of(context).textTheme.bodySmall,
                 ),
               ],
-              const SizedBox(height: 22),
-              Text('Văn bản', style: Theme.of(context).textTheme.titleLarge),
-              const SizedBox(height: 10),
-              if (item.status == DocumentStatus.done ||
-                  item.text.isNotEmpty) ...[
-                TextFormField(
-                  key: ValueKey('${item.id}-${item.status.name}'),
-                  initialValue: item.text,
-                  minLines: 4,
-                  maxLines: null,
-                  readOnly: app.busy || processing,
-                  decoration: const InputDecoration(
-                    hintText: 'Sửa kết quả tại đây',
+              const SizedBox(height: 16),
+              // 4) Spacious Văn bản section with header actions (saves vertical phone space!)
+              Card(
+                color: colors.surfaceContainerLow,
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Wrap(
+                        alignment: WrapAlignment.spaceBetween,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        spacing: 8,
+                        runSpacing: 6,
+                        children: [
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                'Văn bản',
+                                style: Theme.of(context).textTheme.titleMedium
+                                    ?.copyWith(fontWeight: FontWeight.w700),
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                '${item.text.length} ký tự',
+                                style: Theme.of(context).textTheme.bodySmall
+                                    ?.copyWith(color: colors.onSurfaceVariant),
+                              ),
+                            ],
+                          ),
+                          if (hasText)
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                IconButton.filledTonal(
+                                  tooltip: 'Sao chép văn bản',
+                                  visualDensity: VisualDensity.compact,
+                                  onPressed: () async {
+                                    await Clipboard.setData(
+                                      ClipboardData(text: item.text),
+                                    );
+                                    if (context.mounted) {
+                                      showNotice(
+                                        context,
+                                        'Đã sao chép văn bản.',
+                                      );
+                                    }
+                                  },
+                                  icon: const Icon(
+                                    Icons.copy_outlined,
+                                    size: 18,
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                IconButton.filledTonal(
+                                  tooltip: 'Xuất file .txt',
+                                  visualDensity: VisualDensity.compact,
+                                  onPressed: () async {
+                                    try {
+                                      await shareText(
+                                        item.text,
+                                        name: item.name,
+                                      );
+                                    } catch (error) {
+                                      if (context.mounted) {
+                                        showNotice(
+                                          context,
+                                          AppController.readableError(error),
+                                        );
+                                      }
+                                    }
+                                  },
+                                  icon: const Icon(Icons.ios_share, size: 18),
+                                ),
+                              ],
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      if (item.status == DocumentStatus.done ||
+                          item.text.isNotEmpty)
+                        TextFormField(
+                          key: ValueKey('${item.id}-${item.status.name}'),
+                          initialValue: item.text,
+                          minLines: 4,
+                          maxLines: null,
+                          readOnly: app.busy || processing,
+                          decoration: const InputDecoration(
+                            hintText: 'Sửa kết quả tại đây',
+                          ),
+                          onChanged: (value) => app.edit(item.id, value),
+                        )
+                      else
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          child: Text(
+                            processing
+                                ? 'Kết quả sẽ tự cập nhật tại đây.'
+                                : 'Gửi ảnh để nhận văn bản và mở khóa chế độ Ảnh văn bản / Đối chiếu.',
+                            style: Theme.of(context).textTheme.bodyMedium
+                                ?.copyWith(color: colors.onSurfaceVariant),
+                          ),
+                        ),
+                    ],
                   ),
-                  onChanged: (value) => app.edit(item.id, value),
                 ),
-                const SizedBox(height: 10),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    OutlinedButton.icon(
-                      onPressed: item.text.isEmpty
-                          ? null
-                          : () async {
-                              await Clipboard.setData(
-                                ClipboardData(text: item.text),
-                              );
-                              if (context.mounted) {
-                                showNotice(context, 'Đã sao chép văn bản.');
-                              }
-                            },
-                      icon: const Icon(Icons.copy_outlined),
-                      label: const Text('Sao chép'),
-                    ),
-                    OutlinedButton.icon(
-                      onPressed: item.text.isEmpty
-                          ? null
-                          : () async {
-                              try {
-                                await shareText(item.text, name: item.name);
-                              } catch (error) {
-                                if (context.mounted) {
-                                  showNotice(
-                                    context,
-                                    AppController.readableError(error),
-                                  );
-                                }
-                              }
-                            },
-                      icon: const Icon(Icons.ios_share),
-                      label: const Text('Xuất .txt'),
-                    ),
-                  ],
-                ),
-              ] else
-                Text(
-                  processing
-                      ? 'Kết quả sẽ tự cập nhật tại đây.'
-                      : 'Gửi ảnh để nhận văn bản.',
-                ),
+              ),
             ],
           ),
         ),
@@ -275,7 +439,7 @@ class _DocumentPageState extends State<DocumentPage> {
                 child: SafeArea(
                   top: false,
                   child: Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                    padding: const EdgeInsets.fromLTRB(14, 8, 14, 8),
                     child: Wrap(
                       alignment: WrapAlignment.spaceBetween,
                       crossAxisAlignment: WrapCrossAlignment.center,
@@ -311,13 +475,20 @@ class _DocumentPageState extends State<DocumentPage> {
                   ),
                 ),
               )
-            : processing && app.busy
-            ? SafeArea(
-                child: Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: TextButton(
-                    onPressed: app.cancel,
-                    child: const Text('Tạm dừng lượt gửi'),
+            : processing
+            ? Material(
+                color: colors.surfaceContainer,
+                child: SafeArea(
+                  top: false,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 6,
+                    ),
+                    child: TextButton(
+                      onPressed: app.cancel,
+                      child: const Text('Tạm dừng lượt gửi'),
+                    ),
                   ),
                 ),
               )

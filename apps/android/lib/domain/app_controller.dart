@@ -99,7 +99,9 @@ class AppController extends ChangeNotifier {
   List<Document> get documents => UnmodifiableListView(_documents);
   int get sendCount => _documents.where((d) => d.included && d.canSend).length;
   bool get hasPendingResults =>
-      _documents.any((d) => d.status == DocumentStatus.processing);
+      _documents.any((d) => d.status == DocumentStatus.processing) ||
+      autoSendingCount > 0;
+  int get autoSendingCount => _autoQueue.length + _autoCancels.length;
   void setIncluded(String id, bool included) {
     if (busy || importing) return;
     for (final d in _documents.where((d) => d.id == id)) {
@@ -109,9 +111,18 @@ class AppController extends ChangeNotifier {
     _notify();
   }
 
+  void setCustomQuad(String id, List<List<double>>? quad) {
+    final doc = _documents.where((d) => d.id == id).firstOrNull;
+    if (doc == null) return;
+    doc.customQuad = quad;
+    _scheduleSave();
+    _notify();
+  }
+
   bool dark = true,
       splitLines = true,
       correctText = false,
+      cameraAutoSend = true,
       busy = false,
       importing = false,
       initialized = false;
@@ -126,6 +137,10 @@ class AppController extends ChangeNotifier {
   bool _recovering = false;
   int _accountEpoch = 0, _recoveryCursor = 0;
   final _expiredResults = <String>{};
+  final _pipelineCache = <String, Map<String, dynamic>>{};
+  final _autoQueue = <String>[];
+  final _autoCancels = <String, CancellationToken>{};
+  int _autoWorkers = 0;
   Future<void>? _running;
   void _notify() {
     if (!_disposed) notifyListeners();
@@ -137,6 +152,7 @@ class AppController extends ChangeNotifier {
       dark = prefs.getBool('dark') ?? true;
       splitLines = prefs.getBool('splitLines') ?? true;
       correctText = prefs.getBool('correctText') ?? false;
+      cameraAutoSend = prefs.getBool('cameraAutoSend') ?? true;
       serverUrl = prefs.getString('v2GatewayUrl') ?? serverUrl;
       serverInsecureLan = prefs.getBool('ocrServerInsecure') ?? false;
       _lastVerifiedAccount = prefs.getString('v2VerifiedAccount');
@@ -254,6 +270,8 @@ class AppController extends ChangeNotifier {
         : _remoteFor(serverUrl, serverInsecureLan, id);
     _documents.clear();
     _expiredResults.clear();
+    _pipelineCache.clear();
+    _autoQueue.clear();
     _recoveryCursor = 0;
     _accountId = id;
     gatewayVerified = false;
@@ -298,6 +316,128 @@ class AppController extends ChangeNotifier {
     } catch (_) {
       message = 'Chưa lưu được lựa chọn sửa lỗi AI.';
       _notify();
+    }
+  }
+
+  Future<void> setCameraAutoSend(bool value) async {
+    cameraAutoSend = value;
+    _notify();
+    try {
+      await (await SharedPreferences.getInstance()).setBool(
+        'cameraAutoSend',
+        value,
+      );
+    } catch (_) {
+      message = 'Chưa lưu được tuỳ chọn tự động gửi khi chụp.';
+      _notify();
+    }
+  }
+
+  Future<Map<String, dynamic>?> fetchPipeline(Document doc) async {
+    final jobId = doc.jobId;
+    if (jobId == null || jobId.isEmpty) return null;
+    final cached = _pipelineCache[jobId];
+    if (cached != null) return cached;
+    final currentEngine = engine;
+    if (currentEngine is! RichOcrEngine) return null;
+    final data = await (currentEngine as RichOcrEngine).fetchPipeline(jobId);
+    if (data != null) {
+      _pipelineCache[jobId] = data;
+    }
+    return data;
+  }
+
+  /// Background auto-send queue for camera captures (non-blocking so user can shoot every 0.5s).
+  void enqueueAutoSend(String id, {bool? correct}) {
+    if (_disposed || !canSend) return;
+    final doc = _documents.where((d) => d.id == id).firstOrNull;
+    if (doc == null ||
+        doc.status == DocumentStatus.processing ||
+        _autoQueue.contains(id) ||
+        _autoCancels.containsKey(id)) {
+      return;
+    }
+    doc.status = DocumentStatus.processing;
+    doc.error = '';
+    _autoQueue.add(id);
+    _notify();
+    _pumpAutoWorkers(correct: correct ?? correctText);
+  }
+
+  void _pumpAutoWorkers({required bool correct}) {
+    final batchEngine = engine;
+    final maxWorkers = batchEngine is ConcurrentOcrEngine
+        ? (batchEngine as ConcurrentOcrEngine).parallelRequests.clamp(1, 2)
+        : 1;
+    while (_autoWorkers < maxWorkers && _autoQueue.isNotEmpty) {
+      _autoWorkers++;
+      final epoch = _accountEpoch;
+      unawaited(() async {
+        try {
+          while (!_disposed &&
+              epoch == _accountEpoch &&
+              _autoQueue.isNotEmpty) {
+            final id = _autoQueue.removeAt(0);
+            final doc = _documents.where((d) => d.id == id).firstOrNull;
+            if (doc == null) continue;
+            final token = CancellationToken();
+            _autoCancels[id] = token;
+            _notify();
+            try {
+              if (batchEngine is RichOcrEngine) {
+                final rich = await (batchEngine as RichOcrEngine).recognizeRich(
+                  doc.path,
+                  split: true,
+                  correct: correct,
+                  rotation: doc.rotation,
+                  cancel: token,
+                  progress: (_, _) {},
+                );
+                token.check();
+                doc.text = rich.text;
+                doc.jobId = rich.jobId ?? doc.jobId;
+                doc.lens = rich.lens ?? doc.lens;
+                doc.hasPipeline = rich.hasPipeline || doc.hasPipeline;
+              } else {
+                final text = await batchEngine.recognize(
+                  doc.path,
+                  split: true,
+                  correct: correct,
+                  rotation: doc.rotation,
+                  cancel: token,
+                  progress: (_, _) {},
+                );
+                token.check();
+                doc.text = text;
+              }
+              doc.status = DocumentStatus.done;
+              doc.included = false;
+              doc.error = '';
+            } on OcrCancelled {
+              if (doc.status == DocumentStatus.processing) {
+                doc.status = DocumentStatus.cancelled;
+              }
+            } catch (error, stack) {
+              AppLog.instance.add(
+                'OCR',
+                'Tự động gửi ${doc.name} thất bại',
+                level: 'ERROR',
+                error: error,
+                stack: stack,
+              );
+              doc.status = DocumentStatus.error;
+              doc.error = readableError(error);
+            } finally {
+              _autoCancels.remove(id);
+              await flush();
+              _notify();
+            }
+          }
+        } finally {
+          _autoWorkers--;
+          _notify();
+        }
+      }());
     }
   }
 
@@ -471,23 +611,46 @@ class AppController extends ChangeNotifier {
         active.error = '';
         _notify();
         try {
-          final text = await batchEngine.recognize(
-            active.path,
-            split: split,
-            correct: correct,
-            rotation: active.rotation,
-            cancel: cancel,
-            progress: (label, fraction) {
-              if (_disposed || cancel.isCancelled) return;
-              progressLabel = 'Ảnh ${i + 1}/${batch.length} · $label';
-              progress = fraction == null
-                  ? null
-                  : (completed + fraction) / batch.length;
-              _notify();
-            },
-          );
-          cancel.check();
-          active.text = text;
+          if (batchEngine is RichOcrEngine) {
+            final rich = await (batchEngine as RichOcrEngine).recognizeRich(
+              active.path,
+              split: split,
+              correct: correct,
+              rotation: active.rotation,
+              cancel: cancel,
+              progress: (label, fraction) {
+                if (_disposed || cancel.isCancelled) return;
+                progressLabel = 'Ảnh ${i + 1}/${batch.length} · $label';
+                progress = fraction == null
+                    ? null
+                    : (completed + fraction) / batch.length;
+                _notify();
+              },
+            );
+            cancel.check();
+            active.text = rich.text;
+            active.jobId = rich.jobId ?? active.jobId;
+            active.lens = rich.lens ?? active.lens;
+            active.hasPipeline = rich.hasPipeline || active.hasPipeline;
+          } else {
+            final text = await batchEngine.recognize(
+              active.path,
+              split: split,
+              correct: correct,
+              rotation: active.rotation,
+              cancel: cancel,
+              progress: (label, fraction) {
+                if (_disposed || cancel.isCancelled) return;
+                progressLabel = 'Ảnh ${i + 1}/${batch.length} · $label';
+                progress = fraction == null
+                    ? null
+                    : (completed + fraction) / batch.length;
+                _notify();
+              },
+            );
+            cancel.check();
+            active.text = text;
+          }
           active.status = DocumentStatus.done;
           active.included = false;
           completed++;
@@ -575,9 +738,14 @@ class AppController extends ChangeNotifier {
 
   void cancel() {
     final token = _cancel;
-    if (token == null || token.isCancelled) return;
+    final hasAuto = _autoQueue.isNotEmpty || _autoCancels.isNotEmpty;
+    if ((token == null || token.isCancelled) && !hasAuto) return;
     AppLog.instance.add('OCR', 'Tạm dừng gửi');
-    token.cancel();
+    token?.cancel();
+    _autoQueue.clear();
+    for (final c in _autoCancels.values) {
+      c.cancel();
+    }
     if (_managedEngine && engine is RemoteEngine) {
       final previous = engine;
       engine = _remoteFor(serverUrl, serverInsecureLan, _accountId);

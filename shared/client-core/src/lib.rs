@@ -591,9 +591,9 @@ impl Client {
             self.result_tickets.lock().await.remove(&id);
         }
         let max_bytes = if include.is_some() {
-            4 * 1024 * 1024
+            12 * 1024 * 1024
         } else {
-            2 * 1024 * 1024
+            4 * 1024 * 1024
         };
         Self::response_bounded(response, max_bytes).await
     }

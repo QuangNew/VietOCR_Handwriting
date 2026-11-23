@@ -477,6 +477,28 @@ class _SendBar extends StatelessWidget {
                     ),
                   ],
                 )
+              : app.autoSendingCount > 0 && app.sendCount == 0
+              ? Row(
+                  children: [
+                    const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'Đang tự động gửi ${app.autoSendingCount} ảnh…',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: app.cancel,
+                      child: const Text('Tạm dừng'),
+                    ),
+                  ],
+                )
               : app.sendCount == 0
               ? const Text('Đang chờ văn bản từ máy chủ…')
               : Wrap(

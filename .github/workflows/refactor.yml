@@ -1,19 +1,5 @@
-name: Refactor foundation
+name: Manual CI Verify
 on:
-  push:
-    branches: [main, refactor]
-    paths:
-      - Cargo.toml
-      - Cargo.lock
-      - services/gateway/**
-      - shared/client-core/**
-      - apps/desktop/**
-      - apps/android/**
-      - services/compute/backend/**
-      - shared/contracts/**
-      - infra/raspberry/**
-      - supabase/migrations/**
-      - .github/workflows/refactor.yml
   workflow_dispatch:
 permissions:
   contents: read

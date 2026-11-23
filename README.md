@@ -1,4 +1,15 @@
-# VietHandOCR
+<p align="center">
+  <img src="docs/assets/repo-banner.png" alt="VietHandOCR — Vietnamese Handwriting OCR Platform" width="100%">
+</p>
+
+<h1 align="center">VietHandOCR</h1>
+
+<p align="center">
+  <strong>Hệ thống nhận dạng chữ viết tay tiếng Việt đầu cuối (PBL4)</strong><br>
+  Native Preprocessing · <code>ML_s44</code> · <code>Bartpho_v2_fp16 + Edit Guard v3</code> · Raspberry Pi Gateway · Windows Desktop &amp; Android
+</p>
+
+---
 
 **VietHandOCR** là hệ thống nhận dạng chữ viết tay tiếng Việt đầu cuối (PBL4), kết hợp **tiền xử lý & phân đoạn dòng Native**, mô hình nhận dạng **`ML_s44`** và tầng **hậu xử lý nội suy sửa lỗi tùy chọn (`Bartpho_v2_fp16 + Edit Guard v3 + Smart Continuation Context`)**.
 

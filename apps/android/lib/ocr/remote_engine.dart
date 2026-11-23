@@ -38,7 +38,11 @@ List<int> _rotateForServer((String, int) input) {
 }
 
 class RemoteEngine
-    implements OcrEngine, AcceptedResultRecovery, ConcurrentOcrEngine {
+    implements
+        OcrEngine,
+        AcceptedResultRecovery,
+        ConcurrentOcrEngine,
+        RichOcrEngine {
   RemoteEngine(
     String origin,
     String key, {
@@ -97,6 +101,23 @@ class RemoteEngine
     required int rotation,
     required CancellationToken cancel,
     required void Function(String, double?) progress,
+  }) async => (await recognizeRich(
+    path,
+    split: split,
+    correct: correct,
+    rotation: rotation,
+    cancel: cancel,
+    progress: progress,
+  )).text;
+
+  @override
+  Future<OcrArtifactResult> recognizeRich(
+    String path, {
+    required bool split,
+    bool correct = false,
+    required int rotation,
+    required CancellationToken cancel,
+    required void Function(String, double?) progress,
   }) async {
     if (_closed) throw OcrCancelled();
     cancel.check();
@@ -108,7 +129,7 @@ class RemoteEngine
       final image = await automaticTransfer(await _image(path, rotation));
       cancel.check();
       progress('Đang gửi ảnh đến OCR Server…', null);
-      final text = await _client.recognize(
+      final result = await _client.recognizeWithResult(
         image,
         layout: split ? 'auto' : 'line',
         correct: correct,
@@ -127,13 +148,26 @@ class RemoteEngine
         ),
       );
       cancel.check();
-      return text;
+      return OcrArtifactResult(
+        text: result['text'] as String? ?? '',
+        jobId: result['jobId'] as String?,
+        lens: result['lens'] is Map
+            ? Map<String, dynamic>.from(result['lens'] as Map)
+            : null,
+        hasPipeline: result['hasPipeline'] as bool? ?? false,
+      );
     } catch (error) {
       cancel.check();
       if (_closed) throw OcrCancelled();
       if (error is RemoteOcrException) rethrow;
       throw StateError(error.toString());
     }
+  }
+
+  @override
+  Future<Map<String, dynamic>?> fetchPipeline(String jobId) async {
+    if (_closed) return null;
+    return _client.fetchPipeline(jobId);
   }
 
   @override

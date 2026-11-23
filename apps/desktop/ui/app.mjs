@@ -9,7 +9,13 @@ import {
   orderQuad,
   linesInsideQuad,
 } from './lens.mjs';
-import { renderDigitalDocument, cropImageToQuad } from './docview.mjs';
+import {
+  renderDigitalDocument,
+  cropImageToQuad,
+  computeQuadFlatSize,
+  warpImageQuadToFlatCanvas,
+  drawRectifiedPhoto,
+} from './docview.mjs';
 import {
   formatMs,
   routeLabel,
@@ -65,6 +71,9 @@ let imageViewMode = 'original'; // 'original' | 'digital' | 'compare'
 let compareSplit = 50; // 0..100: left 0..X% = Ảnh văn bản, right X..100% = Ảnh gốc
 let compareDragging = false;
 let lensHoveredLine = null;
+let activeDigitalLineHits = [];
+let activeFlatRect = null;
+let pendingPipelineOpenDraftId = null;
 let lensDragging = false;
 let lensDragDidMove = false;
 let lensDragAction = 'add';
@@ -415,7 +424,9 @@ async function select(id) {
     $('originalImage').hidden = true;
     $('originalStage').hidden = true;
     $('originalImage').removeAttribute('src');
+    $('rectifiedLayer').hidden = true;
     $('digitalLayer').hidden = true;
+    $('digitalHoverSvg').style.display = 'none';
     $('compareOverlay').hidden = true;
     $('lensSvg').style.display = 'none';
     $('lensFloatingBar').hidden = true;
@@ -1075,6 +1086,10 @@ async function pollResult(id, op = operations.get(id) ?? newOperation(id)) {
         renderImageStage();
         if (demoPipelineMode && d.jobId) void prefetchPipeline(d);
         renderPipelineMiniBar();
+        if (pendingPipelineOpenDraftId === d.id) {
+          pendingPipelineOpenDraftId = null;
+          void openPipelineDialog(0, 'overview');
+        }
       }
       if (op.finished) {
         void refreshSessionQuota();
@@ -1437,6 +1452,15 @@ splitter.onpointerdown = e => {
 let review = false;
 let reviewMirrored = false;
 let cameraGeneration = 0;
+let cameraAutoSend = localStorage.getItem('viethandocr.cameraAutoSend') !== '0';
+const cameraAutoSendInput = $('cameraAutoSend');
+if (cameraAutoSendInput) {
+  cameraAutoSendInput.checked = cameraAutoSend;
+  cameraAutoSendInput.onchange = () => {
+    cameraAutoSend = cameraAutoSendInput.checked;
+    localStorage.setItem('viethandocr.cameraAutoSend', cameraAutoSend ? '1' : '0');
+  };
+}
 
 function liveTransform() {
   $('live').style.transform =
@@ -1512,7 +1536,7 @@ function skip() {
   review = false;
   $('skip').hidden = true;
   $('shoot').disabled = false;
-  $('reviewStatus').textContent = verified
+  $('reviewStatus').textContent = verified && cameraAutoSend
     ? 'Đã tự động gửi OCR · sẵn sàng chụp ảnh kế tiếp'
     : 'Đã lưu bản nháp · sẵn sàng chụp ảnh kế tiếp';
   liveTransform();
@@ -1524,6 +1548,7 @@ $('shoot').onclick = () =>
     const epoch = accountEpoch;
     const generation = cameraGeneration;
     const mirrored = $('mirror').checked;
+    const autoSendNow = verified && cameraAutoSend;
     try {
       let d = await invoke('capture', { id: $('cameraSelect').value });
       if (epoch !== accountEpoch || generation !== cameraGeneration) return;
@@ -1543,8 +1568,8 @@ $('shoot').onclick = () =>
       }
       if (epoch !== accountEpoch || generation !== cameraGeneration) return;
       await select(d.id);
-      // Automatically send captured photo to OCR in background immediately (no need to click Gửi)
-      if (verified) {
+      // Automatically send captured photo to OCR in background when user enabled cameraAutoSend
+      if (autoSendNow) {
         void enqueueAutoSend(d);
       }
       review = true;
@@ -1552,9 +1577,9 @@ $('shoot').onclick = () =>
       liveTransform();
       $('live').src = thumbCache.get(d.id) ?? (await invoke('draft_image', { id: d.id }));
       $('skip').hidden = false;
-      $('reviewStatus').textContent = verified
+      $('reviewStatus').textContent = autoSendNow
         ? 'Đã chụp · đang tự động gửi OCR (chuyển ảnh kế sau 0.5s)…'
-        : 'Đã chụp bản nháp · chuyển ảnh kế sau 0.5s…';
+        : 'Đã lưu bản nháp · chuyển ảnh kế sau 0.5s…';
       reviewTimer = setTimeout(skip, 500);
     } catch (e) {
       $('shoot').disabled = false;
@@ -2016,73 +2041,181 @@ function positionOverlayBox(el, rect) {
   el.style.height = `${rect.height}px`;
 }
 
+function updateDigitalHoverClasses() {
+  const svg = $('digitalHoverSvg');
+  for (const rect of svg.querySelectorAll('.digital-line-hit')) {
+    const lid = Number(rect.getAttribute('data-line-id'));
+    rect.classList.toggle('hovered', lensHoveredLine === lid);
+    rect.classList.toggle('selected', lensSelectedLines.has(lid));
+  }
+}
+
+function renderDigitalHoverLayer(flatRect, lineHits) {
+  const svg = $('digitalHoverSvg');
+  activeDigitalLineHits = Array.isArray(lineHits) ? lineHits : [];
+  activeFlatRect = flatRect;
+  if (!flatRect || !activeDigitalLineHits.length) {
+    svg.style.display = 'none';
+    svg.replaceChildren();
+    return;
+  }
+  positionOverlayBox(svg, flatRect);
+  svg.setAttribute('viewBox', `0 0 ${flatRect.width.toFixed(1)} ${flatRect.height.toFixed(1)}`);
+  svg.replaceChildren();
+
+  for (const hit of activeDigitalLineHits) {
+    const isHov = lensHoveredLine === hit.id;
+    const isSel = lensSelectedLines.has(hit.id);
+    const el = svgEl('rect', {
+      class: `digital-line-hit${isSel ? ' selected' : ''}${isHov ? ' hovered' : ''}`,
+      x: hit.x.toFixed(1),
+      y: hit.y.toFixed(1),
+      width: Math.max(8, hit.w).toFixed(1),
+      height: Math.max(8, hit.h).toFixed(1),
+      rx: '4',
+      ry: '4',
+      'data-line-id': hit.id,
+    });
+    el.addEventListener('pointerenter', () => {
+      lensHoveredLine = hit.id;
+      updateDigitalHoverClasses();
+      updateLensTooltip(hit, true);
+    });
+    el.addEventListener('pointerleave', () => {
+      if (lensHoveredLine === hit.id) {
+        lensHoveredLine = null;
+        updateDigitalHoverClasses();
+        updateLensTooltip(null, true);
+      }
+    });
+    el.addEventListener('pointerdown', e => {
+      e.stopPropagation();
+      if (lensSelectedLines.has(hit.id)) lensSelectedLines.delete(hit.id);
+      else lensSelectedLines.add(hit.id);
+      highlightLineInTextarea(hit.id);
+      updateDigitalHoverClasses();
+      updateLensTooltip(hit, true);
+    });
+    svg.append(el);
+  }
+  // In compare mode, pointer events pass through #compareOverlay which hit-tests activeDigitalLineHits
+  svg.style.pointerEvents = imageViewMode === 'digital' ? 'none' : 'none';
+  svg.style.display = 'block';
+}
+
 function renderImageStage() {
   const d = drafts.find(x => x.id === selected);
   const stage = $('originalStage');
   const img = $('originalImage');
+  const rectifiedLayer = $('rectifiedLayer');
   const digitalLayer = $('digitalLayer');
+  const digitalHoverSvg = $('digitalHoverSvg');
   const compareOverlay = $('compareOverlay');
 
   if (!d || stage.hidden || !img.naturalWidth) {
+    rectifiedLayer.hidden = true;
     digitalLayer.hidden = true;
+    digitalHoverSvg.style.display = 'none';
     compareOverlay.hidden = true;
     $('lensSvg').style.display = 'none';
     $('lensFloatingBar').hidden = true;
     $('lensTooltip').hidden = true;
+    activeDigitalLineHits = [];
+    activeFlatRect = null;
     return;
   }
 
-  const rect = computeContainedRect(stage.clientWidth, stage.clientHeight, img.naturalWidth, img.naturalHeight);
-  if (rect.width < 10 || rect.height < 10) return;
-
   if (imageViewMode === 'original') {
+    rectifiedLayer.hidden = true;
     digitalLayer.hidden = true;
+    digitalHoverSvg.style.display = 'none';
     compareOverlay.hidden = true;
     img.style.visibility = 'visible';
+    activeDigitalLineHits = [];
+    activeFlatRect = null;
     renderLensOverlay();
     return;
   }
 
-  // Hide Lens UI when viewing Ảnh văn bản or Đối chiếu
+  // Hide original un-warped photo & Lens handles in 90-deg flat Word / Đối chiếu modes
+  img.style.visibility = 'hidden';
   $('lensSvg').style.display = 'none';
   $('lensFloatingBar').hidden = true;
-  $('lensTooltip').hidden = true;
 
   const lensData = getActiveLensData(d);
-  positionOverlayBox(digitalLayer, rect);
+  const activeQuad = lensData?.paperDetected && Array.isArray(lensData.paperQuad) && lensData.paperQuad.length === 4
+    ? lensData.paperQuad
+    : null;
+  const flatSize = computeQuadFlatSize(activeQuad, img.naturalWidth, img.naturalHeight);
+  const pad = 10;
+  const innerW = Math.max(40, stage.clientWidth - pad * 2);
+  const innerH = Math.max(40, stage.clientHeight - pad * 2);
+  const fitted = computeContainedRect(innerW, innerH, flatSize.width, flatSize.height);
+  if (fitted.width < 10 || fitted.height < 10) return;
+  const flatRect = {
+    left: fitted.left + pad,
+    top: fitted.top + pad,
+    width: fitted.width,
+    height: fitted.height,
+    scale: fitted.scale,
+  };
+
+  positionOverlayBox(digitalLayer, flatRect);
   digitalLayer.hidden = false;
-  renderDigitalDocument($('digitalCanvas'), {
+  const { lineHits } = renderDigitalDocument($('digitalCanvas'), {
     text: d.text ?? '',
     lens: d.lens || null,
-    paperQuad: lensData?.paperDetected ? lensData.paperQuad : null,
-    cssWidth: rect.width,
-    cssHeight: rect.height,
+    paperQuad: activeQuad,
+    cssWidth: flatRect.width,
+    cssHeight: flatRect.height,
     sourceWidth: lensData?.sourceWidth || img.naturalWidth,
     sourceHeight: lensData?.sourceHeight || img.naturalHeight,
-    title: d.name,
     isLight: document.body.classList.contains('light'),
   });
+  renderDigitalHoverLayer(flatRect, lineHits);
 
   if (imageViewMode === 'digital') {
-    img.style.visibility = 'hidden';
+    rectifiedLayer.hidden = true;
     digitalLayer.style.clipPath = '';
     compareOverlay.hidden = true;
   } else {
-    // Đối chiếu mode: original photo underneath (right side), digital Word document clipped on left 0..compareSplit%
-    img.style.visibility = 'visible';
-    positionOverlayBox(compareOverlay, rect);
+    // Đối chiếu mode: 90-deg perspective-warped flat photo on RIGHT (X..100%), matching 90-deg Word sheet on LEFT (0..X%)
+    const warped = warpImageQuadToFlatCanvas(img, activeQuad, 1100);
+    if (warped) {
+      positionOverlayBox(rectifiedLayer, flatRect);
+      rectifiedLayer.hidden = false;
+      drawRectifiedPhoto($('rectifiedCanvas'), warped, flatRect.width, flatRect.height);
+    } else {
+      rectifiedLayer.hidden = true;
+      img.style.visibility = 'visible';
+    }
+    positionOverlayBox(compareOverlay, flatRect);
     compareOverlay.hidden = false;
     applyCompareSplit(compareSplit);
   }
 }
 
-/* Interactive drag & keyboard support for Đối chiếu slider */
+/* Interactive drag, keyboard, AND line-hover glow support for Đối chiếu slider */
 function updateCompareFromPointer(clientX) {
   const overlay = $('compareOverlay');
   const r = overlay.getBoundingClientRect();
   if (r.width <= 0) return;
   const pct = ((clientX - r.left) / r.width) * 100;
   applyCompareSplit(pct);
+}
+
+function hitTestFlatLine(clientX, clientY) {
+  if (!activeFlatRect || !activeDigitalLineHits.length) return null;
+  const r = $('compareOverlay').getBoundingClientRect();
+  if (r.width <= 0 || r.height <= 0) return null;
+  const fx = clientX - r.left;
+  const fy = clientY - r.top;
+  for (const hit of activeDigitalLineHits) {
+    if (fx >= hit.x && fx <= hit.x + hit.w && fy >= hit.y && fy <= hit.y + hit.h) {
+      return hit;
+    }
+  }
+  return null;
 }
 
 $('compareOverlay').addEventListener('pointerdown', e => {
@@ -2094,9 +2227,25 @@ $('compareOverlay').addEventListener('pointerdown', e => {
   updateCompareFromPointer(e.clientX);
 });
 $('compareOverlay').addEventListener('pointermove', e => {
-  if (!compareDragging) return;
-  e.stopPropagation();
-  updateCompareFromPointer(e.clientX);
+  if (compareDragging) {
+    e.stopPropagation();
+    updateCompareFromPointer(e.clientX);
+    return;
+  }
+  const hit = hitTestFlatLine(e.clientX, e.clientY);
+  const nextId = hit ? hit.id : null;
+  if (nextId !== lensHoveredLine) {
+    lensHoveredLine = nextId;
+    updateDigitalHoverClasses();
+    updateLensTooltip(hit, true);
+  }
+});
+$('compareOverlay').addEventListener('pointerleave', () => {
+  if (lensHoveredLine !== null) {
+    lensHoveredLine = null;
+    updateDigitalHoverClasses();
+    updateLensTooltip(null, true);
+  }
 });
 $('compareOverlay').addEventListener('pointerup', e => {
   if (!compareDragging) return;
@@ -2131,9 +2280,9 @@ function highlightLineInTextarea(lineIdx1Based) {
   ta.scrollTop = Math.max(0, ratio * (ta.scrollHeight - ta.clientHeight));
 }
 
-function updateLensTooltip(line) {
+function updateLensTooltip(line, allowNonOriginal = false) {
   const tip = $('lensTooltip');
-  if (!line || !lensEnabled || imageViewMode !== 'original') {
+  if (!line || (!allowNonOriginal && (!lensEnabled || imageViewMode !== 'original'))) {
     tip.hidden = true;
     return;
   }
@@ -2389,6 +2538,7 @@ function renderLensOverlay() {
       });
       poly.addEventListener('pointerenter', () => {
         lensHoveredLine = line.id;
+        poly.classList.add('hovered');
         updateLensTooltip(line);
         if (lensDragging) {
           if (lensDragAction === 'add') lensSelectedLines.add(line.id);
@@ -2397,6 +2547,7 @@ function renderLensOverlay() {
         }
       });
       poly.addEventListener('pointerleave', () => {
+        poly.classList.remove('hovered');
         if (lensHoveredLine === line.id) {
           lensHoveredLine = null;
           updateLensTooltip(null);
@@ -2939,8 +3090,24 @@ function renderPipelineDialogContent() {
     $('pipelineTimingWrap').hidden = true;
     const empty = document.createElement('div');
     empty.className = 'pipe-empty';
-    empty.textContent =
-      'Chưa có dữ liệu chi tiết pipeline cho ảnh này (có thể ảnh chưa gửi hoặc được xử lý bởi bản server cũ). Hãy nhấn "Gửi" lại ảnh với bản Compute Server mới để ghi đầy đủ 5 khâu xử lý.';
+    const msg = document.createElement('p');
+    msg.textContent =
+      'Ảnh này chưa có dữ liệu chi tiết 5 khâu trên Compute Server (có thể đã được gửi trước khi khởi động bản server mới hoặc đã hết hạn lưu tạm).';
+    empty.append(msg);
+    if (d && verified) {
+      const resendBtn = document.createElement('button');
+      resendBtn.type = 'button';
+      resendBtn.className = 'primary';
+      resendBtn.style.marginTop = '10px';
+      resendBtn.textContent = '↻ Gửi lại ảnh này để tạo Pipeline & Lens';
+      resendBtn.onclick = () => {
+        pendingPipelineOpenDraftId = d.id;
+        $('pipelineDialog').close();
+        void enqueueAutoSend(d);
+        toast('Đang gửi lại ảnh — hộp thoại Pipeline sẽ tự mở khi hoàn tất…');
+      };
+      empty.append(resendBtn);
+    }
     body.append(empty);
     return;
   }

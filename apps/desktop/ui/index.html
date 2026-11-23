@@ -1,13 +1,16 @@
 <!doctype html>
 <html lang="vi">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>VietHandOCR</title>
   <link rel="stylesheet" href="style.css">
 </head>
+
 <body>
-  <button id="sidebarReveal" class="sidebar-reveal" type="button" title="Mở thanh tài liệu" aria-label="Mở thanh tài liệu" hidden>›</button>
+  <button id="sidebarReveal" class="sidebar-reveal" type="button" title="Mở thanh tài liệu"
+    aria-label="Mở thanh tài liệu" hidden>›</button>
 
   <aside id="sidebar">
     <div class="sidebar-top">
@@ -24,7 +27,8 @@
     <div class="connection">
       <span class="dot" id="connectionDot"></span>
       <span id="connection">Chưa xác minh Raspberry</span>
-      <button id="settingsButton" class="icon" type="button" title="Kết nối Raspberry" aria-label="Kết nối Raspberry">⚙</button>
+      <button id="settingsButton" class="icon" type="button" title="Kết nối Raspberry"
+        aria-label="Kết nối Raspberry">⚙</button>
     </div>
 
     <div class="section-label">
@@ -36,10 +40,12 @@
 
     <div class="sidebar-footer">
       <div class="sidebar-actions">
-        <button id="historyButton" class="compact-btn" type="button" title="Lịch sử nhận diện (50 lượt gần nhất)">◷ Lịch sử</button>
+        <button id="historyButton" class="compact-btn" type="button" title="Lịch sử nhận diện (50 lượt gần nhất)">◷ Lịch
+          sử</button>
 
         <div class="menu-wrap">
-          <button id="downloadMenuBtn" class="compact-btn" type="button" aria-haspopup="menu" aria-expanded="false">↓ Tải ▾</button>
+          <button id="downloadMenuBtn" class="compact-btn" type="button" aria-haspopup="menu" aria-expanded="false">↓
+            Tải ▾</button>
           <div id="downloadMenu" class="pop-menu" role="menu" hidden>
             <button id="dlCurrent" type="button" role="menuitem">Tải ảnh hiện tại</button>
             <button id="dlAll" type="button" role="menuitem">Tải toàn bộ ảnh</button>
@@ -48,7 +54,8 @@
         </div>
 
         <div class="menu-wrap">
-          <button id="clearMenuBtn" class="compact-btn danger" type="button" aria-haspopup="menu" aria-expanded="false">✕ Clear ▾</button>
+          <button id="clearMenuBtn" class="compact-btn danger" type="button" aria-haspopup="menu"
+            aria-expanded="false">✕ Clear ▾</button>
           <div id="clearMenu" class="pop-menu" role="menu" hidden>
             <button id="clearCurrent" type="button" role="menuitem">Clear ảnh hiện tại</button>
             <button id="clearAll" type="button" role="menuitem" class="danger">Clear toàn bộ</button>
@@ -78,7 +85,8 @@
         <h1>Tài liệu</h1>
       </div>
       <div class="header-actions">
-        <button id="theme" class="icon theme-btn" type="button" title="Chuyển giao diện sáng / tối" aria-label="Đổi giao diện">☀</button>
+        <button id="theme" class="icon theme-btn" type="button" title="Chuyển giao diện sáng / tối"
+          aria-label="Đổi giao diện">☀</button>
         <button id="import" type="button">＋ Tải ảnh lên</button>
         <button id="cameraButton" class="primary" type="button">◉ Camera Raspberry</button>
       </div>
@@ -88,7 +96,8 @@
       <div class="auth-card">
         <span class="auth-mark">V</span>
         <h2>Từ nét bút đến văn bản.</h2>
-        <p>Đăng nhập Google và xác minh qua Raspberry để mở tài liệu.<br>Ảnh chưa gửi được giữ riêng trên thiết bị của bạn.</p>
+        <p>Đăng nhập Google và xác minh qua Raspberry để mở tài liệu.<br>Ảnh chưa gửi được giữ riêng trên thiết bị của
+          bạn.</p>
         <button id="login" class="primary" type="button">Đăng nhập bằng Google</button>
         <button id="gateSettings" type="button">Kết nối Raspberry</button>
         <p id="authMessage" class="muted"></p>
@@ -100,38 +109,54 @@
         <article class="panel-image">
           <div class="panel-head">
             <div class="view-mode-switch" role="tablist" aria-label="Chế độ hiển thị ảnh">
-              <button id="viewOriginal" type="button" role="tab" aria-selected="true" class="view-tab active">Ảnh gốc</button>
-              <button id="viewDigital" type="button" role="tab" aria-selected="false" class="view-tab" disabled title="Gửi ảnh để xem dạng văn bản kỹ thuật số (Word)">Ảnh văn bản</button>
-              <button id="viewCompare" type="button" role="tab" aria-selected="false" class="view-tab" disabled title="Kéo mũi tên ⇄ sang phải xem Ảnh văn bản, sang trái xem Ảnh gốc">Đối chiếu</button>
+              <button id="viewOriginal" type="button" role="tab" aria-selected="true" class="view-tab active">Ảnh
+                gốc</button>
+              <button id="viewDigital" type="button" role="tab" aria-selected="false" class="view-tab" disabled
+                title="Gửi ảnh để xem dạng văn bản kỹ thuật số (Word)">Ảnh văn bản</button>
+              <button id="viewCompare" type="button" role="tab" aria-selected="false" class="view-tab" disabled
+                title="Kéo mũi tên ⇄ sang phải xem Ảnh văn bản, sang trái xem Ảnh gốc">Đối chiếu</button>
             </div>
             <div class="panel-head-right">
               <span id="imageInfo" class="muted">Bản nháp riêng</span>
-              <button id="lensToggleBtn" class="mini-pill active" type="button" hidden title="Bật / tắt khung nhận diện giấy và bôi chữ kiểu Google Lens (kéo 4 góc để điều chỉnh)">✦ Lens</button>
-              <button id="editImageBtn" class="mini-pill" type="button" hidden title="Mở Xem & chỉnh ảnh (cắt, xoay, đen trắng)">✎ Chỉnh ảnh</button>
-              <button id="pipelineBtn" class="mini-pill accent-pill" type="button" hidden title="Xem trực quan toàn bộ 5 khâu xử lý đằng sau">◈ Pipeline</button>
+              <button id="lensToggleBtn" class="mini-pill active" type="button" hidden
+                title="Bật / tắt khung nhận diện giấy và bôi chữ kiểu Google Lens (kéo 4 góc để điều chỉnh)">✦
+                Lens</button>
+              <button id="editImageBtn" class="mini-pill" type="button" hidden
+                title="Mở Xem & chỉnh ảnh (cắt, xoay, đen trắng)">✎ Chỉnh ảnh</button>
+              <button id="pipelineBtn" class="mini-pill accent-pill" type="button" hidden
+                title="Xem trực quan toàn bộ 5 khâu xử lý đằng sau">◈ Pipeline</button>
             </div>
           </div>
           <div id="original" class="original" role="button" tabindex="0" title="Nhấn vào ảnh để Xem & chỉnh ảnh">
             <div id="originalStage" class="original-stage" hidden>
               <img id="originalImage" alt="Ảnh đã chọn" draggable="false">
+              <div id="rectifiedLayer" class="rectified-layer" hidden>
+                <canvas id="rectifiedCanvas" aria-label="Ảnh gốc đã ép phẳng 90 độ"></canvas>
+              </div>
               <div id="digitalLayer" class="digital-layer" hidden>
                 <canvas id="digitalCanvas" aria-label="Ảnh văn bản kỹ thuật số dạng Word"></canvas>
               </div>
+              <svg id="digitalHoverSvg" class="digital-hover-svg" style="display:none" aria-label="Tương tác phát sáng từng dòng trên Ảnh văn bản"></svg>
               <div id="compareOverlay" class="compare-overlay" hidden>
                 <span id="compareTagLeft" class="compare-tag compare-tag-left">Ảnh văn bản</span>
                 <span id="compareTagRight" class="compare-tag compare-tag-right">Ảnh gốc</span>
-                <div id="compareDivider" class="compare-divider" role="slider" tabindex="0" aria-label="Kéo sang phải xem Ảnh văn bản, sang trái xem Ảnh gốc" aria-valuemin="0" aria-valuemax="100" aria-valuenow="50">
+                <div id="compareDivider" class="compare-divider" role="slider" tabindex="0"
+                  aria-label="Kéo sang phải xem Ảnh văn bản, sang trái xem Ảnh gốc" aria-valuemin="0"
+                  aria-valuemax="100" aria-valuenow="50">
                   <div class="compare-line"></div>
-                  <div id="compareHandle" class="compare-handle" title="Kéo sang phải: Ảnh văn bản · Kéo sang trái: Ảnh gốc">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                      <path d="M8 7l-5 5 5 5"/>
-                      <path d="M16 7l5 5-5 5"/>
-                      <line x1="3" y1="12" x2="21" y2="12"/>
+                  <div id="compareHandle" class="compare-handle"
+                    title="Kéo sang phải: Ảnh văn bản · Kéo sang trái: Ảnh gốc">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"
+                      stroke-linejoin="round" aria-hidden="true">
+                      <path d="M8 7l-5 5 5 5" />
+                      <path d="M16 7l5 5-5 5" />
+                      <line x1="3" y1="12" x2="21" y2="12" />
                     </svg>
                   </div>
                 </div>
               </div>
-              <svg id="lensSvg" class="lens-svg" style="display:none" aria-label="Lớp nhận diện giấy và bôi chữ kiểu Google Lens"></svg>
+              <svg id="lensSvg" class="lens-svg" style="display:none"
+                aria-label="Lớp nhận diện giấy và bôi chữ kiểu Google Lens"></svg>
               <div id="lensFloatingBar" class="lens-floating-bar" hidden></div>
               <div id="lensTooltip" class="lens-tooltip" hidden></div>
             </div>
@@ -148,7 +173,8 @@
             <h2>Văn bản</h2>
             <span id="jobState" class="badge">Chưa gửi</span>
           </div>
-          <textarea id="text" placeholder="Kết quả nhận dạng sẽ xuất hiện sau khi bạn nhấn Gửi. Bạn có thể chỉnh sửa trực tiếp tại đây."></textarea>
+          <textarea id="text"
+            placeholder="Kết quả nhận dạng sẽ xuất hiện sau khi bạn nhấn Gửi. Bạn có thể chỉnh sửa trực tiếp tại đây."></textarea>
           <div class="panel-tools">
             <span id="textCount" class="muted">0 ký tự</span>
             <button id="copy" type="button">Sao chép</button>
@@ -164,10 +190,12 @@
 
       <footer>
         <div class="footer-left">
-          <label class="correct-toggle" title="Tích chọn để chạy thêm BARTpho v2 sau ML_s44 nhằm sửa lỗi dấu và ngữ cảnh tiếng Việt">
+          <label class="correct-toggle"
+            title="Tích chọn để chạy thêm BARTpho v2 sau ML_s44 nhằm sửa lỗi dấu và ngữ cảnh tiếng Việt">
             <input id="correct" type="checkbox"> Nội suy sửa lỗi (BARTpho)
           </label>
-          <label class="correct-toggle demo-toggle" title="Hiển thị trực quan đầy đủ 5 khâu xử lý đằng sau (Tiền xử lý, Tách mực, Tách dòng, V2c + ML_s44, BARTpho) để trình diễn demo">
+          <label class="correct-toggle demo-toggle"
+            title="Hiển thị trực quan đầy đủ 5 khâu xử lý đằng sau (Tiền xử lý, Tách mực, Tách dòng, V2c + ML_s44, BARTpho) để trình diễn demo">
             <input id="demoPipeline" type="checkbox"> Demo Pipeline
           </label>
           <span id="message" class="footer-msg"></span>
@@ -195,13 +223,15 @@
     <div class="dialog-head">
       <div>
         <h2>Camera Raspberry</h2>
-        <p class="muted">Webcam dùng chung · xem nhanh 0.5s và tự động gửi OCR ngay khi chụp</p>
+        <p class="muted">Webcam dùng chung · xem nhanh 0.5s · tuỳ chọn tự động gửi OCR</p>
       </div>
       <button id="cameraClose" class="icon" type="button" aria-label="Đóng camera">×</button>
     </div>
     <div class="camera-tools">
       <select id="cameraSelect" aria-label="Chọn webcam"></select>
       <label><input id="mirror" type="checkbox"> Lật gương</label>
+      <label title="Tự động gửi ảnh chụp sang OCR ngay lập tức mà không cần nhấn Gửi"><input id="cameraAutoSend"
+          type="checkbox" checked> Tự động gửi OCR</label>
       <span id="cameraStatus">Đang mở camera…</span>
     </div>
     <div class="camera-stage">
@@ -271,7 +301,8 @@
           <span class="split-label">Văn bản lưu gần nhất</span>
           <span id="historyState" class="muted"></span>
         </div>
-        <textarea id="historyText" readonly aria-label="Kết quả đã lưu" placeholder="Chọn một mục bên trái để xem văn bản."></textarea>
+        <textarea id="historyText" readonly aria-label="Kết quả đã lưu"
+          placeholder="Chọn một mục bên trái để xem văn bản."></textarea>
       </div>
     </div>
     <div class="dialog-actions">
@@ -333,12 +364,14 @@
       <strong id="transferTitle">Đang gửi tài liệu</strong>
       <div class="transfer-actions">
         <button id="stopAllTransfers" class="stop-transfer" type="button">Dừng tất cả</button>
-        <button id="hideTransfers" class="icon" type="button" title="Thu gọn tiến trình" aria-label="Thu gọn tiến trình">⌄</button>
+        <button id="hideTransfers" class="icon" type="button" title="Thu gọn tiến trình"
+          aria-label="Thu gọn tiến trình">⌄</button>
       </div>
     </div>
     <div id="transferRows"></div>
   </div>
-  <button id="showTransfers" class="transfer-toggle" type="button" title="Mở lại tiến trình" aria-label="Mở tiến trình" aria-expanded="false" hidden>↑</button>
+  <button id="showTransfers" class="transfer-toggle" type="button" title="Mở lại tiến trình" aria-label="Mở tiến trình"
+    aria-expanded="false" hidden>↑</button>
 
   <dialog id="pipelineDialog" class="pipeline-dialog">
     <div class="dialog-head">
@@ -362,7 +395,8 @@
     </div>
     <div id="pipelineBody" class="pipeline-body"></div>
     <div class="dialog-actions" id="pipelineFoot">
-      <span id="pipelineFootHint" class="muted">Dữ liệu được trích xuất trực tiếp từ Worker Native + ML_s44 + BARTpho v2.</span>
+      <span id="pipelineFootHint" class="muted">Dữ liệu được trích xuất trực tiếp từ Worker Native + ML_s44 + BARTpho
+        v2.</span>
       <button id="pipePrev" type="button" hidden>← Khâu trước</button>
       <button id="pipeNext" type="button" class="primary" hidden>Khâu tiếp theo →</button>
     </div>
@@ -386,4 +420,5 @@
   <div id="toast" role="status" hidden></div>
   <script type="module" src="app.mjs"></script>
 </body>
+
 </html>

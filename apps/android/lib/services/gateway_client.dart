@@ -103,13 +103,13 @@ class VietOcrRemote {
     return r;
   }
 
-  Future<dynamic> _read(HttpClientRequest r) async {
+  Future<dynamic> _read(HttpClientRequest r, {int maxBytes = 2 * 1024 * 1024}) async {
     final response = await r.close().timeout(const Duration(seconds: 30));
     final bytes = BytesBuilder(copy: false);
     var count = 0;
     await for (final chunk in response.timeout(const Duration(seconds: 30))) {
       count += chunk.length;
-      if (count > 2 * 1024 * 1024) {
+      if (count > maxBytes) {
         throw const FormatException('Phản hồi quá lớn.');
       }
       bytes.add(chunk);
@@ -242,7 +242,7 @@ class VietOcrRemote {
     }
   }
 
-  Future<Map<String, dynamic>> get(String id) async {
+  Future<Map<String, dynamic>> get(String id, {String? include}) async {
     final owner = sha256.convert(utf8.encode(await _token())).toString();
     var access = _resultTickets[id];
     if (access == null ||
@@ -287,16 +287,27 @@ class VietOcrRemote {
       _resultTickets[id] = access;
     }
     final r = await _http.getUrl(
-      access.url.replace(queryParameters: {'wait': '8'}),
+      access.url.replace(
+        queryParameters: include != null ? {'include': include} : {'wait': '8'},
+      ),
     );
     r.followRedirects = false;
     r.headers.set('Authorization', 'Bearer ${access.bearer}');
     try {
-      return Map<String, dynamic>.from(await _read(r) as Map);
+      return Map<String, dynamic>.from(
+        await _read(r, maxBytes: include != null ? 12 * 1024 * 1024 : 4 * 1024 * 1024) as Map,
+      );
     } on RemoteOcrException catch (e) {
       if ([401, 403, 410].contains(e.status)) _resultTickets.remove(id);
       rethrow;
     }
+  }
+
+  Future<Map<String, dynamic>?> fetchPipeline(String id) async {
+    final result = await get(id, include: 'pipeline');
+    final pipe = result['pipeline'];
+    if (pipe is Map) return Map<String, dynamic>.from(pipe);
+    return null;
   }
 
   Future<Map<String, dynamic>> _readCache(File image) async {
@@ -349,6 +360,25 @@ class VietOcrRemote {
   }
 
   Future<String> recognize(
+    File image, {
+    String layout = 'auto',
+    bool correct = false,
+    bool Function()? cancelled,
+    void Function(String)? onState,
+    Duration timeout = const Duration(minutes: 20),
+  }) async {
+    final result = await recognizeWithResult(
+      image,
+      layout: layout,
+      correct: correct,
+      cancelled: cancelled,
+      onState: onState,
+      timeout: timeout,
+    );
+    return result['text'] as String? ?? '';
+  }
+
+  Future<Map<String, dynamic>> recognizeWithResult(
     File image, {
     String layout = 'auto',
     bool correct = false,
@@ -509,7 +539,13 @@ class VietOcrRemote {
       final result = await withCapacity(() => get(id));
       state = result['state'];
       onState?.call(state?.toString() ?? 'queued');
-      if (state == 'succeeded') return result['text'] as String? ?? '';
+      if (state == 'succeeded') {
+        return {
+          ...result,
+          'jobId': id,
+          'text': result['text'] as String? ?? '',
+        };
+      }
       if (state == 'failed' || state == 'cancelled') {
         throw RemoteOcrException(
           result['error'] as String? ?? 'Không nhận diện được ảnh.',

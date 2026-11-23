@@ -25,3 +25,28 @@ abstract interface class AcceptedResultRecovery {
 abstract interface class ConcurrentOcrEngine {
   int get parallelRequests;
 }
+
+class OcrArtifactResult {
+  const OcrArtifactResult({
+    required this.text,
+    this.jobId,
+    this.lens,
+    this.hasPipeline = false,
+  });
+  final String text;
+  final String? jobId;
+  final Map<String, dynamic>? lens;
+  final bool hasPipeline;
+}
+
+abstract interface class RichOcrEngine {
+  Future<OcrArtifactResult> recognizeRich(
+    String path, {
+    required bool split,
+    bool correct = false,
+    required int rotation,
+    required CancellationToken cancel,
+    required void Function(String, double?) progress,
+  });
+  Future<Map<String, dynamic>?> fetchPipeline(String jobId);
+}
