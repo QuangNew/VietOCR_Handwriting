@@ -6,7 +6,10 @@ import {
   polygonBounds,
   quadScrimPath,
   detectPaperQuadFromImage,
+  orderQuad,
+  linesInsideQuad,
 } from './lens.mjs';
+import { renderDigitalDocument, cropImageToQuad } from './docview.mjs';
 import {
   formatMs,
   routeLabel,
@@ -53,14 +56,21 @@ const operations = new Map();
 const thumbCache = new Map();
 const thumbLoading = new Set();
 const clientPaperCache = new Map();
+const customPaperQuads = new Map();
 const pipelineCache = new Map();
 const lensSelectedLines = new Set();
 let lensEnabled = localStorage.getItem('viethandocr.lensEnabled') !== '0';
 let demoPipelineMode = localStorage.getItem('viethandocr.demoPipeline') === '1';
+let imageViewMode = 'original'; // 'original' | 'digital' | 'compare'
+let compareSplit = 50; // 0..100: left 0..X% = Ảnh văn bản, right X..100% = Ảnh gốc
+let compareDragging = false;
 let lensHoveredLine = null;
 let lensDragging = false;
 let lensDragDidMove = false;
 let lensDragAction = 'add';
+let lensHandleDrag = null;
+const autoSendQueue = [];
+let autoSendWorkers = 0;
 let pipeViewMode = 'overview';
 let pipeActiveStep = 0;
 let pipeAutoTimer = null;
@@ -72,19 +82,19 @@ let transfersCollapsed = false;
 let stoppingAll = false;
 
 const label = state =>
-  ({
-    draft: 'Bản nháp',
-    awaiting_upload: 'Chờ lượt gửi',
-    upload_granted: 'Được phép gửi',
-    uploading: 'Đang gửi',
-    queued: 'Chờ worker',
-    running: 'Đang đọc chữ',
-    succeeded: 'Hoàn tất',
-    failed: 'Không nhận diện được',
-    cancelled: 'Đã dừng',
-    cancel_pending: 'Đang dừng…',
-    expired: 'Đã hết hạn',
-  }[state] ?? state);
+({
+  draft: 'Bản nháp',
+  awaiting_upload: 'Chờ lượt gửi',
+  upload_granted: 'Được phép gửi',
+  uploading: 'Đang gửi',
+  queued: 'Chờ worker',
+  running: 'Đang đọc chữ',
+  succeeded: 'Hoàn tất',
+  failed: 'Không nhận diện được',
+  cancelled: 'Đã dừng',
+  cancel_pending: 'Đang dừng…',
+  expired: 'Đã hết hạn',
+}[state] ?? state);
 
 function sanitizeError(e) {
   const text = String(e ?? '');
@@ -108,7 +118,7 @@ function fail(e) {
   if (!text) return;
   $('message').textContent = text;
   toast(text);
-  invoke('record_log', { message: text }).catch(() => {});
+  invoke('record_log', { message: text }).catch(() => { });
 }
 
 async function run(action) {
@@ -293,7 +303,7 @@ function ensureThumb(id) {
         if (ph) ph.hidden = true;
       }
     })
-    .catch(() => {})
+    .catch(() => { })
     .finally(() => thumbLoading.delete(id));
 }
 
@@ -367,7 +377,11 @@ function renderList() {
 
   const current = drafts.find(x => x.id === selected);
   $('jobState').textContent = current ? label(current.state) : 'Chưa gửi';
-  const sendable = drafts.filter(d => d.included !== false && sendableStates.includes(d.state));
+  const sendable = drafts.filter(d => {
+    if (d.included === false || !sendableStates.includes(d.state)) return false;
+    const op = operations.get(d.id);
+    return !(op && !op.finished);
+  });
   $('send').disabled = busy || !verified || !sendable.length;
   $('send').textContent = `Gửi ${sendable.length} ảnh →`;
   $('downloadMenuBtn').disabled = !drafts.length;
@@ -379,12 +393,13 @@ function renderList() {
   $('clearAll').disabled = !drafts.some(isRemovable);
   $('clearPick').disabled = !drafts.some(isRemovable);
   $('historyButton').disabled = !verified;
-  $('lensToggleBtn').hidden = !current;
+  $('lensToggleBtn').hidden = !current || imageViewMode !== 'original';
   $('editImageBtn').hidden = !current;
   $('pipelineBtn').hidden = !(current && (current.state === 'succeeded' || current.hasPipeline || demoPipelineMode));
   $('pipelineBtn').disabled = !current || current.state !== 'succeeded';
   $('pipelineBtn').classList.toggle('pulse-ready', Boolean(demoPipelineMode && current?.state === 'succeeded'));
   $('text').disabled = !!current && ['queued', 'running', 'cancel_pending'].includes(current.state);
+  syncViewModeButtons(current);
   renderPipelineMiniBar();
 }
 
@@ -397,39 +412,40 @@ async function select(id) {
   $('text').value = d?.text ?? '';
   countText();
   if (!d) {
+    $('originalImage').hidden = true;
     $('originalStage').hidden = true;
     $('originalImage').removeAttribute('src');
+    $('digitalLayer').hidden = true;
+    $('compareOverlay').hidden = true;
     $('lensSvg').style.display = 'none';
     $('lensFloatingBar').hidden = true;
     $('lensTooltip').hidden = true;
     $('emptyImage').hidden = false;
     $('imageInfo').textContent = 'Bản nháp riêng';
+    syncViewModeButtons(null);
     renderPipelineMiniBar();
     return;
   }
   const url = thumbCache.get(id) ?? (await invoke('draft_image', { id }));
   if (url) thumbCache.set(id, url);
   if (selected !== id) return;
+  $('originalImage').hidden = false;
   const img = $('originalImage');
   $('originalStage').hidden = false;
   $('emptyImage').hidden = true;
   $('imageInfo').textContent = `${d.width && d.height ? `${d.width} × ${d.height} px · ` : ''}${(d.imageBytes / 1024).toFixed(0)} KiB · ${d.mediaType.replace('image/', '').toUpperCase()}`;
-  img.onload = () => {
+  const afterImageReady = () => {
     if (selected !== id) return;
     if (!d.lens && !clientPaperCache.has(id)) {
       const detected = detectPaperQuadFromImage(img);
       if (detected) clientPaperCache.set(id, detected);
     }
-    renderLensOverlay();
+    syncViewModeButtons(d);
+    renderImageStage();
   };
+  img.onload = afterImageReady;
   img.src = url;
-  if (img.complete && img.naturalWidth > 0) {
-    if (!d.lens && !clientPaperCache.has(id)) {
-      const detected = detectPaperQuadFromImage(img);
-      if (detected) clientPaperCache.set(id, detected);
-    }
-    renderLensOverlay();
-  }
+  if (img.complete && img.naturalWidth > 0) afterImageReady();
   if (demoPipelineMode && d.state === 'succeeded' && d.jobId) {
     void prefetchPipeline(d);
   }
@@ -491,6 +507,7 @@ $('theme').onclick = () => {
     document.body.classList.toggle('light');
     localStorage.setItem('theme', document.body.classList.contains('light') ? 'light' : 'dark');
     syncThemeIcon();
+    if (imageViewMode !== 'original') renderImageStage();
   };
   if (typeof document.startViewTransition === 'function') {
     document.startViewTransition(applyNext);
@@ -536,8 +553,10 @@ $('logoutButton').onclick = () =>
     thumbCache.clear();
     thumbLoading.clear();
     clientPaperCache.clear();
+    customPaperQuads.clear();
     pipelineCache.clear();
     lensSelectedLines.clear();
+    imageViewMode = 'original';
     closeCamera();
     await invoke('logout');
     drafts = [];
@@ -561,18 +580,27 @@ $('lensToggleBtn').onclick = e => {
   e.stopPropagation();
   lensEnabled = !lensEnabled;
   localStorage.setItem('viethandocr.lensEnabled', lensEnabled ? '1' : '0');
-  renderLensOverlay();
+  renderImageStage();
 };
 $('original').onclick = e => {
-  if (lensDragDidMove) {
+  if (lensDragDidMove || compareDragging) {
     lensDragDidMove = false;
     return;
   }
-  if (e.target.closest?.('.lens-floating-bar') || e.target.closest?.('.lens-line')) return;
+  if (
+    e.target.closest?.('.lens-floating-bar') ||
+    e.target.closest?.('.lens-line') ||
+    e.target.closest?.('.lens-corner-hit') ||
+    e.target.closest?.('.lens-edge-hit') ||
+    e.target.closest?.('.compare-overlay')
+  ) {
+    return;
+  }
   if (!selected) {
     $('import').click();
     return;
   }
+  if (imageViewMode !== 'original') return;
   run(openEditor);
 };
 $('original').onkeydown = e => {
@@ -615,6 +643,8 @@ $('text').oninput = () => {
   if (d) {
     d.text = text;
     recordDraftHistory(d);
+    syncViewModeButtons(d);
+    if (imageViewMode !== 'original') renderImageStage();
   }
   textTimer = setTimeout(() => run(() => invoke('save_text', { id, text })), 400);
 };
@@ -772,6 +802,7 @@ async function removeDraftIds(ids) {
   for (const id of removedSet) {
     thumbCache.delete(id);
     clientPaperCache.delete(id);
+    customPaperQuads.delete(id);
     pipelineCache.delete(id);
   }
   drafts = drafts.filter(d => !removedSet.has(d.id));
@@ -864,6 +895,7 @@ const activeOperation = (id, op) => currentOperation(id, op) && !op.controller.s
 function resetOperations() {
   accountEpoch++;
   busy = false;
+  autoSendQueue.length = 0;
   for (const op of operations.values()) op.controller.abort();
   operations.clear();
   runningResults.clear();
@@ -1039,7 +1071,8 @@ async function pollResult(id, op = operations.get(id) ?? newOperation(id)) {
         countText();
       }
       if (selected === id && d.state === 'succeeded') {
-        renderLensOverlay();
+        syncViewModeButtons(d);
+        renderImageStage();
         if (demoPipelineMode && d.jobId) void prefetchPipeline(d);
         renderPipelineMiniBar();
       }
@@ -1228,12 +1261,135 @@ if (demoPipelineInput) {
   };
 }
 
+async function runDraftSend(d, op, { layout = 'auto', correct = false, epoch = accountEpoch }) {
+  if (!activeOperation(d.id, op) || epoch !== accountEpoch) return;
+  try {
+    let result;
+    const deadline = Date.now() + 20 * 60000;
+    while (activeOperation(d.id, op) && epoch === accountEpoch) {
+      try {
+        result = await invoke('send_draft', {
+          id: d.id,
+          layout,
+          correct,
+          progress: channel(p => {
+            if (activeOperation(d.id, op)) {
+              transfer(
+                d.id,
+                p.stage === 'optimizing'
+                  ? 'Đang tự tối ưu ảnh · giữ bản gốc'
+                  : p.stage === 'uploading'
+                    ? `Đang gửi ${Math.round((p.done / Math.max(1, p.total)) * 100)}%`
+                    : p.stage,
+                p.total ? p.done : null,
+                p.total || 1,
+              );
+            }
+          }),
+        });
+        break;
+      } catch (e) {
+        if (!activeOperation(d.id, op)) break;
+        if (
+          !/queue_wait|compute_queue_busy|uploads_busy|auth_capacity|database_capacity|compute_capacity|compute_unreachable|compute_unavailable|identity_database_unavailable|jwks_unavailable|server_not_ready|minute_quota|offset_mismatch|stale_lease/.test(
+            String(e),
+          ) ||
+          Date.now() > deadline
+        ) {
+          throw e;
+        }
+        transfer(d.id, 'Đang chờ công suất hoặc kết nối lại');
+        await delay(3000 + Math.random() * 1000, op.controller.signal);
+      }
+    }
+    if (!activeOperation(d.id, op) || !result) return;
+    saveHistoryMeta({
+      jobId: result.jobId,
+      sha256: result.sha256,
+      name: result.name,
+      sentAt: new Date().toISOString(),
+      text: result.text,
+      state: result.state,
+    });
+    patch(result);
+    if (terminalStates.includes(result.state)) {
+      op.finished = true;
+      transfer(d.id, result.error || label(result.state), 1);
+      if (selected === result.id) {
+        $('text').value = result.text ?? '';
+        countText();
+        syncViewModeButtons(result);
+        renderImageStage();
+      }
+    } else {
+      pollResult(d.id, op);
+    }
+  } catch (e) {
+    if (activeOperation(d.id, op)) {
+      op.finished = true;
+      const msg = sanitizeError(e);
+      transfer(d.id, msg || 'Lỗi gửi ảnh', 1);
+      if (msg) fail(msg);
+    }
+  }
+}
+
+function pumpAutoSendWorkers() {
+  while (autoSendWorkers < 2 && autoSendQueue.length > 0) {
+    autoSendWorkers++;
+    (async () => {
+      try {
+        while (autoSendQueue.length > 0) {
+          const item = autoSendQueue.shift();
+          if (!item || item.epoch !== accountEpoch) continue;
+          await runDraftSend(item.d, item.op, item);
+          void refreshSessionQuota();
+        }
+      } finally {
+        autoSendWorkers--;
+        renderList();
+      }
+    })();
+  }
+}
+
+async function enqueueAutoSend(draft) {
+  if (!verified || !draft?.id) return;
+  const existingOp = operations.get(draft.id);
+  if (existingOp && !existingOp.finished) return;
+  const epoch = accountEpoch;
+  const correct = Boolean($('correct')?.checked);
+  try {
+    const prepared = await invoke('prepare_send', { ids: [draft.id] });
+    if (epoch !== accountEpoch || !Array.isArray(prepared) || !prepared.length) return;
+    prepared.forEach(patch);
+    const d = prepared[0];
+    const op = newOperation(d.id);
+    transfersCollapsed = false;
+    transfer(d.id, 'Tự động gửi OCR…');
+    renderList();
+    autoSendQueue.push({ d, op, layout: 'auto', correct, epoch });
+    pumpAutoSendWorkers();
+  } catch (e) {
+    if (epoch === accountEpoch) fail(e);
+  }
+}
+
 $('send').onclick = () =>
   run(async () => {
     if (busy || !verified) return;
     busy = true;
     renderList();
-    const selectedDrafts = drafts.filter(d => d.included !== false && sendableStates.includes(d.state));
+    const selectedDrafts = drafts.filter(d => {
+      if (d.included === false || !sendableStates.includes(d.state)) return false;
+      const op = operations.get(d.id);
+      return !(op && !op.finished);
+    });
+    if (!selectedDrafts.length) {
+      busy = false;
+      renderList();
+      return;
+    }
     const epoch = accountEpoch;
     const layout = 'auto';
     const correct = Boolean($('correct')?.checked);
@@ -1241,71 +1397,7 @@ $('send').onclick = () =>
     async function worker(queue) {
       let item;
       while (epoch === accountEpoch && (item = queue.shift())) {
-        const { d, op } = item;
-        if (!activeOperation(d.id, op)) continue;
-        try {
-          let result;
-          const deadline = Date.now() + 20 * 60000;
-          while (activeOperation(d.id, op)) {
-            try {
-              result = await invoke('send_draft', {
-                id: d.id,
-                layout,
-                correct,
-                progress: channel(p => {
-                  if (activeOperation(d.id, op)) {
-                    transfer(
-                      d.id,
-                      p.stage === 'optimizing'
-                        ? 'Đang tự tối ưu ảnh · giữ bản gốc'
-                        : p.stage === 'uploading'
-                          ? `Đang gửi ${Math.round((p.done / Math.max(1, p.total)) * 100)}%`
-                          : p.stage,
-                      p.total ? p.done : null,
-                      p.total || 1,
-                    );
-                  }
-                }),
-              });
-              break;
-            } catch (e) {
-              if (!activeOperation(d.id, op)) break;
-              if (
-                !/queue_wait|compute_queue_busy|uploads_busy|auth_capacity|database_capacity|compute_capacity|compute_unreachable|compute_unavailable|identity_database_unavailable|jwks_unavailable|server_not_ready|minute_quota|offset_mismatch|stale_lease/.test(
-                  String(e),
-                ) ||
-                Date.now() > deadline
-              ) {
-                throw e;
-              }
-              transfer(d.id, 'Đang chờ công suất hoặc kết nối lại');
-              await delay(3000 + Math.random() * 1000, op.controller.signal);
-            }
-          }
-          if (!activeOperation(d.id, op) || !result) continue;
-          saveHistoryMeta({
-            jobId: result.jobId,
-            sha256: result.sha256,
-            name: result.name,
-            sentAt: new Date().toISOString(),
-            text: result.text,
-            state: result.state,
-          });
-          patch(result);
-          if (terminalStates.includes(result.state)) {
-            op.finished = true;
-            transfer(d.id, result.error || label(result.state), 1);
-          } else {
-            pollResult(d.id, op);
-          }
-        } catch (e) {
-          if (activeOperation(d.id, op)) {
-            op.finished = true;
-            const msg = sanitizeError(e);
-            transfer(d.id, msg || 'Lỗi gửi ảnh', 1);
-            if (msg) fail(msg);
-          }
-        }
+        await runDraftSend(item.d, item.op, { layout, correct, epoch });
       }
     }
 
@@ -1352,7 +1444,7 @@ function liveTransform() {
 }
 function closeCamera() {
   cameraGeneration++;
-  clearInterval(reviewTimer);
+  clearTimeout(reviewTimer);
   reviewTimer = null;
   review = false;
   $('camera').close();
@@ -1365,7 +1457,7 @@ function closeCamera() {
 async function startCamera() {
   const generation = ++cameraGeneration;
   review = false;
-  clearInterval(reviewTimer);
+  clearTimeout(reviewTimer);
   reviewTimer = null;
   $('skip').hidden = true;
   $('shoot').disabled = false;
@@ -1415,12 +1507,14 @@ $('cameraClose').onclick = closeCamera;
 $('camera').addEventListener('cancel', () => closeCamera());
 $('mirror').onchange = liveTransform;
 function skip() {
-  clearInterval(reviewTimer);
+  clearTimeout(reviewTimer);
   reviewTimer = null;
   review = false;
   $('skip').hidden = true;
   $('shoot').disabled = false;
-  $('reviewStatus').textContent = 'Ảnh đã lưu bản nháp · chưa gửi OCR';
+  $('reviewStatus').textContent = verified
+    ? 'Đã tự động gửi OCR · sẵn sàng chụp ảnh kế tiếp'
+    : 'Đã lưu bản nháp · sẵn sàng chụp ảnh kế tiếp';
   liveTransform();
 }
 $('skip').onclick = skip;
@@ -1449,18 +1543,19 @@ $('shoot').onclick = () =>
       }
       if (epoch !== accountEpoch || generation !== cameraGeneration) return;
       await select(d.id);
+      // Automatically send captured photo to OCR in background immediately (no need to click Gửi)
+      if (verified) {
+        void enqueueAutoSend(d);
+      }
       review = true;
       reviewMirrored = mirrored;
       liveTransform();
-      $('live').src = await invoke('draft_image', { id: d.id });
-      let seconds = 3;
+      $('live').src = thumbCache.get(d.id) ?? (await invoke('draft_image', { id: d.id }));
       $('skip').hidden = false;
-      $('reviewStatus').textContent = `Đã lưu bản nháp · xem lại ${seconds}s`;
-      reviewTimer = setInterval(() => {
-        seconds--;
-        if (seconds <= 0) skip();
-        else $('reviewStatus').textContent = `Đã lưu bản nháp · xem lại ${seconds}s`;
-      }, 1000);
+      $('reviewStatus').textContent = verified
+        ? 'Đã chụp · đang tự động gửi OCR (chuyển ảnh kế sau 0.5s)…'
+        : 'Đã chụp bản nháp · chuyển ảnh kế sau 0.5s…';
+      reviewTimer = setTimeout(skip, 500);
     } catch (e) {
       $('shoot').disabled = false;
       throw e;
@@ -1784,7 +1879,7 @@ $('bw').onclick = () =>
     }
   });
 
-/* ---------- Google Lens Paper Detection & Text Highlight Overlay on Ảnh gốc ---------- */
+/* ---------- View Modes ("Ảnh gốc" | "Ảnh văn bản" | "Đối chiếu") + Draggable Google Lens ---------- */
 const SVG_NS = 'http://www.w3.org/2000/svg';
 function svgEl(tag, attrs = {}) {
   const el = document.createElementNS(SVG_NS, tag);
@@ -1792,12 +1887,235 @@ function svgEl(tag, attrs = {}) {
   return el;
 }
 
-function getActiveLensData(d) {
+const CUSTOM_QUAD_STORE_KEY = 'viethandocr.customQuads.v1';
+function loadCustomQuadsFromStorage() {
+  try {
+    const obj = JSON.parse(localStorage.getItem(CUSTOM_QUAD_STORE_KEY) || '{}');
+    if (obj && typeof obj === 'object') {
+      for (const [k, v] of Object.entries(obj)) {
+        if (Array.isArray(v) && v.length === 4) customPaperQuads.set(k, v);
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+}
+function persistCustomQuads() {
+  try {
+    const entries = [...customPaperQuads.entries()].slice(-60);
+    localStorage.setItem(CUSTOM_QUAD_STORE_KEY, JSON.stringify(Object.fromEntries(entries)));
+  } catch {
+    /* ignore */
+  }
+}
+loadCustomQuadsFromStorage();
+
+function getBaseLensData(d) {
   if (!d) return null;
   if (d.lens && typeof d.lens === 'object') return d.lens;
   return clientPaperCache.get(d.id) || null;
 }
 
+function getActiveLensData(d) {
+  if (!d) return null;
+  const base = getBaseLensData(d);
+  const img = $('originalImage');
+  const natW = base?.sourceWidth || img?.naturalWidth || d.width || 0;
+  const natH = base?.sourceHeight || img?.naturalHeight || d.height || 0;
+  const customQuad = customPaperQuads.get(d.id);
+  if (customQuad && customQuad.length === 4 && natW > 0 && natH > 0) {
+    return {
+      sourceWidth: natW,
+      sourceHeight: natH,
+      route: base?.route || 'custom-lens',
+      lines: Array.isArray(base?.lines) ? base.lines : [],
+      ...(base || {}),
+      paperDetected: true,
+      paperQuad: customQuad,
+      customAdjusted: true,
+    };
+  }
+  if (base) return base;
+  // Provide an adjustable inset frame even on full-bleed scans so user can always drag Lens corners
+  if (natW >= 32 && natH >= 32) {
+    const px = Math.round(natW * 0.03);
+    const py = Math.round(natH * 0.03);
+    return {
+      sourceWidth: natW,
+      sourceHeight: natH,
+      route: 'default-frame',
+      paperDetected: false,
+      defaultFrame: true,
+      paperQuad: [
+        [px, py],
+        [natW - px, py],
+        [natW - px, natH - py],
+        [px, natH - py],
+      ],
+      lines: [],
+      clientOnly: true,
+    };
+  }
+  return null;
+}
+
+function hasDigitalText(d) {
+  return Boolean(d && typeof d.text === 'string' && d.text.trim().length > 0);
+}
+
+function syncViewModeButtons(d = drafts.find(x => x.id === selected)) {
+  const canDigital = hasDigitalText(d);
+  if (!canDigital && imageViewMode !== 'original') {
+    imageViewMode = 'original';
+  }
+  const tabs = [
+    ['viewOriginal', 'original', false],
+    ['viewDigital', 'digital', !canDigital],
+    ['viewCompare', 'compare', !canDigital],
+  ];
+  for (const [id, mode, disabled] of tabs) {
+    const btn = $(id);
+    if (!btn) continue;
+    btn.disabled = disabled;
+    const active = imageViewMode === mode;
+    btn.classList.toggle('active', active);
+    btn.setAttribute('aria-selected', String(active));
+  }
+  $('lensToggleBtn').hidden = !d || imageViewMode !== 'original';
+  $('original').classList.toggle('view-non-original', imageViewMode !== 'original');
+}
+
+function setImageViewMode(mode) {
+  const d = drafts.find(x => x.id === selected);
+  if (mode !== 'original' && !hasDigitalText(d)) return;
+  imageViewMode = mode;
+  syncViewModeButtons(d);
+  renderImageStage();
+}
+
+$('viewOriginal').onclick = () => setImageViewMode('original');
+$('viewDigital').onclick = () => setImageViewMode('digital');
+$('viewCompare').onclick = () => setImageViewMode('compare');
+
+function applyCompareSplit(pct) {
+  compareSplit = Math.max(0, Math.min(100, pct));
+  const digitalLayer = $('digitalLayer');
+  const divider = $('compareDivider');
+  // Left 0..compareSplit% = Ảnh văn bản (drag RIGHT -> reveals more Ảnh văn bản; drag LEFT -> reveals more Ảnh gốc)
+  digitalLayer.style.clipPath = `inset(0 ${(100 - compareSplit).toFixed(2)}% 0 0)`;
+  divider.style.left = `${compareSplit.toFixed(2)}%`;
+  divider.setAttribute('aria-valuenow', String(Math.round(compareSplit)));
+  $('compareTagLeft').style.opacity = compareSplit < 14 ? '0' : '1';
+  $('compareTagRight').style.opacity = compareSplit > 86 ? '0' : '1';
+}
+
+function positionOverlayBox(el, rect) {
+  el.style.left = `${rect.left}px`;
+  el.style.top = `${rect.top}px`;
+  el.style.width = `${rect.width}px`;
+  el.style.height = `${rect.height}px`;
+}
+
+function renderImageStage() {
+  const d = drafts.find(x => x.id === selected);
+  const stage = $('originalStage');
+  const img = $('originalImage');
+  const digitalLayer = $('digitalLayer');
+  const compareOverlay = $('compareOverlay');
+
+  if (!d || stage.hidden || !img.naturalWidth) {
+    digitalLayer.hidden = true;
+    compareOverlay.hidden = true;
+    $('lensSvg').style.display = 'none';
+    $('lensFloatingBar').hidden = true;
+    $('lensTooltip').hidden = true;
+    return;
+  }
+
+  const rect = computeContainedRect(stage.clientWidth, stage.clientHeight, img.naturalWidth, img.naturalHeight);
+  if (rect.width < 10 || rect.height < 10) return;
+
+  if (imageViewMode === 'original') {
+    digitalLayer.hidden = true;
+    compareOverlay.hidden = true;
+    img.style.visibility = 'visible';
+    renderLensOverlay();
+    return;
+  }
+
+  // Hide Lens UI when viewing Ảnh văn bản or Đối chiếu
+  $('lensSvg').style.display = 'none';
+  $('lensFloatingBar').hidden = true;
+  $('lensTooltip').hidden = true;
+
+  const lensData = getActiveLensData(d);
+  positionOverlayBox(digitalLayer, rect);
+  digitalLayer.hidden = false;
+  renderDigitalDocument($('digitalCanvas'), {
+    text: d.text ?? '',
+    lens: d.lens || null,
+    paperQuad: lensData?.paperDetected ? lensData.paperQuad : null,
+    cssWidth: rect.width,
+    cssHeight: rect.height,
+    sourceWidth: lensData?.sourceWidth || img.naturalWidth,
+    sourceHeight: lensData?.sourceHeight || img.naturalHeight,
+    title: d.name,
+    isLight: document.body.classList.contains('light'),
+  });
+
+  if (imageViewMode === 'digital') {
+    img.style.visibility = 'hidden';
+    digitalLayer.style.clipPath = '';
+    compareOverlay.hidden = true;
+  } else {
+    // Đối chiếu mode: original photo underneath (right side), digital Word document clipped on left 0..compareSplit%
+    img.style.visibility = 'visible';
+    positionOverlayBox(compareOverlay, rect);
+    compareOverlay.hidden = false;
+    applyCompareSplit(compareSplit);
+  }
+}
+
+/* Interactive drag & keyboard support for Đối chiếu slider */
+function updateCompareFromPointer(clientX) {
+  const overlay = $('compareOverlay');
+  const r = overlay.getBoundingClientRect();
+  if (r.width <= 0) return;
+  const pct = ((clientX - r.left) / r.width) * 100;
+  applyCompareSplit(pct);
+}
+
+$('compareOverlay').addEventListener('pointerdown', e => {
+  e.stopPropagation();
+  e.preventDefault();
+  compareDragging = true;
+  $('compareOverlay').classList.add('dragging');
+  $('compareOverlay').setPointerCapture(e.pointerId);
+  updateCompareFromPointer(e.clientX);
+});
+$('compareOverlay').addEventListener('pointermove', e => {
+  if (!compareDragging) return;
+  e.stopPropagation();
+  updateCompareFromPointer(e.clientX);
+});
+$('compareOverlay').addEventListener('pointerup', e => {
+  if (!compareDragging) return;
+  e.stopPropagation();
+  $('compareOverlay').classList.remove('dragging');
+  setTimeout(() => { compareDragging = false; }, 0);
+});
+$('compareOverlay').addEventListener('pointercancel', () => {
+  $('compareOverlay').classList.remove('dragging');
+  compareDragging = false;
+});
+$('compareDivider').addEventListener('keydown', e => {
+  if (e.key === 'ArrowLeft') { e.preventDefault(); applyCompareSplit(compareSplit - 5); }
+  else if (e.key === 'ArrowRight') { e.preventDefault(); applyCompareSplit(compareSplit + 5); }
+  else if (e.key === 'Home') { e.preventDefault(); applyCompareSplit(0); }
+  else if (e.key === 'End') { e.preventDefault(); applyCompareSplit(100); }
+});
+
+/* ---------- Draggable Google Lens Paper Frame & Text Highlight Overlay ---------- */
 function highlightLineInTextarea(lineIdx1Based) {
   const ta = $('text');
   if (!ta || !ta.value) return;
@@ -1815,7 +2133,7 @@ function highlightLineInTextarea(lineIdx1Based) {
 
 function updateLensTooltip(line) {
   const tip = $('lensTooltip');
-  if (!line || !lensEnabled) {
+  if (!line || !lensEnabled || imageViewMode !== 'original') {
     tip.hidden = true;
     return;
   }
@@ -1836,24 +2154,76 @@ function updateLensTooltip(line) {
   tip.hidden = false;
 }
 
+async function applyLensQuadCrop(autoSend = false) {
+  const d = drafts.find(x => x.id === selected);
+  const img = $('originalImage');
+  if (!d || !img?.naturalWidth) return;
+  const lensData = getActiveLensData(d);
+  if (!lensData?.paperQuad || lensData.paperQuad.length !== 4) return;
+  const out = cropImageToQuad(img, lensData.paperQuad);
+  if (!out) return;
+  const cropped = await saveCanvas(out, `LensCrop-${Date.now()}.png`, d.id);
+  if (autoSend && verified && cropped) {
+    void enqueueAutoSend(cropped);
+    toast('Đã cắt theo khung Lens và tự động gửi OCR');
+  }
+}
+
 function renderLensFloatingBar(lensData, rect) {
   const bar = $('lensFloatingBar');
-  if (!lensEnabled || !lensData || !rect || rect.width < 40) {
+  const d = drafts.find(x => x.id === selected);
+  if (!d || !lensEnabled || imageViewMode !== 'original' || !lensData || !rect || rect.width < 40) {
     bar.hidden = true;
     return;
   }
   const lines = Array.isArray(lensData.lines) ? lensData.lines : [];
   const hasLines = lines.length > 0;
-  if (!hasLines && !lensData.paperDetected) {
+  const isCustom = Boolean(customPaperQuads.has(d.id));
+  if (!hasLines && !lensData.paperDetected && !isCustom) {
     bar.hidden = true;
     return;
   }
 
   bar.replaceChildren();
+  const addResetBtn = () => {
+    if (!isCustom) return;
+    const resetBtn = document.createElement('button');
+    resetBtn.type = 'button';
+    resetBtn.className = 'lens-pill-btn';
+    resetBtn.textContent = 'Đặt lại';
+    resetBtn.title = 'Khôi phục khung giấy tự động nhận diện';
+    resetBtn.onclick = e => {
+      e.stopPropagation();
+      customPaperQuads.delete(d.id);
+      persistCustomQuads();
+      lensSelectedLines.clear();
+      renderLensOverlay();
+    };
+    bar.append(resetBtn);
+  };
+  const addCropSendBtn = labelText => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'lens-pill-btn primary-lens';
+    btn.textContent = labelText;
+    btn.title = verified
+      ? 'Cắt ảnh theo khung Lens hiện tại và tự động gửi OCR'
+      : 'Cắt ảnh theo khung Lens hiện tại thành bản nháp mới';
+    btn.onclick = e => {
+      e.stopPropagation();
+      run(() => applyLensQuadCrop(verified));
+    };
+    bar.append(btn);
+  };
+
   if (!hasLines) {
     const labelSpan = document.createElement('span');
-    labelSpan.textContent = '✦ Đã nhận diện vùng giấy · Nhấn Gửi để bôi chữ';
+    labelSpan.textContent = isCustom
+      ? '✦ Khung Lens đã chỉnh'
+      : '✦ Kéo 4 góc để chỉnh khung giấy';
     bar.append(labelSpan);
+    addCropSendBtn(verified ? 'Cắt & Gửi' : 'Cắt khung');
+    addResetBtn();
   } else if (lensSelectedLines.size === 0) {
     const labelSpan = document.createElement('span');
     labelSpan.textContent = `Chọn văn bản · ${lines.length} dòng`;
@@ -1867,6 +2237,8 @@ function renderLensFloatingBar(lensData, rect) {
       renderLensOverlay();
     };
     bar.append(labelSpan, selAll);
+    if (isCustom) addCropSendBtn(verified ? 'Cắt & Gửi lại' : 'Cắt khung');
+    addResetBtn();
   } else {
     const chosen = lines.filter(l => lensSelectedLines.has(l.id));
     const labelSpan = document.createElement('span');
@@ -1893,6 +2265,8 @@ function renderLensFloatingBar(lensData, rect) {
       renderLensOverlay();
     };
     bar.append(labelSpan, copyBtn, clearBtn);
+    if (isCustom) addCropSendBtn(verified ? 'Cắt & Gửi lại' : 'Cắt khung');
+    addResetBtn();
   }
 
   const stage = $('originalStage');
@@ -1904,13 +2278,36 @@ function renderLensFloatingBar(lensData, rect) {
     const pb = polygonBounds(lensData.paperQuad);
     anchorX = rect.left + (pb.cx / srcW) * rect.width;
     const quadTop = rect.top + (pb.minY / srcH) * rect.height;
-    anchorY = quadTop > 44 ? quadTop - 36 : Math.max(8, quadTop + 8);
+    anchorY = quadTop > 44 ? quadTop - 38 : Math.max(8, quadTop + 8);
   }
-  anchorX = Math.max(96, Math.min(stage.clientWidth - 96, anchorX));
-  anchorY = Math.max(6, Math.min(stage.clientHeight - 40, anchorY));
+  anchorX = Math.max(120, Math.min(stage.clientWidth - 120, anchorX));
+  anchorY = Math.max(6, Math.min(stage.clientHeight - 42, anchorY));
   bar.style.left = `${Math.round(anchorX)}px`;
   bar.style.top = `${Math.round(anchorY)}px`;
   bar.hidden = false;
+}
+
+function beginLensHandleDrag(e, { type, index, quad, srcW, srcH, draftId }) {
+  e.stopPropagation();
+  e.preventDefault();
+  const svg = $('lensSvg');
+  const svgRect = svg.getBoundingClientRect();
+  if (svgRect.width < 10 || svgRect.height < 10) return;
+  const ix = ((e.clientX - svgRect.left) / svgRect.width) * srcW;
+  const iy = ((e.clientY - svgRect.top) / svgRect.height) * srcH;
+  lensDragDidMove = true;
+  lensHandleDrag = {
+    type,
+    index,
+    pointerId: e.pointerId,
+    startX: ix,
+    startY: iy,
+    startQuad: quad.map(([x, y]) => [x, y]),
+    srcW,
+    srcH,
+    draftId,
+  };
+  renderLensOverlay();
 }
 
 function renderLensOverlay() {
@@ -1920,12 +2317,20 @@ function renderLensOverlay() {
   const img = $('originalImage');
   $('lensToggleBtn').classList.toggle('active', lensEnabled);
 
+  if (!d || !lensEnabled || imageViewMode !== 'original' || stage.hidden || !img.naturalWidth) {
+    svg.style.display = 'none';
+    svg.replaceChildren();
+    $('lensFloatingBar').hidden = true;
+    $('lensTooltip').hidden = true;
+    return;
+  }
+
   const lensData = getActiveLensData(d);
   const hasLines = Boolean(lensData?.lines?.length);
   const hasPaper = Boolean(lensData?.paperQuad?.length === 4);
-  $('original').classList.toggle('lens-interactive', Boolean(lensEnabled && hasLines));
+  $('original').classList.toggle('lens-interactive', Boolean(lensEnabled && (hasLines || hasPaper)));
 
-  if (!d || !lensEnabled || (!hasLines && !hasPaper) || stage.hidden || !img.naturalWidth) {
+  if (!hasLines && !hasPaper) {
     svg.style.display = 'none';
     svg.replaceChildren();
     $('lensFloatingBar').hidden = true;
@@ -1941,16 +2346,17 @@ function renderLensOverlay() {
     return;
   }
 
-  svg.style.left = `${rect.left}px`;
-  svg.style.top = `${rect.top}px`;
-  svg.style.width = `${rect.width}px`;
-  svg.style.height = `${rect.height}px`;
+  positionOverlayBox(svg, rect);
   svg.setAttribute('viewBox', `0 0 ${srcW} ${srcH}`);
   svg.replaceChildren();
 
-  // 1) Subtle outside-paper dark scrim (Google Lens style)
-  if (hasPaper && (lensData.paperDetected || hasLines)) {
-    const scrimD = quadScrimPath(srcW, srcH, lensData.paperQuad);
+  const quad = hasPaper ? (orderQuad(lensData.paperQuad) || lensData.paperQuad) : null;
+  const isCustom = Boolean(customPaperQuads.has(d.id));
+  const isDraggingThis = Boolean(lensHandleDrag && lensHandleDrag.draftId === d.id);
+
+  // 1) Outside-paper dark scrim (skipped on untouched default full-frame scan)
+  if (quad && (lensData.paperDetected || hasLines || isCustom)) {
+    const scrimD = quadScrimPath(srcW, srcH, quad);
     if (scrimD) svg.append(svgEl('path', { class: 'lens-scrim', d: scrimD }));
   }
 
@@ -2000,15 +2406,87 @@ function renderLensOverlay() {
     }
   }
 
-  // 3) 4 crisp white rounded Google Lens corner brackets around paper quad
-  if (hasPaper) {
-    const pb = polygonBounds(lensData.paperQuad);
+  // 3) Crisp white rounded Google Lens corner brackets + draggable corner & edge handles
+  if (quad) {
+    const pb = polygonBounds(quad);
     const minDim = Math.max(40, Math.min(pb.maxX - pb.minX, pb.maxY - pb.minY));
     const armLen = Math.min(minDim * 0.14, Math.min(srcW, srcH) * 0.095);
     const cornerR = Math.max(8, armLen * 0.42);
     const bracketW = Math.max(4, Math.min(srcW, srcH) * 0.011);
-    for (const dPath of buildCornerBracketPaths(lensData.paperQuad, armLen, cornerR)) {
+
+    if (isDraggingThis || isCustom) {
+      svg.append(svgEl('polygon', {
+        class: 'lens-quad-guide',
+        points: quad.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(' '),
+        'stroke-width': Math.max(1.8, bracketW * 0.25).toFixed(1),
+      }));
+    }
+
+    for (const dPath of buildCornerBracketPaths(quad, armLen, cornerR)) {
       svg.append(svgEl('path', { class: 'lens-bracket', d: dPath, 'stroke-width': bracketW.toFixed(1) }));
+    }
+
+    // 4 edge-midpoint drag handles (drag an entire side of the Lens quad)
+    const pillLen = Math.max(18, Math.min(srcW, srcH) * 0.042);
+    const pillTh = Math.max(5, bracketW * 0.65);
+    const edgeHitR = Math.max(18, Math.min(srcW, srcH) * 0.032);
+    for (let i = 0; i < 4; i++) {
+      const a = quad[i];
+      const b = quad[(i + 1) % 4];
+      const mx = (a[0] + b[0]) / 2;
+      const my = (a[1] + b[1]) / 2;
+      const angDeg = (Math.atan2(b[1] - a[1], b[0] - a[0]) * 180) / Math.PI;
+      const grp = svgEl('g', {
+        class: `lens-edge-group${isDraggingThis && lensHandleDrag.type === 'edge' && lensHandleDrag.index === i ? ' dragging' : ''}`,
+        transform: `translate(${mx.toFixed(1)} ${my.toFixed(1)}) rotate(${angDeg.toFixed(1)})`,
+      });
+      const pill = svgEl('rect', {
+        class: 'lens-edge-pill',
+        x: (-pillLen / 2).toFixed(1),
+        y: (-pillTh / 2).toFixed(1),
+        width: pillLen.toFixed(1),
+        height: pillTh.toFixed(1),
+        rx: (pillTh / 2).toFixed(1),
+        'stroke-width': Math.max(1.2, bracketW * 0.18).toFixed(1),
+      });
+      const hit = svgEl('rect', {
+        class: 'lens-edge-hit',
+        x: (-pillLen * 0.9).toFixed(1),
+        y: (-edgeHitR).toFixed(1),
+        width: (pillLen * 1.8).toFixed(1),
+        height: (edgeHitR * 2).toFixed(1),
+        'data-lens-edge': i,
+      });
+      hit.addEventListener('pointerdown', e => beginLensHandleDrag(e, { type: 'edge', index: i, quad, srcW, srcH, draftId: d.id }));
+      grp.append(pill, hit);
+      svg.append(grp);
+    }
+
+    // 4 corner drag handles (positioned right over the 4 rounded brackets)
+    const dotR = Math.max(5.5, bracketW * 0.72);
+    const hitR = Math.max(24, Math.min(srcW, srcH) * 0.045);
+    for (let i = 0; i < 4; i++) {
+      const [cx, cy] = quad[i];
+      const grp = svgEl('g', {
+        class: `lens-corner-group${isDraggingThis && lensHandleDrag.type === 'corner' && lensHandleDrag.index === i ? ' dragging' : ''}`,
+      });
+      const dot = svgEl('circle', {
+        class: 'lens-corner-dot',
+        cx: cx.toFixed(1),
+        cy: cy.toFixed(1),
+        r: dotR.toFixed(1),
+        'stroke-width': Math.max(1.6, bracketW * 0.22).toFixed(1),
+      });
+      const hit = svgEl('circle', {
+        class: 'lens-corner-hit',
+        cx: cx.toFixed(1),
+        cy: cy.toFixed(1),
+        r: hitR.toFixed(1),
+        'data-lens-corner': i,
+      });
+      hit.addEventListener('pointerdown', e => beginLensHandleDrag(e, { type: 'corner', index: i, quad, srcW, srcH, draftId: d.id }));
+      grp.append(dot, hit);
+      svg.append(grp);
     }
   }
 
@@ -2016,7 +2494,55 @@ function renderLensOverlay() {
   renderLensFloatingBar(lensData, rect);
 }
 
+window.addEventListener('pointermove', e => {
+  if (!lensHandleDrag) return;
+  const svg = $('lensSvg');
+  const svgRect = svg.getBoundingClientRect();
+  if (svgRect.width < 10 || svgRect.height < 10) return;
+  const { type, index, startX, startY, startQuad, srcW, srcH, draftId } = lensHandleDrag;
+  const ix = Math.max(0, Math.min(srcW, ((e.clientX - svgRect.left) / svgRect.width) * srcW));
+  const iy = Math.max(0, Math.min(srcH, ((e.clientY - svgRect.top) / svgRect.height) * srcH));
+  const next = startQuad.map(([x, y]) => [x, y]);
+
+  if (type === 'corner') {
+    next[index] = [Math.round(ix * 10) / 10, Math.round(iy * 10) / 10];
+  } else {
+    const dx = ix - startX;
+    const dy = iy - startY;
+    const j = (index + 1) % 4;
+    next[index] = [
+      Math.round(Math.max(0, Math.min(srcW, startQuad[index][0] + dx)) * 10) / 10,
+      Math.round(Math.max(0, Math.min(srcH, startQuad[index][1] + dy)) * 10) / 10,
+    ];
+    next[j] = [
+      Math.round(Math.max(0, Math.min(srcW, startQuad[j][0] + dx)) * 10) / 10,
+      Math.round(Math.max(0, Math.min(srcH, startQuad[j][1] + dy)) * 10) / 10,
+    ];
+  }
+
+  const b = polygonBounds(next);
+  if (b.maxX - b.minX < 40 || b.maxY - b.minY < 40) return;
+  const ordered = orderQuad(next) || next;
+  customPaperQuads.set(draftId, ordered);
+
+  // Dynamically select text lines inside the adjusted Lens quad (like Google Lens partial box)
+  const cur = drafts.find(x => x.id === draftId);
+  if (cur?.lens?.lines?.length) {
+    lensSelectedLines.clear();
+    for (const line of linesInsideQuad(cur.lens.lines, ordered)) {
+      lensSelectedLines.add(line.id);
+    }
+  }
+  renderLensOverlay();
+});
+
 window.addEventListener('pointerup', () => {
+  if (lensHandleDrag) {
+    lensHandleDrag = null;
+    persistCustomQuads();
+    renderLensOverlay();
+    setTimeout(() => { lensDragDidMove = false; }, 0);
+  }
   if (lensDragging) {
     lensDragging = false;
     setTimeout(() => { lensDragDidMove = false; }, 0);
@@ -2024,7 +2550,7 @@ window.addEventListener('pointerup', () => {
 });
 
 const originalStageObserver = new ResizeObserver(() => {
-  if (!$('originalStage').hidden) renderLensOverlay();
+  if (!$('originalStage').hidden) renderImageStage();
 });
 originalStageObserver.observe($('originalStage'));
 

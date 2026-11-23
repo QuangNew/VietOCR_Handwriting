@@ -7,7 +7,11 @@ import {
   expandPolygon,
   polygonBounds,
   quadScrimPath,
+  pointInPolygon,
+  linesInsideQuad,
+  detectPaperQuadFromRgba,
 } from '../ui/lens.mjs';
+import { wrapParagraph, estimateLineAngle } from '../ui/docview.mjs';
 import {
   formatMs,
   routeLabel,
@@ -79,4 +83,53 @@ test('timing shares and Vietnamese labels format cleanly', () => {
   assert.equal(shares.segmentPct, 20);
   assert.equal(shares.recognitionPct, 50);
   assert.equal(shares.correctionPct, 20);
+});
+
+test('detectPaperQuadFromRgba isolates cool paper sheet and rejects warm wood glare', () => {
+  const w = 160, h = 100;
+  const rgba = new Uint8Array(w * h * 4);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = (y * w + x) * 4;
+      // Default warm wooden desk [145, 118, 90]
+      let r = 145, g = 118, b = 90;
+      // Specular warm glare patch on bottom-right desk [186, 174, 150]
+      if (x >= 115 && y >= 65) { r = 186; g = 174; b = 150; }
+      // White-cool paper sheet at x=[40..112], y=[16..84] with dark handwriting lines
+      if (x >= 40 && x <= 112 && y >= 16 && y <= 84) {
+        r = 196; g = 208; b = 216;
+        if (y % 12 === 0 && x >= 48 && x <= 104) { r = 45; g = 60; b = 110; }
+      }
+      rgba[i] = r; rgba[i + 1] = g; rgba[i + 2] = b; rgba[i + 3] = 255;
+    }
+  }
+  const det = detectPaperQuadFromRgba(rgba, w, h, 1600, 1000);
+  assert.ok(det && det.paperDetected && det.paperQuad.length === 4);
+  const pb = polygonBounds(det.paperQuad);
+  assert.ok(pb.minX >= 340 && pb.minX <= 430, `minX=${pb.minX}`);
+  assert.ok(pb.maxX >= 1090 && pb.maxX <= 1185, `maxX=${pb.maxX} (must exclude desk glare at 1150..1600)`);
+  assert.ok(pb.minY >= 120 && pb.minY <= 190, `minY=${pb.minY}`);
+  assert.ok(pb.maxY >= 810 && pb.maxY <= 890, `maxY=${pb.maxY}`);
+});
+
+test('pointInPolygon and linesInsideQuad filter lines inside adjusted Lens quad', () => {
+  const quad = [[100, 100], [500, 100], [500, 300], [100, 300]];
+  assert.equal(pointInPolygon(250, 200, quad), true);
+  assert.equal(pointInPolygon(50, 200, quad), false);
+  const lines = [
+    { id: 1, text: 'Dòng trong khung', polygon: [[120, 140], [420, 140], [420, 180], [120, 180]] },
+    { id: 2, text: 'Dòng ngoài khung', polygon: [[120, 360], [420, 360], [420, 400], [120, 400]] },
+  ];
+  const inside = linesInsideQuad(lines, quad);
+  assert.deepEqual(inside.map(l => l.id), [1]);
+});
+
+test('docview wrapParagraph and estimateLineAngle work deterministically', () => {
+  const fakeCtx = { measureText: s => ({ width: s.length * 10 }) };
+  const wrapped = wrapParagraph(fakeCtx, 'Một hai ba bốn năm sáu', 110);
+  assert.deepEqual(wrapped, ['Một hai ba', 'bốn năm sáu']);
+  const flat = estimateLineAngle([[0, 100], [200, 100], [200, 130], [0, 130]]);
+  assert.equal(flat, 0);
+  const steep = estimateLineAngle([[0, 0], [100, 100], [80, 120], [-20, 20]]);
+  assert.ok(Math.abs(steep - (12 * Math.PI) / 180) < 1e-6, 'angle clamped to +12 deg');
 });

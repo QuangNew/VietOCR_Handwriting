@@ -99,10 +99,14 @@
       <div class="panels">
         <article class="panel-image">
           <div class="panel-head">
-            <h2>Ảnh gốc</h2>
+            <div class="view-mode-switch" role="tablist" aria-label="Chế độ hiển thị ảnh">
+              <button id="viewOriginal" type="button" role="tab" aria-selected="true" class="view-tab active">Ảnh gốc</button>
+              <button id="viewDigital" type="button" role="tab" aria-selected="false" class="view-tab" disabled title="Gửi ảnh để xem dạng văn bản kỹ thuật số (Word)">Ảnh văn bản</button>
+              <button id="viewCompare" type="button" role="tab" aria-selected="false" class="view-tab" disabled title="Kéo mũi tên ⇄ sang phải xem Ảnh văn bản, sang trái xem Ảnh gốc">Đối chiếu</button>
+            </div>
             <div class="panel-head-right">
               <span id="imageInfo" class="muted">Bản nháp riêng</span>
-              <button id="lensToggleBtn" class="mini-pill active" type="button" hidden title="Bật / tắt khung nhận diện giấy và bôi chữ kiểu Google Lens">✦ Lens</button>
+              <button id="lensToggleBtn" class="mini-pill active" type="button" hidden title="Bật / tắt khung nhận diện giấy và bôi chữ kiểu Google Lens (kéo 4 góc để điều chỉnh)">✦ Lens</button>
               <button id="editImageBtn" class="mini-pill" type="button" hidden title="Mở Xem & chỉnh ảnh (cắt, xoay, đen trắng)">✎ Chỉnh ảnh</button>
               <button id="pipelineBtn" class="mini-pill accent-pill" type="button" hidden title="Xem trực quan toàn bộ 5 khâu xử lý đằng sau">◈ Pipeline</button>
             </div>
@@ -110,6 +114,23 @@
           <div id="original" class="original" role="button" tabindex="0" title="Nhấn vào ảnh để Xem & chỉnh ảnh">
             <div id="originalStage" class="original-stage" hidden>
               <img id="originalImage" alt="Ảnh đã chọn" draggable="false">
+              <div id="digitalLayer" class="digital-layer" hidden>
+                <canvas id="digitalCanvas" aria-label="Ảnh văn bản kỹ thuật số dạng Word"></canvas>
+              </div>
+              <div id="compareOverlay" class="compare-overlay" hidden>
+                <span id="compareTagLeft" class="compare-tag compare-tag-left">Ảnh văn bản</span>
+                <span id="compareTagRight" class="compare-tag compare-tag-right">Ảnh gốc</span>
+                <div id="compareDivider" class="compare-divider" role="slider" tabindex="0" aria-label="Kéo sang phải xem Ảnh văn bản, sang trái xem Ảnh gốc" aria-valuemin="0" aria-valuemax="100" aria-valuenow="50">
+                  <div class="compare-line"></div>
+                  <div id="compareHandle" class="compare-handle" title="Kéo sang phải: Ảnh văn bản · Kéo sang trái: Ảnh gốc">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <path d="M8 7l-5 5 5 5"/>
+                      <path d="M16 7l5 5-5 5"/>
+                      <line x1="3" y1="12" x2="21" y2="12"/>
+                    </svg>
+                  </div>
+                </div>
+              </div>
               <svg id="lensSvg" class="lens-svg" style="display:none" aria-label="Lớp nhận diện giấy và bôi chữ kiểu Google Lens"></svg>
               <div id="lensFloatingBar" class="lens-floating-bar" hidden></div>
               <div id="lensTooltip" class="lens-tooltip" hidden></div>
@@ -174,7 +195,7 @@
     <div class="dialog-head">
       <div>
         <h2>Camera Raspberry</h2>
-        <p class="muted">Webcam dùng chung · chụp thành bản nháp · chỉ gửi khi bạn chọn Gửi</p>
+        <p class="muted">Webcam dùng chung · xem nhanh 0.5s và tự động gửi OCR ngay khi chụp</p>
       </div>
       <button id="cameraClose" class="icon" type="button" aria-label="Đóng camera">×</button>
     </div>

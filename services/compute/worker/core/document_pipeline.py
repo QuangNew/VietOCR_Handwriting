@@ -106,32 +106,52 @@ def _extract_paper_quad(
 ) -> tuple[bool, list[list[float]]]:
     sx = orig_w / max(1, work_w)
     sy = orig_h / max(1, work_h)
+    line_pts_work = (
+        np.array([[p[0] / sx, p[1] / sy] for poly in line_polys for p in poly], dtype=np.float32)
+        if line_polys
+        else None
+    )
     if route == "scanner" and source_paper is not None and source_paper.any():
         mask = (source_paper.astype(np.uint8) * 255)
-        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        k = max(3, int(round(min(work_w, work_h) * 0.012)) | 1)
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (k, k))
+        opened = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+        contours, _ = cv2.findContours(opened if opened.any() else mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         if contours:
             largest = max(contours, key=cv2.contourArea)
-            hull = cv2.convexHull(largest)
+            contour_pts = largest.reshape(-1, 2).astype(np.float32)
+            # Union paper contour with every detected text line so Lens NEVER cuts off a single character
+            if line_pts_work is not None and len(line_pts_work) >= 3:
+                combined = np.vstack([contour_pts, line_pts_work])
+            else:
+                combined = contour_pts
+            hull = cv2.convexHull(combined)
             hull_area = max(1.0, cv2.contourArea(hull))
             peri = cv2.arcLength(hull, True)
             quad = None
-            for eps in (0.02, 0.03, 0.04, 0.055):
+            for eps in (0.018, 0.028, 0.04, 0.055):
                 approx = cv2.approxPolyDP(hull, eps * peri, True)
                 if len(approx) == 4 and cv2.isContourConvex(approx):
-                    if cv2.contourArea(approx) >= 0.72 * hull_area:
+                    if cv2.contourArea(approx) >= 0.80 * hull_area:
                         quad = approx.reshape(4, 2)
                         break
             if quad is None:
-                rect = cv2.minAreaRect(largest)
+                rect = cv2.minAreaRect(hull)
                 quad = cv2.boxPoints(rect)
             ordered = _order_quad(quad)
-            return True, _scale_polygon(ordered, sx, sy, orig_w, orig_h)
+            # Slight outward safety padding (+1.2% of image min side)
+            cx, cy = ordered.mean(axis=0)
+            pad = min(work_w, work_h) * 0.012
+            dirs = ordered - np.array([cx, cy])
+            norms = np.maximum(1.0, np.linalg.norm(dirs, axis=1, keepdims=True))
+            padded = ordered + (dirs / norms) * pad
+            return True, _scale_polygon(padded, sx, sy, orig_w, orig_h)
 
     if line_polys:
         xs = [p[0] for poly in line_polys for p in poly]
         ys = [p[1] for poly in line_polys for p in poly]
-        pad_x = max(8.0, orig_w * 0.035)
-        pad_y = max(8.0, orig_h * 0.035)
+        pad_x = max(10.0, orig_w * 0.04)
+        pad_y = max(10.0, orig_h * 0.04)
         x0 = max(0.0, min(xs) - pad_x)
         y0 = max(0.0, min(ys) - pad_y)
         x1 = min(float(orig_w), max(xs) + pad_x)
